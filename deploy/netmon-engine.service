@@ -1,0 +1,21 @@
+[Unit]
+Description=noop Monitoring Engine
+After=network.target postgresql.service
+Requires=postgresql.service
+
+[Service]
+Type=simple
+User=netmon
+Group=netmon
+WorkingDirectory=/opt/netmon/noop
+EnvironmentFile=/etc/netmon/netmon.env
+Environment=PYTHONPATH=/opt/netmon/noop/backend:/opt/netmon/noop
+ExecStart=/opt/netmon/venv/bin/python -m monitoring.engine
+Restart=on-failure
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=netmon-engine
+
+[Install]
+WantedBy=multi-user.target

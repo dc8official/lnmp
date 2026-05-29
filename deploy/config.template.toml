@@ -1,0 +1,27 @@
+[database]
+host = "localhost"
+port = 5432
+name = "netmon"
+user = "netmon_user"
+# Password loaded from environment variable: NETMON_DB_PASSWORD
+
+[monitoring]
+interval_seconds = 60
+ping_count = 10
+ping_interval_seconds = 6
+state_confirmation_cycles = 3
+retention_days = 730
+
+[api]
+host = "127.0.0.1"
+port = 8000
+allowed_origins = ["https://monitor.yourdomain.com"]
+
+[security]
+session_timeout_minutes = 10
+hsts_enabled = true
+# Secret key loaded from environment variable: NETMON_SECRET_KEY
+
+[logging]
+level = "INFO"
+log_dir = "/var/log/netmon"
