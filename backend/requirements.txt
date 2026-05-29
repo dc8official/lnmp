@@ -12,4 +12,3 @@ argon2-cffi>=23.1.0
 python-multipart>=0.0.9
 icmplib>=3.0.4
 python-dateutil>=2.9.0
-tomli>=2.0.1

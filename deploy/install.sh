@@ -1,226 +1,484 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# ============================================================
+# noop Network Monitoring Platform - Production Installer
+# Supports: Debian 12+, Ubuntu 22.04+
+# Usage: sudo bash deploy/install.sh [--dry-run]
+# ============================================================
+
 DRY_RUN=false
 if [[ "${1:-}" == "--dry-run" ]]; then
     DRY_RUN=true
-    echo "Starting installation in DRY RUN mode. No changes will be made."
+    echo "DRY RUN MODE: No changes will be made."
 fi
 
-execute() {
-    local msg="$1"
+# Self-locate project root from script location
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+
+# Installation target directory
+INSTALL_DIR="/opt/netmon/noop"
+VENV_DIR="/opt/netmon/venv"
+CONFIG_DIR="/etc/netmon"
+LOG_DIR="/var/log/netmon"
+BACKUP_DIR="/var/backups/netmon"
+ENV_FILE="$CONFIG_DIR/netmon.env"
+CONFIG_FILE="$CONFIG_DIR/config.toml"
+
+# ============================================================
+print_header() {
+    echo ""
+    echo "========================================================"
+    echo "  $1"
+    echo "========================================================"
+}
+
+run() {
+    # Executes a command or prints it in dry-run mode
+    local description="$1"
     shift
     if [ "$DRY_RUN" = true ]; then
-        echo "[DRY RUN] $msg"
-        echo "[DRY RUN] Command: $*"
+        echo "[DRY RUN] $description"
+        echo "          Command: $*"
     else
-        echo "$msg"
+        echo "--> $description"
         "$@"
     fi
 }
 
-echo "========================================"
-echo "noop Platform Installation"
-echo "========================================"
+check_root() {
+    if [ "$EUID" -ne 0 ] && [ "$DRY_RUN" = false ]; then
+        echo "Error: This script must be run as root."
+        echo "Usage: sudo bash deploy/install.sh"
+        exit 1
+    fi
+}
 
-# Step 1: Check root
-if [ "$EUID" -ne 0 ] && [ "$DRY_RUN" = false ]; then
-    echo "Error: This script must be run as root."
+# ============================================================
+print_header "Step 1: Checking root privileges"
+check_root
+
+# ============================================================
+print_header "Step 2: Installing prerequisite tools"
+
+PREREQS="curl wget gnupg lsb-release ca-certificates apt-transport-https"
+if [ "$DRY_RUN" = false ]; then
+    apt-get update -qq
+    apt-get install -y $PREREQS
+else
+    echo "[DRY RUN] Would install prerequisites: $PREREQS"
+fi
+
+# ============================================================
+print_header "Step 3: Adding required APT repositories"
+
+# NodeSource Node.js 20
+if [ ! -f "/etc/apt/sources.list.d/nodesource.list" ]; then
+    run "Adding NodeSource Node.js 20 repository" \
+        bash -c "curl -fsSL https://deb.nodesource.com/setup_20.x | bash -"
+else
+    echo "NodeSource repository already configured."
+fi
+
+# PostgreSQL PGDG
+if [ ! -f "/etc/apt/sources.list.d/pgdg.list" ]; then
+    if [ "$DRY_RUN" = false ]; then
+        echo "--> Adding PostgreSQL PGDG repository"
+        curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc \
+            | gpg --dearmor \
+            -o /usr/share/keyrings/postgresql-keyring.gpg
+        echo "deb [signed-by=/usr/share/keyrings/postgresql-keyring.gpg] \
+https://apt.postgresql.org/pub/repos/apt \
+$(lsb_release -cs)-pgdg main" \
+            | tee /etc/apt/sources.list.d/pgdg.list
+    else
+        echo "[DRY RUN] Would add PostgreSQL PGDG repository"
+    fi
+else
+    echo "PostgreSQL PGDG repository already configured."
+fi
+
+# TimescaleDB
+if [ ! -f "/etc/apt/sources.list.d/timescaledb.list" ]; then
+    if [ "$DRY_RUN" = false ]; then
+        echo "--> Adding TimescaleDB repository"
+        wget -qO - https://packagecloud.io/timescale/timescaledb/gpgkey \
+            | gpg --dearmor \
+            -o /usr/share/keyrings/timescaledb-keyring.gpg
+        echo "deb [signed-by=/usr/share/keyrings/timescaledb-keyring.gpg] \
+https://packagecloud.io/timescale/timescaledb/ubuntu/ \
+$(lsb_release -cs) main" \
+            | tee /etc/apt/sources.list.d/timescaledb.list
+    else
+        echo "[DRY RUN] Would add TimescaleDB repository"
+    fi
+else
+    echo "TimescaleDB repository already configured."
+fi
+
+if [ "$DRY_RUN" = false ]; then
+    apt-get update -qq
+fi
+
+# ============================================================
+print_header "Step 4: Installing system packages"
+
+PACKAGES="postgresql-16 postgresql-client-16 \
+timescaledb-2-postgresql-16 timescaledb-tools \
+python3-venv python3-pip \
+nodejs nginx certbot python3-certbot-nginx"
+
+MISSING=""
+for pkg in $PACKAGES; do
+    if ! dpkg -l "$pkg" 2>/dev/null | grep -q "^ii"; then
+        MISSING="$MISSING $pkg"
+    fi
+done
+
+if [ -n "$MISSING" ]; then
+    run "Installing packages: $MISSING" apt-get install -y $MISSING
+else
+    echo "All required packages already installed."
+fi
+
+# ============================================================
+print_header "Step 5: Detecting Python version"
+
+PYTHON_BIN=""
+for ver in 3.13 3.12 3.11; do
+    if command -v "python$ver" &>/dev/null; then
+        PYTHON_BIN="python$ver"
+        break
+    fi
+done
+
+if [ -z "$PYTHON_BIN" ]; then
+    echo "Error: Python 3.11 or higher not found."
+    echo "Install python3.11 or python3.12 before running this script."
     exit 1
 fi
 
-# Step 3: Install system packages
-echo "Checking system packages..."
-PACKAGES="postgresql postgresql-contrib timescaledb-postgresql-16 python3.11 python3.11-venv python3-pip nginx certbot python3-certbot-nginx"
-MISSING_PACKAGES=""
-for pkg in $PACKAGES; do
-    if ! dpkg -l | grep -q "^ii  $pkg "; then
-        MISSING_PACKAGES="$MISSING_PACKAGES $pkg"
-    fi
-done
+echo "Using $PYTHON_BIN ($($PYTHON_BIN --version))"
 
-if [ -n "$MISSING_PACKAGES" ]; then
-    execute "Installing missing packages: $MISSING_PACKAGES" apt-get update
-    execute "Installing packages" apt-get install -y $MISSING_PACKAGES
-else
-    echo "All system packages are already installed."
-fi
+# ============================================================
+print_header "Step 6: Creating system user and directories"
 
-# Step 4: Create system user
 if id "netmon" &>/dev/null; then
     echo "User 'netmon' already exists."
 else
-    execute "Creating system user 'netmon'" useradd -r -s /usr/sbin/nologin netmon
+    run "Creating system user 'netmon'" \
+        useradd -r -s /usr/sbin/nologin netmon
 fi
 
-# Step 5: Create directories
-DIRS="/opt/netmon /etc/netmon /var/log/netmon /var/backups/netmon"
-for d in $DIRS; do
-    if [ ! -d "$d" ]; then
-        execute "Creating directory $d" mkdir -p "$d"
+for dir in /opt/netmon "$CONFIG_DIR" "$LOG_DIR" "$BACKUP_DIR"; do
+    if [ ! -d "$dir" ]; then
+        run "Creating directory $dir" mkdir -p "$dir"
+        run "Setting ownership: $dir" chown netmon:netmon "$dir"
+    else
+        echo "Directory $dir already exists."
     fi
-    execute "Setting ownership for $d" chown netmon:netmon "$d"
 done
 
-# Step 6: Copy project files
-if [ -d "/opt/netmon/noop" ]; then
-    execute "Removing old project files" rm -rf /opt/netmon/noop
-fi
-execute "Copying project files to /opt/netmon/noop" cp -r ../noop /opt/netmon/
-execute "Setting ownership of project files" chown -R netmon:netmon /opt/netmon/noop
+# ============================================================
+print_header "Step 7: Copying project files"
 
-# Step 7 & 8: Create Python venv and install requirements
-if [ ! -d "/opt/netmon/venv" ]; then
-    execute "Creating Python virtual environment" python3.11 -m venv /opt/netmon/venv
-fi
-execute "Setting ownership of venv" chown -R netmon:netmon /opt/netmon/venv
-execute "Installing Python dependencies" sudo -u netmon /opt/netmon/venv/bin/pip install -r /opt/netmon/noop/backend/requirements.txt
-
-# Build Vue frontend
-echo "Checking frontend build..."
-if [ ! -d "/opt/netmon/noop/frontend/dist" ]; then
-    execute "Installing frontend npm dependencies" \
-        bash -c "cd /opt/netmon/noop/frontend && npm install"
-    execute "Building Vue frontend" \
-        bash -c "cd /opt/netmon/noop/frontend && npm run build"
-    execute "Setting frontend ownership" \
-        chown -R netmon:netmon /opt/netmon/noop/frontend/dist
+if [ ! -d "$INSTALL_DIR" ]; then
+    run "Copying project to $INSTALL_DIR" \
+        cp -r "$PROJECT_ROOT" "$INSTALL_DIR"
+    run "Setting project ownership" \
+        chown -R netmon:netmon "$INSTALL_DIR"
 else
-    echo "Frontend dist already exists. Skipping build."
+    echo "Project files already exist at $INSTALL_DIR."
+    echo "Updating project files..."
+    run "Syncing project files" \
+        rsync -a --delete \
+        --exclude='.git' \
+        --exclude='frontend/node_modules' \
+        --exclude='backend/venv' \
+        "$PROJECT_ROOT/" "$INSTALL_DIR/"
+    run "Setting project ownership" \
+        chown -R netmon:netmon "$INSTALL_DIR"
 fi
 
-# Step 9 & 10: Environment Configuration
-ENV_FILE="/etc/netmon/netmon.env"
-if [ ! -f "$ENV_FILE" ]; then
+# ============================================================
+print_header "Step 8: Creating Python virtual environment"
+
+if [ ! -d "$VENV_DIR" ]; then
+    run "Creating virtual environment with $PYTHON_BIN" \
+        $PYTHON_BIN -m venv "$VENV_DIR"
+    run "Setting venv ownership" \
+        chown -R netmon:netmon "$VENV_DIR"
+fi
+
+run "Installing Python dependencies" \
+    sudo -u netmon "$VENV_DIR/bin/pip" install \
+    --quiet -r "$INSTALL_DIR/backend/requirements.txt"
+
+# ============================================================
+print_header "Step 9: Building Vue frontend"
+
+if [ ! -d "$INSTALL_DIR/frontend/node_modules" ]; then
+    run "Installing frontend npm dependencies" \
+        bash -c "cd $INSTALL_DIR/frontend && npm install --silent"
+fi
+
+run "Building Vue frontend for production" \
+    bash -c "cd $INSTALL_DIR/frontend && npm run build"
+
+run "Setting frontend ownership" \
+    chown -R netmon:netmon "$INSTALL_DIR/frontend/dist"
+
+# ============================================================
+print_header "Step 10: Configuration"
+
+if [ -f "$ENV_FILE" ]; then
+    echo "Environment file already exists at $ENV_FILE."
+    echo "Skipping configuration prompts."
+    source "$ENV_FILE"
+else
     if [ "$DRY_RUN" = false ]; then
-        read -s -p "Enter new database password for netmon: " DB_PASS
         echo ""
-        read -s -p "Enter new application secret key: " SECRET_KEY
+        echo "Please provide configuration values."
+        echo "These will be stored in $ENV_FILE"
         echo ""
-        read -p "Enter domain name for Nginx: " DOMAIN_NAME
-        
-        echo "NETMON_DB_PASSWORD=$DB_PASS" > "$ENV_FILE"
-        echo "NETMON_SECRET_KEY=$SECRET_KEY" >> "$ENV_FILE"
-        echo "DOMAIN_NAME=$DOMAIN_NAME" >> "$ENV_FILE"
-        
+
+        while true; do
+            read -s -p "Database password (min 12 chars): " DB_PASS
+            echo ""
+            if [ ${#DB_PASS} -ge 12 ]; then break; fi
+            echo "Password must be at least 12 characters."
+        done
+
+        SECRET_KEY=$(openssl rand -hex 32)
+        echo "Secret key auto-generated."
+
+        read -p "Server domain name (e.g. monitor.yourdomain.com): " DOMAIN_NAME
+
+        cat > "$ENV_FILE" <<EOF
+NETMON_DB_PASSWORD=$DB_PASS
+NETMON_SECRET_KEY=$SECRET_KEY
+DOMAIN_NAME=$DOMAIN_NAME
+EOF
         chmod 640 "$ENV_FILE"
         chown root:netmon "$ENV_FILE"
-        echo "Environment file created."
+        echo "Environment file created at $ENV_FILE"
     else
-        echo "[DRY RUN] Would prompt for DB_PASS, SECRET_KEY, DOMAIN_NAME and create $ENV_FILE"
+        DB_PASS="dryrun_password"
+        SECRET_KEY="dryrun_secret"
+        DOMAIN_NAME="monitor.example.com"
+        echo "[DRY RUN] Would prompt for DB password, generate secret key, and ask for domain name"
     fi
-else
-    echo "Environment file already exists at $ENV_FILE."
 fi
 
-# Step 11 & 12: PostgreSQL Setup
+# Read values for subsequent steps
 if [ "$DRY_RUN" = false ]; then
-    if ! sudo -u postgres psql -tAc "SELECT 1 FROM pg_roles WHERE rolname='netmon_user'" | grep -q 1; then
-        echo "Creating PostgreSQL user..."
-        if [ -z "${DB_PASS:-}" ]; then
-            DB_PASS=$(grep NETMON_DB_PASSWORD "$ENV_FILE" | cut -d '=' -f2)
-        fi
-        sudo -u postgres psql -c "CREATE USER netmon_user WITH PASSWORD '${DB_PASS}';"
+    DB_PASS=$(grep NETMON_DB_PASSWORD "$ENV_FILE" | cut -d'=' -f2-)
+    DOMAIN_NAME=$(grep DOMAIN_NAME "$ENV_FILE" | cut -d'=' -f2-)
+fi
+
+# ============================================================
+print_header "Step 11: Creating configuration file"
+
+if [ ! -f "$CONFIG_FILE" ]; then
+    run "Copying config template" \
+        cp "$INSTALL_DIR/deploy/config.template.toml" "$CONFIG_FILE"
+    run "Setting config ownership" \
+        chown root:netmon "$CONFIG_FILE"
+    run "Setting config permissions" \
+        chmod 640 "$CONFIG_FILE"
+    echo "Config file created at $CONFIG_FILE"
+    echo "Review and edit $CONFIG_FILE if needed."
+else
+    echo "Config file already exists at $CONFIG_FILE"
+fi
+
+# ============================================================
+print_header "Step 12: Setting up PostgreSQL"
+
+if [ "$DRY_RUN" = false ]; then
+    # Tune TimescaleDB
+    if command -v timescaledb-tune &>/dev/null; then
+        echo "--> Tuning PostgreSQL for TimescaleDB"
+        timescaledb-tune --quiet --yes
+        systemctl restart postgresql
+    fi
+
+    # Create database user
+    if ! sudo -u postgres psql -tAc \
+        "SELECT 1 FROM pg_roles WHERE rolname='netmon_user'" \
+        | grep -q 1; then
+        echo "--> Creating PostgreSQL user 'netmon_user'"
+        sudo -u postgres psql -c \
+            "CREATE USER netmon_user WITH PASSWORD '$DB_PASS';"
     else
         echo "PostgreSQL user 'netmon_user' already exists."
+        # Update password in case it changed
+        sudo -u postgres psql -c \
+            "ALTER USER netmon_user WITH PASSWORD '$DB_PASS';"
     fi
 
-    if ! sudo -u postgres psql -tAc "SELECT 1 FROM pg_database WHERE datname='netmon'" | grep -q 1; then
-        echo "Creating PostgreSQL database..."
-        sudo -u postgres psql -c "CREATE DATABASE netmon OWNER netmon_user;"
-        echo "Enabling TimescaleDB extension..."
-        sudo -u postgres psql -d netmon -c "CREATE EXTENSION IF NOT EXISTS timescaledb;"
+    # Create database
+    if ! sudo -u postgres psql -tAc \
+        "SELECT 1 FROM pg_database WHERE datname='netmon'" \
+        | grep -q 1; then
+        echo "--> Creating database 'netmon'"
+        sudo -u postgres psql -c \
+            "CREATE DATABASE netmon OWNER netmon_user;"
     else
-        echo "PostgreSQL database 'netmon' already exists."
+        echo "Database 'netmon' already exists."
     fi
+
+    # Enable TimescaleDB extension
+    echo "--> Enabling TimescaleDB extension"
+    sudo -u postgres psql -d netmon -c \
+        "CREATE EXTENSION IF NOT EXISTS timescaledb;"
 else
-    echo "[DRY RUN] Would create PostgreSQL user and database 'netmon', and enable timescaledb extension."
+    echo "[DRY RUN] Would create PostgreSQL user, database, and TimescaleDB extension"
 fi
 
-# Step 13: Run Alembic migrations
-execute "Running Alembic migrations" sudo -u netmon bash -c "cd /opt/netmon/noop/backend && /opt/netmon/venv/bin/alembic upgrade head"
+# ============================================================
+print_header "Step 13: Running database migrations"
 
-# Step 14: Systemd files
-for service in netmon-engine netmon-api; do
-    execute "Installing ${service}.service" cp "/opt/netmon/noop/deploy/${service}.service" /etc/systemd/system/
-done
-execute "Reloading systemd daemon" systemctl daemon-reload
-execute "Enabling netmon services" systemctl enable netmon-engine netmon-api
+run "Running Alembic migrations" \
+    sudo -u netmon bash -c "
+        cd $INSTALL_DIR/backend &&
+        NETMON_DB_PASSWORD=$DB_PASS
+        NETMON_SECRET_KEY=$SECRET_KEY
+        PYTHONPATH=$INSTALL_DIR/backend
+        $VENV_DIR/bin/alembic upgrade head
+    "
+
+# ============================================================
+print_header "Step 14: Creating default admin user"
+
 if [ "$DRY_RUN" = false ]; then
-    execute "Restarting netmon services" systemctl restart netmon-engine netmon-api || true
-fi
-
-# Step 15: Nginx config
-if [ "$DRY_RUN" = false ]; then
-    DOMAIN=$(grep DOMAIN_NAME "$ENV_FILE" | cut -d '=' -f2)
-    sed "s/YOUR_DOMAIN/$DOMAIN/g" /opt/netmon/noop/deploy/nginx.conf.template > /etc/nginx/sites-available/netmon
-    ln -sf /etc/nginx/sites-available/netmon /etc/nginx/sites-enabled/
-    nginx -t && systemctl reload nginx
-    echo "Nginx configuration generated and reloaded."
-else
-    echo "[DRY RUN] Would generate Nginx configuration and reload."
-fi
-
-# Step 16: Logrotate config
-execute "Installing logrotate configuration" cp /opt/netmon/noop/deploy/logrotate.conf /etc/logrotate.d/netmon
-
-# Step 17: Initial Admin User
-if [ "$DRY_RUN" = false ]; then
-    read -p "Do you want to create the initial admin user now? (y/n): " CREATE_ADMIN
-    if [[ "$CREATE_ADMIN" == "y" || "$CREATE_ADMIN" == "Y" ]]; then
-        read -p "Enter admin username: " ADMIN_USER
-        read -s -p "Enter admin password: " ADMIN_PASS
-        echo ""
-        
-        cat <<'PYEOF' > /tmp/create_admin.py
+    sudo -u netmon bash -c "
+        cd $INSTALL_DIR/backend &&
+        NETMON_DB_PASSWORD=$DB_PASS \
+        NETMON_SECRET_KEY=$SECRET_KEY \
+        PYTHONPATH=$INSTALL_DIR/backend \
+        $VENV_DIR/bin/python3 - <<'PYEOF'
 import asyncio
-import os
 from app.database import AsyncSessionLocal
 from app.services.auth_service import hash_password
 from sqlalchemy import text
 
-async def create_user():
-    username = os.environ["ADMIN_USER"]
-    password = os.environ["ADMIN_PASS"]
+async def create_default_admin():
     async with AsyncSessionLocal() as db:
-        role_res = await db.execute(
-            text("SELECT id FROM roles WHERE role_name = 'ADMIN'")
+        existing = await db.execute(
+            text(\"SELECT id FROM users WHERE username = 'admin'\")
         )
-        role_id = role_res.scalar()
-        if not role_id:
-            print("ADMIN role not found. Run migrations first.")
+        if existing.fetchone():
+            print('Default admin user already exists. Skipping.')
             return
-        hashed = hash_password(password)
+        role = await db.execute(
+            text(\"SELECT id FROM roles WHERE role_name = 'ADMIN'\")
+        )
+        role_id = role.scalar()
+        hashed = hash_password('Admin@noop1')
         await db.execute(
             text(
-                "INSERT INTO users (username, password_hash, role_id) "
-                "VALUES (:u, :p, :r) ON CONFLICT DO NOTHING"
+                'INSERT INTO users '
+                '(username, password_hash, role_id, '
+                'is_active, must_change_password) '
+                'VALUES (:u, :p, :r, TRUE, TRUE)'
             ),
-            {"u": username, "p": hashed, "r": str(role_id)},
+            {'u': 'admin', 'p': hashed, 'r': str(role_id)}
         )
         await db.commit()
-        print("Admin user created successfully.")
+        print('Default admin user created.')
 
-asyncio.run(create_user())
+asyncio.run(create_default_admin())
 PYEOF
-        ADMIN_USER="$ADMIN_USER" ADMIN_PASS="$ADMIN_PASS" \
-        sudo -u netmon bash -c \
-            "cd /opt/netmon/noop/backend && \
-             /opt/netmon/venv/bin/python /tmp/create_admin.py"
-        rm -f /tmp/create_admin.py
+    "
+else
+    echo "[DRY RUN] Would create default admin user (admin / Admin@noop1)"
+fi
+
+# ============================================================
+print_header "Step 15: Installing systemd services"
+
+for service in netmon-engine netmon-api; do
+    src="$INSTALL_DIR/deploy/${service}.service"
+    dst="/etc/systemd/system/${service}.service"
+    if [ ! -f "$dst" ] || ! diff -q "$src" "$dst" > /dev/null 2>&1; then
+        run "Installing $service" cp "$src" "$dst"
+    else
+        echo "$service already up to date."
+    fi
+done
+
+run "Reloading systemd daemon" systemctl daemon-reload
+run "Enabling netmon-engine" systemctl enable netmon-engine
+run "Enabling netmon-api" systemctl enable netmon-api
+
+# ============================================================
+print_header "Step 16: Configuring Nginx"
+
+NGINX_CONF="/etc/nginx/sites-available/netmon"
+
+if [ ! -f "$NGINX_CONF" ]; then
+    if [ "$DRY_RUN" = false ]; then
+        echo "--> Generating Nginx configuration for $DOMAIN_NAME"
+        sed "s/YOUR_DOMAIN/$DOMAIN_NAME/g" \
+            "$INSTALL_DIR/deploy/nginx.conf.template" \
+            > "$NGINX_CONF"
+        ln -sf "$NGINX_CONF" /etc/nginx/sites-enabled/netmon
+        nginx -t && systemctl reload nginx
+        echo "Nginx configuration applied."
+    else
+        echo "[DRY RUN] Would generate Nginx config for $DOMAIN_NAME"
     fi
 else
-    echo "[DRY RUN] Would prompt for and create initial admin user."
+    echo "Nginx configuration already exists."
 fi
 
-# Step 18: Summary
-echo "========================================"
-echo "Installation script completed."
-if [ "$DRY_RUN" = true ]; then
-    echo "This was a DRY RUN. No changes were made to the system."
+# ============================================================
+print_header "Step 17: Configuring logrotate"
+
+LOGROTATE_DST="/etc/logrotate.d/netmon"
+if [ ! -f "$LOGROTATE_DST" ]; then
+    run "Installing logrotate config" \
+        cp "$INSTALL_DIR/deploy/logrotate.conf" "$LOGROTATE_DST"
 else
-    echo "Please verify the status of the services:"
-    echo "  systemctl status netmon-engine"
-    echo "  systemctl status netmon-api"
+    echo "Logrotate config already exists."
 fi
-echo "========================================"
+
+# ============================================================
+print_header "Step 18: Starting services"
+
+run "Starting netmon-api" systemctl start netmon-api
+run "Starting netmon-engine" systemctl start netmon-engine
+
+# ============================================================
+print_header "Installation Complete"
+
+if [ "$DRY_RUN" = true ]; then
+    echo "DRY RUN complete. No changes were made."
+else
+    echo ""
+    echo "noop is now running."
+    echo ""
+    echo "  Dashboard:  https://$DOMAIN_NAME"
+    echo "  API docs:   https://$DOMAIN_NAME/api/docs"
+    echo ""
+    echo "--------------------------------------------------------"
+    echo "  DEFAULT ADMIN CREDENTIALS"
+    echo "  Username: admin"
+    echo "  Password: Admin@noop1"
+    echo ""
+    echo "  You will be required to change this password"
+    echo "  on your first login."
+    echo "--------------------------------------------------------"
+    echo ""
+    echo "  Service status:"
+    echo "  systemctl status netmon-api"
+    echo "  systemctl status netmon-engine"
+    echo ""
+    echo "  Logs:"
+    echo "  journalctl -u netmon-api -f"
+    echo "  journalctl -u netmon-engine -f"
+    echo ""
+fi
+echo "========================================================"
