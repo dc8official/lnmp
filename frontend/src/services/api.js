@@ -57,12 +57,12 @@ export function getIncidents(
 }
 
 export function getEndpointEvents(id, startDate, endDate) {
-  return api.get(`/reports/events/${id}`, {
-    params: {
-      start_date: startDate,
-      end_date: endDate,
-    },
-  })
+    return api.get(`/reports/events/${id}`, {
+        params: {
+            start_date: startDate,
+            end_date: endDate,
+        },
+    })
 }
 
 export function login(username, password) {

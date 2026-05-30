@@ -2,7 +2,8 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Awaitable, Callable
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
+from typing import Optional
 from uuid import UUID
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -10,7 +11,7 @@ from app.database import AsyncSessionLocal
 
 logger = logging.getLogger(__name__)
 
-def seconds_until_next_midnight() -> float:
+def get_next_midnight() -> tuple[float, date]:
     now = datetime.now(timezone.utc)
     tomorrow = now.date() + timedelta(days=1)
     next_midnight = datetime(
@@ -20,13 +21,24 @@ def seconds_until_next_midnight() -> float:
         0, 0, 0,
         tzinfo=timezone.utc,
     )
-    return (next_midnight - now).total_seconds()
+    return (next_midnight - now).total_seconds(), tomorrow
+
+def seconds_until_next_midnight() -> float:
+    seconds, _ = get_next_midnight()
+    return seconds
 
 async def execute_daily_split(
     db: AsyncSession,
+    target_date: Optional[date] = None,
 ) -> dict[UUID, UUID]:
-    split_moment = datetime.now(timezone.utc).replace(
-        hour=0, minute=0, second=0, microsecond=0
+    if target_date is None:
+        target_date = datetime.now(timezone.utc).date()
+    split_moment = datetime(
+        target_date.year,
+        target_date.month,
+        target_date.day,
+        0, 0, 0,
+        tzinfo=timezone.utc,
     )
     close_time = split_moment - timedelta(seconds=1)
     open_time = split_moment
@@ -129,17 +141,19 @@ async def run_daily_split_scheduler(
     on_split_complete: Callable[[dict[UUID, UUID]], Awaitable[None]],
 ) -> None:
     while True:
-        wait_seconds = seconds_until_next_midnight()
+        wait_seconds, target_date = get_next_midnight()
         logger.info(
             "Daily split scheduled in %.0f seconds (%.1f hours)",
             wait_seconds,
             wait_seconds / 3600,
         )
-        await asyncio.sleep(wait_seconds)
+        await asyncio.sleep(wait_seconds + 0.5)
 
         try:
             async with AsyncSessionLocal() as db:
-                updates = await execute_daily_split(db)
+                updates = await execute_daily_split(
+                    db, target_date=target_date
+                )
                 await db.commit()
 
             if updates:
@@ -147,7 +161,7 @@ async def run_daily_split_scheduler(
 
         except Exception as e:
             logger.error(
-                "Daily split failed with error: %s: %s",
+                "Daily split failed: %s: %s",
                 type(e).__name__,
                 e,
             )

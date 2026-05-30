@@ -83,9 +83,7 @@ async def close_monitoring_gap(
     
     logger.info(f"Monitoring gap {gap_id} closed at {end_time}")
 
-async def resolve_startup_state(
-    db: AsyncSession,
-) -> None:
+async def resolve_startup_state(db: AsyncSession) -> None:
     query_select = text("""
         SELECT id, start_time, event_type
         FROM monitoring_service_events
@@ -95,11 +93,19 @@ async def resolve_startup_state(
     """)
     select_result = await db.execute(query_select)
     row = select_result.fetchone()
-    
+
     if row:
-        logger.warning(f"Startup: found unresolved monitoring gap from {row.start_time} (type={row.event_type}). Closing.")
+        logger.warning(
+            "Startup: found unresolved monitoring gap from %s "
+            "(type=%s). Closing.",
+            row.start_time,
+            row.event_type,
+        )
+        gap_close_time = row.start_time
         await close_monitoring_gap(db, UUID(str(row.id)))
-        
+    else:
+        gap_close_time = datetime.now(timezone.utc)
+
     query_update = text("""
         UPDATE endpoint_events
         SET
@@ -109,19 +115,24 @@ async def resolve_startup_state(
             )::BIGINT
         WHERE end_time IS NULL
     """)
-    close_time = datetime.now(timezone.utc)
     update_result = await db.execute(
         query_update,
-        {
-            "close_time": close_time,
-        }
+        {"close_time": gap_close_time},
     )
     closed_count = update_result.rowcount
-    
+
     if closed_count > 0:
-        logger.warning(f"Startup cleanup: closed {closed_count} orphaned open endpoint events.")
+        logger.warning(
+            "Startup cleanup: closed %d orphaned open "
+            "endpoint events at %s.",
+            closed_count,
+            gap_close_time,
+        )
     else:
-        logger.info("Startup: no open endpoint events found. Clean state.")
+        logger.info(
+            "Startup: no open endpoint events found. "
+            "Clean state."
+        )
 
 async def get_active_gap(
     db: AsyncSession,

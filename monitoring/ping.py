@@ -55,12 +55,19 @@ async def run_ping_cycle(
             avg_rtt_ms=None,
         )
 
-def classify_ping_result(result: PingResult) -> tuple[str, str]:
-    if result.success_count == 10:
+def classify_ping_result(
+    result: PingResult,
+) -> tuple[str, str]:
+    if result.total_count == 0:
+        return "DOWN", "DOWN"
+
+    ratio = result.success_count / result.total_count
+
+    if ratio == 1.0:
         return "UP", "UP"
-    elif 6 <= result.success_count <= 9:
+    elif ratio >= 0.6:
         return "UP", "UP-UNSTABLE"
-    elif 1 <= result.success_count <= 5:
+    elif ratio > 0.0:
         return "DOWN", "DOWN-UNSTABLE"
-    elif result.success_count == 0:
+    else:
         return "DOWN", "DOWN"

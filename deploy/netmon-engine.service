@@ -7,6 +7,8 @@ Requires=postgresql.service
 Type=simple
 User=netmon
 Group=netmon
+AmbientCapabilities=CAP_NET_RAW
+CapabilityBoundingSet=CAP_NET_RAW
 WorkingDirectory=/opt/netmon/noop
 EnvironmentFile=/etc/netmon/netmon.env
 Environment=PYTHONPATH=/opt/netmon/noop/backend:/opt/netmon/noop

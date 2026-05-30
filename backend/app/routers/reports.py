@@ -10,6 +10,7 @@ from app.database import get_db
 from app.routers.auth import get_current_user
 from app.schemas import (
     APIResponse,
+    EventRecord,
     IncidentRecord,
     PaginationMeta,
     UptimeReport,
@@ -264,4 +265,67 @@ async def get_incident_report(
             page_size=page_size,
             total_pages=total_pages,
         )
+    )
+
+@router.get("/events/{endpoint_id}")
+async def get_endpoint_events(
+    endpoint_id: UUID,
+    start_date: date = Query(...),
+    end_date: date = Query(...),
+    current_user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    _validate_date_range(start_date, end_date)
+    period_start, period_end = _build_period(
+        start_date, end_date
+    )
+
+    result = await db.execute(
+        text("""
+            SELECT id, endpoint_id, operational_state,
+                   detailed_state, health_score, avg_rtt_ms,
+                   is_split_event, start_time, end_time,
+                   duration_seconds, monitoring_cycle_count
+            FROM endpoint_events
+            WHERE endpoint_id = :endpoint_id
+              AND start_time < :period_end
+              AND (end_time > :period_start
+                   OR end_time IS NULL)
+            ORDER BY start_time ASC
+        """),
+        {
+            "endpoint_id": str(endpoint_id),
+            "period_start": period_start,
+            "period_end": period_end,
+        },
+    )
+    rows = result.fetchall()
+
+    events = [
+        EventRecord(
+            id=UUID(str(row.id)),
+            endpoint_id=UUID(str(row.endpoint_id)),
+            operational_state=row.operational_state,
+            detailed_state=row.detailed_state,
+            health_score=float(row.health_score),
+            avg_rtt_ms=float(row.avg_rtt_ms)
+                       if row.avg_rtt_ms is not None
+                       else None,
+            is_split_event=row.is_split_event,
+            start_time=row.start_time,
+            end_time=row.end_time,
+            duration_seconds=row.duration_seconds,
+            monitoring_cycle_count=row.monitoring_cycle_count,
+        )
+        for row in rows
+    ]
+
+    return APIResponse.success(
+        data=events,
+        meta=PaginationMeta(
+            total=len(events),
+            page=1,
+            page_size=len(events),
+            total_pages=1,
+        ),
     )

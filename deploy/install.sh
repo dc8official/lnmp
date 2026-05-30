@@ -107,12 +107,23 @@ fi
 if [ ! -f "/etc/apt/sources.list.d/timescaledb.list" ]; then
     if [ "$DRY_RUN" = false ]; then
         echo "--> Adding TimescaleDB repository"
-        wget -qO - https://packagecloud.io/timescale/timescaledb/gpgkey \
+        wget -qO - \
+            https://packagecloud.io/timescale/timescaledb/gpgkey \
             | gpg --dearmor \
             -o /usr/share/keyrings/timescaledb-keyring.gpg
+
+        OS_ID=$(lsb_release -is | tr '[:upper:]' '[:lower:]')
+        OS_CODENAME=$(lsb_release -cs)
+
+        if [ "$OS_ID" = "debian" ]; then
+            REPO_PATH="debian"
+        else
+            REPO_PATH="ubuntu"
+        fi
+
         echo "deb [signed-by=/usr/share/keyrings/timescaledb-keyring.gpg] \
-https://packagecloud.io/timescale/timescaledb/ubuntu/ \
-$(lsb_release -cs) main" \
+https://packagecloud.io/timescale/timescaledb/${REPO_PATH}/ \
+${OS_CODENAME} main" \
             | tee /etc/apt/sources.list.d/timescaledb.list
     else
         echo "[DRY RUN] Would add TimescaleDB repository"
