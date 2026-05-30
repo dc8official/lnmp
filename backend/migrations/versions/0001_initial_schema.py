@@ -132,7 +132,7 @@ def upgrade() -> None:
             name="ck_events_health_score",
         ),
         sa.ForeignKeyConstraint(["endpoint_id"], ["endpoints.id"]),
-        sa.PrimaryKeyConstraint("id"),
+        sa.PrimaryKeyConstraint("id", "start_time"),
     )
 
     # Convert endpoint_events to TimescaleDB hypertable
