@@ -1,20 +1,144 @@
 # noop — Network Monitoring Platform
 
-A lightweight, event-driven network uptime monitoring platform.
+A lightweight, event-driven network uptime monitoring platform
+for tracking endpoint availability, outage duration, and service
+stability.
+
+---
 
 ## Stack
+
 - Backend: FastAPI (Python 3.11+)
 - Monitoring Engine: Python asyncio
-- Database: TimescaleDB (PostgreSQL)
+- Database: TimescaleDB (PostgreSQL 16)
 - Frontend: Vue.js + PrimeVue
 - Deployment: Nginx + systemd on Debian 12+ / Ubuntu 22.04+
 
-## Structure
-- `backend/` — FastAPI application and database layer
-- `monitoring/` — Asyncio monitoring engine
-- `frontend/` — Vue.js reporting interface
-- `deploy/` — Installation, configuration, and service files
-- `tests/` — Backend and monitoring unit tests
+---
 
-## Setup
-See deploy/INSTALL.md for full installation instructions.
+## Deployment
+
+### Requirements
+
+- A fresh Debian 12+ or Ubuntu 22.04+ server
+- Root access
+- Internet connectivity (for package installation)
+- A domain name pointed at the server
+
+### Installation
+
+Clone the repository and run the installer as root:
+
+    git clone https://github.com/yourname/noop.git
+    cd noop
+    sudo bash deploy/install.sh
+
+> **Important:** The installer must be run with root privileges
+> using `sudo bash deploy/install.sh`. Do not run it as a regular
+> user. The script installs system packages, creates system users,
+> writes to protected directories, and manages system services.
+> All of these operations require root access. Running without
+> sudo will cause the script to exit with a clear error message.
+
+The installer will:
+1. Add required APT repositories (PostgreSQL, TimescaleDB, Node.js)
+2. Install all system dependencies
+3. Create the netmon system user and directories
+4. Copy project files to /opt/netmon/noop
+5. Create a Python virtual environment and install dependencies
+6. Build the Vue frontend
+7. Prompt for a database password and domain name
+8. Set up PostgreSQL with TimescaleDB
+9. Run database migrations
+10. Create a default admin account
+11. Install and enable systemd services
+12. Configure Nginx with your domain
+13. Print a completion summary with login credentials
+
+### Dry Run
+
+To preview what the installer will do without making any changes:
+
+    sudo bash deploy/install.sh --dry-run
+
+---
+
+## Default Credentials
+
+After installation completes, log in at:
+
+    https://your-domain.com
+
+With these default credentials:
+
+    Username: admin
+    Password: Admin@noop1
+
+> **You will be required to change this password on first login.**
+
+---
+
+## Post-Installation
+
+### Service Management
+
+    # Check service status
+    systemctl status netmon-api
+    systemctl status netmon-engine
+
+    # View live logs
+    journalctl -u netmon-api -f
+    journalctl -u netmon-engine -f
+
+    # Restart services
+    systemctl restart netmon-api
+    systemctl restart netmon-engine
+
+### Adding Endpoints
+
+Log in to the dashboard and navigate to the endpoints section.
+Use the Add Endpoint button to add devices to monitor. The
+monitoring engine picks up new endpoints on its next startup.
+Restart the engine after adding endpoints:
+
+    systemctl restart netmon-engine
+
+### Configuration
+
+The platform configuration lives at:
+
+    /etc/netmon/config.toml
+
+Environment secrets live at:
+
+    /etc/netmon/netmon.env
+
+> Both files are protected and readable only by root and the
+> netmon service user. Do not read or edit them as a regular
+> user. Use sudo.
+
+---
+
+## Updating
+
+To update to a newer version:
+
+    cd noop
+    git pull
+    sudo bash deploy/update.sh
+
+---
+
+## Project Structure
+
+    backend/        FastAPI application and database layer
+    monitoring/     Asyncio monitoring engine
+    frontend/       Vue.js reporting interface
+    deploy/         Installation, configuration, and service files
+    tests/          Backend and monitoring unit tests
+
+---
+
+## License
+
+Internal use.

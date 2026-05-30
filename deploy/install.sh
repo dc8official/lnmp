@@ -13,6 +13,10 @@ if [[ "${1:-}" == "--dry-run" ]]; then
     echo "DRY RUN MODE: No changes will be made."
 fi
 
+DB_PASS=""
+SECRET_KEY=""
+DOMAIN_NAME=""
+
 # Self-locate project root from script location
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
@@ -280,8 +284,16 @@ fi
 
 # Read values for subsequent steps
 if [ "$DRY_RUN" = false ]; then
-    DB_PASS=$(grep NETMON_DB_PASSWORD "$ENV_FILE" | cut -d'=' -f2-)
-    DOMAIN_NAME=$(grep DOMAIN_NAME "$ENV_FILE" | cut -d'=' -f2-)
+    DB_PASS=$(grep NETMON_DB_PASSWORD "$ENV_FILE" \
+        | cut -d'=' -f2-)
+    SECRET_KEY=$(grep NETMON_SECRET_KEY "$ENV_FILE" \
+        | cut -d'=' -f2-)
+    DOMAIN_NAME=$(grep DOMAIN_NAME "$ENV_FILE" \
+        | cut -d'=' -f2-)
+else
+    DB_PASS="dryrun_password"
+    SECRET_KEY="dryrun_secret"
+    DOMAIN_NAME="monitor.example.com"
 fi
 
 # ============================================================
