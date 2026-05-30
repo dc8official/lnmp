@@ -211,9 +211,16 @@ if [ ! -d "$VENV_DIR" ]; then
         chown -R netmon:netmon "$VENV_DIR"
 fi
 
+run "Upgrading pip to latest version" \
+    sudo -H -u netmon "$VENV_DIR/bin/pip" install \
+    --timeout 120 \
+    --upgrade pip
+
 run "Installing Python dependencies" \
-    sudo -u netmon "$VENV_DIR/bin/pip" install \
-    --quiet -r "$INSTALL_DIR/backend/requirements.txt"
+    sudo -H -u netmon "$VENV_DIR/bin/pip" install \
+    --timeout 120 \
+    --retries 5 \
+    -r "$INSTALL_DIR/backend/requirements.txt"
 
 # ============================================================
 print_header "Step 9: Building Vue frontend"
@@ -341,24 +348,24 @@ fi
 print_header "Step 13: Running database migrations"
 
 run "Running Alembic migrations" \
-    sudo -u netmon bash -c "
-        cd $INSTALL_DIR/backend &&
-        NETMON_DB_PASSWORD=$DB_PASS
-        NETMON_SECRET_KEY=$SECRET_KEY
-        PYTHONPATH=$INSTALL_DIR/backend
-        $VENV_DIR/bin/alembic upgrade head
+    sudo -H -u netmon bash -c "
+        export NETMON_DB_PASSWORD='$DB_PASS' &&
+        export NETMON_SECRET_KEY='$SECRET_KEY' &&
+        export PYTHONPATH='$INSTALL_DIR/backend' &&
+        cd '$INSTALL_DIR/backend' &&
+        '$VENV_DIR/bin/alembic' upgrade head
     "
 
 # ============================================================
 print_header "Step 14: Creating default admin user"
 
 if [ "$DRY_RUN" = false ]; then
-    sudo -u netmon bash -c "
-        cd $INSTALL_DIR/backend &&
-        NETMON_DB_PASSWORD=$DB_PASS \
-        NETMON_SECRET_KEY=$SECRET_KEY \
-        PYTHONPATH=$INSTALL_DIR/backend \
-        $VENV_DIR/bin/python3 - <<'PYEOF'
+    sudo -H -u netmon bash -c "
+        export NETMON_DB_PASSWORD='$DB_PASS' &&
+        export NETMON_SECRET_KEY='$SECRET_KEY' &&
+        export PYTHONPATH='$INSTALL_DIR/backend' &&
+        cd '$INSTALL_DIR/backend' &&
+        '$VENV_DIR/bin/python3' - <<'PYEOF'
 import asyncio
 from app.database import AsyncSessionLocal
 from app.services.auth_service import hash_password
@@ -387,7 +394,7 @@ async def create_default_admin():
             {'u': 'admin', 'p': hashed, 'r': str(role_id)}
         )
         await db.commit()
-        print('Default admin user created.')
+        print('Default admin user created successfully.')
 
 asyncio.run(create_default_admin())
 PYEOF
