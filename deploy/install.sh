@@ -205,6 +205,9 @@ else
         chown -R netmon:netmon "$INSTALL_DIR"
 fi
 
+run "Marking install directory as git safe directory" \
+    git config --global --add safe.directory "$INSTALL_DIR"
+
 # ============================================================
 print_header "Step 8: Creating Python virtual environment"
 
