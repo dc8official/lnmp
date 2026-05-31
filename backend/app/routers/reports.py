@@ -67,32 +67,36 @@ async def get_uptime_report(
     _validate_date_range(start_date, end_date)
 
     query_exists = text("""
-        SELECT id FROM endpoints
+        SELECT id, created_at FROM endpoints
         WHERE id = :endpoint_id
           AND endpoint_status != 'DELETED'
     """)
     result_exists = await db.execute(query_exists, {"endpoint_id": str(endpoint_id)})
-    if not result_exists.fetchone():
+    exists_row = result_exists.fetchone()
+    if not exists_row:
         raise HTTPException(status_code=404, detail="Endpoint not found.")
 
     period_start, period_end = _build_period(start_date, end_date)
-    total_seconds = int((period_end - period_start).total_seconds())
+    
+    # Cap period_start to the creation time so we don't skew uptime statistics for time before registration
+    effective_start = max(period_start, exists_row.created_at)
+    total_seconds = max(1, int((period_end - effective_start).total_seconds()))
 
     query_gaps = text("""
         SELECT start_time, end_time
         FROM monitoring_service_events
         WHERE start_time < :period_end
-          AND (end_time > :period_start OR end_time IS NULL)
+          AND (end_time > :effective_start OR end_time IS NULL)
     """)
     result_gaps = await db.execute(query_gaps, {
-        "period_start": period_start,
+        "effective_start": effective_start,
         "period_end": period_end,
     })
     gap_rows = result_gaps.fetchall()
 
     unknown_seconds = 0
     for row in gap_rows:
-        gap_start = max(row.start_time, period_start)
+        gap_start = max(row.start_time, effective_start)
         gap_end = min(
             row.end_time if row.end_time is not None else period_end,
             period_end
@@ -106,12 +110,12 @@ async def get_uptime_report(
         FROM endpoint_events
         WHERE endpoint_id = :endpoint_id
           AND start_time < :period_end
-          AND (end_time > :period_start OR end_time IS NULL)
+          AND (end_time > :effective_start OR end_time IS NULL)
         ORDER BY start_time ASC
     """)
     result_events = await db.execute(query_events, {
         "endpoint_id": str(endpoint_id),
-        "period_start": period_start,
+        "effective_start": effective_start,
         "period_end": period_end,
     })
     event_rows = result_events.fetchall()
@@ -120,7 +124,7 @@ async def get_uptime_report(
     downtime_seconds = 0
 
     for row in event_rows:
-        ev_start = max(row.start_time, period_start)
+        ev_start = max(row.start_time, effective_start)
         ev_end = min(
             row.end_time if row.end_time is not None else period_end,
             period_end
