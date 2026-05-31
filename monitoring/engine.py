@@ -97,7 +97,7 @@ async def on_split_complete(
 
 
 async def main() -> None:
-    logger.info("noop monitoring engine starting.")
+    logger.info("lnmp monitoring engine starting.")
     async with AsyncSessionLocal() as db:
         await resolve_startup_state(db)
         await db.commit()

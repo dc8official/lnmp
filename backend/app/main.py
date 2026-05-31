@@ -16,12 +16,12 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await check_database_connection()
-    logger.info("noop monitoring platform started.")
+    logger.info("lnmp monitoring platform started.")
     yield
-    logger.info("noop monitoring platform shutting down.")
+    logger.info("lnmp monitoring platform shutting down.")
 
 app = FastAPI(
-    title="noop - Network Monitoring Platform",
+    title="lnmp - Network Monitoring Platform",
     version="1.0.0",
     docs_url="/api/docs",
     redoc_url="/api/redoc",

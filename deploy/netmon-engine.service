@@ -1,5 +1,5 @@
 [Unit]
-Description=noop Monitoring Engine
+Description=lnmp Monitoring Engine
 After=network.target postgresql.service
 Requires=postgresql.service
 

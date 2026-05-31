@@ -1,5 +1,5 @@
 [Unit]
-Description=noop API Server
+Description=lnmp API Server
 After=network.target postgresql.service
 Requires=postgresql.service
 

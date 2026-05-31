@@ -1,4 +1,4 @@
-# noop — Network Monitoring Platform
+# lnmp — Network Monitoring Platform
 
 A lightweight, event-driven network uptime monitoring platform
 for tracking endpoint availability, outage duration, and service
@@ -29,8 +29,8 @@ stability.
 
 Clone the repository and run the installer as root:
 
-    git clone https://github.com/yourname/noop.git
-    cd noop
+    git clone https://github.com/yourname/lnmp.git
+    cd lnmp
     sudo bash deploy/install.sh
 
 > **Important:** The installer must be run with root privileges
@@ -44,7 +44,7 @@ The installer will:
 1. Add required APT repositories (PostgreSQL, TimescaleDB, Node.js)
 2. Install all system dependencies
 3. Create the netmon system user and directories
-4. Copy project files to /opt/netmon/noop
+4. Copy project files to /opt/netmon/lnmp
 5. Create a Python virtual environment and install dependencies
 6. Build the Vue frontend
 7. Prompt for a database password and domain name
@@ -123,7 +123,7 @@ Environment secrets live at:
 
 To update to a newer version:
 
-    cd noop
+    cd lnmp
     git pull
     sudo bash deploy/update.sh
 

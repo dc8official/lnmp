@@ -17,7 +17,7 @@ from app.services.auth_service import (
 )
 from app.config import settings
 
-cookie_name = "noop_access_token"
+cookie_name = "lnmp_access_token"
 
 class LoginRequest(BaseModel):
     username: str

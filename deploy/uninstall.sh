@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # ============================================================
-# noop Network Monitoring Platform - Production Uninstaller
+# lnmp Network Monitoring Platform - Production Uninstaller
 # Supports: Debian 12+, Ubuntu 22.04+
 # Usage: sudo bash deploy/uninstall.sh [--dry-run] [--force]
 # ============================================================

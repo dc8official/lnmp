@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # ============================================================
-# noop Network Monitoring Platform - Production Installer
+# lnmp Network Monitoring Platform - Production Installer
 # Supports: Debian 12+, Ubuntu 22.04+
 # Usage: sudo bash deploy/install.sh [--dry-run]
 # ============================================================
@@ -523,7 +523,7 @@ if [ "$DRY_RUN" = true ]; then
     echo "DRY RUN complete. No changes were made."
 else
     echo ""
-    echo "noop is now running."
+    echo "lnmp is now running."
     echo ""
     echo "  Dashboard:  https://$DOMAIN_NAME"
     echo "  API docs:   https://$DOMAIN_NAME/api/docs"
