@@ -79,8 +79,8 @@ const chartData = computed(() => {
       {
         label: 'Measured RTT',
         data: measuredData,
-        borderColor: '#3b82f6',
-        backgroundColor: '#3b82f6',
+        borderColor: '#FFFFFF',
+        backgroundColor: '#FFFFFF',
         borderWidth: 2,
         pointStyle: 'circle',
         pointRadius: 4,
@@ -89,13 +89,13 @@ const chartData = computed(() => {
       {
         label: 'Inherited RTT',
         data: inheritedData,
-        borderColor: 'rgba(59, 130, 246, 0.4)',
+        borderColor: '#A3A3A3',
         backgroundColor: 'transparent',
         borderWidth: 2,
         borderDash: [5, 5],
         pointStyle: 'circle',
         pointRadius: 4,
-        pointBackgroundColor: 'white',
+        pointBackgroundColor: '#000000',
         spanGaps: true
       }
     ]
@@ -107,7 +107,14 @@ const chartOptions = {
   maintainAspectRatio: false,
   plugins: {
     legend: {
-      position: 'top'
+      position: 'top',
+      labels: {
+        color: '#A3A3A3',
+        font: {
+          family: 'monospace',
+          size: 11
+        }
+      }
     },
     tooltip: {
       callbacks: {
@@ -127,15 +134,37 @@ const chartOptions = {
       title: {
         display: false
       },
+      grid: {
+        color: '#262626',
+        drawBorder: false
+      },
       ticks: {
-        maxTicksLimit: 10
+        color: '#A3A3A3',
+        maxTicksLimit: 10,
+        font: {
+          family: 'monospace'
+        }
       }
     },
     y: {
       display: true,
       title: {
         display: true,
-        text: 'RTT (ms)'
+        text: 'RTT (ms)',
+        color: '#A3A3A3',
+        font: {
+          family: 'monospace'
+        }
+      },
+      grid: {
+        color: '#262626',
+        drawBorder: false
+      },
+      ticks: {
+        color: '#A3A3A3',
+        font: {
+          family: 'monospace'
+        }
       },
       beginAtZero: true
     }
@@ -145,10 +174,11 @@ const chartOptions = {
 
 <style scoped>
 .rtt-trend-panel {
-  background: white;
+  background: #000000;
   padding: 1.5rem;
-  border-radius: 8px;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+  border: 1px solid #262626;
+  border-radius: 4px;
+  box-shadow: none;
   margin-bottom: 1.5rem;
   height: 350px;
   display: flex;
@@ -164,7 +194,8 @@ const chartOptions = {
   align-items: center;
   justify-content: center;
   height: 100%;
-  color: #64748b;
-  font-size: 1.1rem;
+  color: #A3A3A3;
+  font-family: monospace;
+  font-size: 1rem;
 }
 </style>

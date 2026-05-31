@@ -46,11 +46,11 @@ const props = defineProps({
 })
 
 const STATE_COLORS = {
-  'UP': '#22c55e',
-  'UP-UNSTABLE': '#f59e0b',
-  'DOWN-UNSTABLE': '#f97316',
-  'DOWN': '#ef4444',
-  'UNKNOWN': '#9ca3af'
+  'UP': '#4a6b4a',
+  'UP-UNSTABLE': '#F59E0B',
+  'DOWN-UNSTABLE': '#F59E0B',
+  'DOWN': '#FF0000',
+  'UNKNOWN': '#262626'
 }
 
 const formatDuration = (ms) => {
@@ -130,7 +130,7 @@ const chartData = computed(() => {
     backgroundColor: STATE_COLORS[key],
     grouped: false,
     borderWidth: key === 'UNKNOWN' ? 1 : 0,
-    borderColor: key === 'UNKNOWN' ? '#6b7280' : 'transparent',
+    borderColor: key === 'UNKNOWN' ? '#262626' : 'transparent',
     borderSkipped: false
   }))
 
@@ -146,7 +146,14 @@ const chartOptions = {
   maintainAspectRatio: false,
   plugins: {
     legend: {
-      position: 'bottom'
+      position: 'bottom',
+      labels: {
+        color: '#A3A3A3',
+        font: {
+          family: 'monospace',
+          size: 11
+        }
+      }
     },
     tooltip: {
       callbacks: {
@@ -178,7 +185,12 @@ const chartOptions = {
       type: 'linear',
       min: 0,
       max: 1,
+      grid: {
+        color: '#262626',
+        drawBorder: false
+      },
       ticks: {
+        color: '#A3A3A3',
         callback: function(value) {
           return (value * 100) + '%'
         }
@@ -199,9 +211,10 @@ const chartOptions = {
   height: 200px;
   width: 100%;
   padding: 1rem;
-  background: white;
-  border-radius: 8px;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+  background: #000000;
+  border: 1px solid #262626;
+  border-radius: 4px;
+  box-shadow: none;
   margin-bottom: 1.5rem;
 }
 </style>
