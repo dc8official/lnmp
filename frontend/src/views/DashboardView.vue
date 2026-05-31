@@ -22,58 +22,197 @@
     </header>
 
     <div class="dashboard-container">
-      <header class="dashboard-header">
-        <div class="header-info">
-          <h1>Network Dashboard</h1>
-          <p class="subtitle" v-if="!loading && !error">
-            Active Endpoints: <strong>{{ endpoints.length }}</strong> | Last sync: {{ lastRefreshedTime }}
-          </p>
+      <!-- Tabs toggle for Admins -->
+      <div class="dashboard-tabs" v-if="isAdmin">
+        <button 
+          class="tab-btn" 
+          :class="{ active: activeTab === 'endpoints' }" 
+          @click="activeTab = 'endpoints'"
+        >
+          <i class="pi pi-server tab-icon"></i>
+          <span>Monitored Endpoints</span>
+        </button>
+        <button 
+          class="tab-btn" 
+          :class="{ active: activeTab === 'users' }" 
+          @click="activeTab = 'users'"
+        >
+          <i class="pi pi-users tab-icon"></i>
+          <span>User Management</span>
+        </button>
+      </div>
+
+      <!-- Endpoints Tab Content -->
+      <div v-if="activeTab === 'endpoints'">
+        <header class="dashboard-header">
+          <div class="header-info">
+            <h1>Network Dashboard</h1>
+            <p class="subtitle" v-if="!loading && !error">
+              Active Endpoints: <strong>{{ endpoints.length }}</strong> | Last sync: {{ lastRefreshedTime }}
+            </p>
+          </div>
+          <div class="action-buttons">
+            <Button 
+              v-if="isAdmin"
+              icon="pi pi-plus" 
+              label="Add Endpoint" 
+              @click="openAddDialog" 
+              severity="success"
+            />
+            <Button 
+              icon="pi pi-refresh" 
+              label="Refresh" 
+              @click="fetchEndpoints" 
+              :loading="loading"
+              severity="secondary"
+            />
+          </div>
+        </header>
+
+        <div v-if="error" class="error-message">
+          <i class="pi pi-exclamation-triangle"></i>
+          <span>{{ error }}</span>
         </div>
-        <div class="action-buttons">
-          <Button 
-            v-if="isAdmin"
-            icon="pi pi-plus" 
-            label="Add Endpoint" 
-            @click="openAddDialog" 
-            severity="success"
-          />
-          <Button 
-            icon="pi pi-refresh" 
-            label="Refresh" 
-            @click="fetchEndpoints" 
-            :loading="loading"
-            severity="secondary"
+
+        <div v-else-if="loading && endpoints.length === 0" class="loading-state">
+          <i class="pi pi-spin pi-spinner spinner-icon"></i>
+          <p>Synchronizing network status...</p>
+        </div>
+
+        <div v-else-if="endpoints.length === 0" class="empty-state">
+          <i class="pi pi-search empty-icon"></i>
+          <h3>No endpoints found</h3>
+          <p v-if="isAdmin">Click "Add Endpoint" to register your first monitored host.</p>
+          <p v-else>Please contact the system administrator to configure monitored nodes.</p>
+        </div>
+
+        <div v-else class="endpoint-grid">
+          <EndpointCard 
+            v-for="endpoint in endpoints" 
+            :key="endpoint.id" 
+            :endpoint="endpoint" 
+            :isAdmin="isAdmin"
+            @select="navigateToEndpoint"
+            @edit="openEditDialog"
+            @delete="confirmDeleteEndpoint"
           />
         </div>
-      </header>
-
-      <div v-if="error" class="error-message">
-        <i class="pi pi-exclamation-triangle"></i>
-        <span>{{ error }}</span>
       </div>
 
-      <div v-else-if="loading && endpoints.length === 0" class="loading-state">
-        <i class="pi pi-spin pi-spinner spinner-icon"></i>
-        <p>Synchronizing network status...</p>
-      </div>
+      <!-- User Management Tab Content (Admin Only) -->
+      <div v-else-if="activeTab === 'users' && isAdmin">
+        <header class="dashboard-header">
+          <div class="header-info">
+            <h1>User Accounts</h1>
+            <p class="subtitle">
+              Manage platform users, update role privileges, and execute password resets.
+            </p>
+          </div>
+          <div class="action-buttons">
+            <Button 
+              icon="pi pi-user-plus" 
+              label="Add User" 
+              @click="openAddUserDialog" 
+              severity="success"
+            />
+            <Button 
+              icon="pi pi-refresh" 
+              label="Refresh" 
+              @click="fetchUsers" 
+              :loading="usersLoading"
+              severity="secondary"
+            />
+          </div>
+        </header>
 
-      <div v-else-if="endpoints.length === 0" class="empty-state">
-        <i class="pi pi-search empty-icon"></i>
-        <h3>No endpoints found</h3>
-        <p v-if="isAdmin">Click "Add Endpoint" to register your first monitored host.</p>
-        <p v-else>Please contact the system administrator to configure monitored nodes.</p>
-      </div>
+        <div v-if="usersError" class="error-message">
+          <i class="pi pi-exclamation-triangle"></i>
+          <span>{{ usersError }}</span>
+        </div>
 
-      <div v-else class="endpoint-grid">
-        <EndpointCard 
-          v-for="endpoint in endpoints" 
-          :key="endpoint.id" 
-          :endpoint="endpoint" 
-          :isAdmin="isAdmin"
-          @select="navigateToEndpoint"
-          @edit="openEditDialog"
-          @delete="confirmDeleteEndpoint"
-        />
+        <div v-else-if="usersLoading && users.length === 0" class="loading-state">
+          <i class="pi pi-spin pi-spinner spinner-icon"></i>
+          <p>Loading user list...</p>
+        </div>
+
+        <div v-else class="users-list-wrapper">
+          <div class="users-table-card">
+            <table class="users-table">
+              <thead>
+                <tr>
+                  <th>Username</th>
+                  <th>Role</th>
+                  <th>Status</th>
+                  <th>Credentials State</th>
+                  <th>Last Signed In</th>
+                  <th>Created Date</th>
+                  <th class="actions-header">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="usr in users" :key="usr.id" :class="{ 'self-row': usr.id === user?.id }">
+                  <td class="username-col">
+                    <i class="pi pi-user user-row-icon"></i>
+                    <span>{{ usr.username }}</span>
+                    <span v-if="usr.id === user?.id" class="self-tag">(You)</span>
+                  </td>
+                  <td>
+                    <span class="user-badge" :class="usr.role.toLowerCase()">
+                      {{ usr.role }}
+                    </span>
+                  </td>
+                  <td>
+                    <span class="status-indicator" :class="{ active: usr.is_active }">
+                      <span class="dot"></span>
+                      {{ usr.is_active ? 'Active' : 'Disabled' }}
+                    </span>
+                  </td>
+                  <td>
+                    <span v-if="usr.must_change_password" class="reset-alert-badge">
+                      <i class="pi pi-key"></i> Password Reset Pending
+                    </span>
+                    <span v-else class="reset-ok-badge">
+                      <i class="pi pi-check-circle"></i> Secure
+                    </span>
+                  </td>
+                  <td class="date-col">
+                    {{ usr.last_login ? new Date(usr.last_login).toLocaleString() : 'Never' }}
+                  </td>
+                  <td class="date-col">
+                    {{ new Date(usr.created_at).toLocaleDateString() }}
+                  </td>
+                  <td class="actions-col">
+                    <Button 
+                      icon="pi pi-lock-open" 
+                      label="Reset Pass" 
+                      size="small" 
+                      severity="warning" 
+                      text 
+                      @click="openResetPasswordDialog(usr)"
+                    />
+                    <Button 
+                      v-if="usr.id !== user?.id"
+                      :icon="usr.is_active ? 'pi pi-ban' : 'pi pi-check'" 
+                      :label="usr.is_active ? 'Disable' : 'Enable'" 
+                      size="small" 
+                      :severity="usr.is_active ? 'danger' : 'success'" 
+                      text 
+                      @click="toggleUserActive(usr)"
+                    />
+                    <Button 
+                      v-if="usr.id !== user?.id"
+                      icon="pi pi-trash" 
+                      size="small" 
+                      severity="danger" 
+                      text 
+                      @click="confirmDeleteUser(usr)"
+                    />
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -150,6 +289,153 @@
         <Button label="Delete" icon="pi pi-trash" :loading="formSaving" severity="danger" @click="executeDeleteEndpoint" />
       </template>
     </Dialog>
+
+    <!-- Forced Password Change Dialog (Initial Setup) -->
+    <Dialog 
+      v-model:visible="displayChangePasswordDialog" 
+      header="Initial Setup — Password Reset Required" 
+      modal 
+      :closable="false"
+      :style="{ width: '420px' }"
+      class="forced-password-dialog"
+    >
+      <form @submit.prevent="executeChangePassword" class="endpoint-form">
+        <div class="info-alert">
+          <i class="pi pi-info-circle"></i>
+          <span>For security reasons, you are required to change your default password on your initial sign-in.</span>
+        </div>
+
+        <div v-if="changePasswordError" class="error-container">
+          <Message severity="error" :closable="false">{{ changePasswordError }}</Message>
+        </div>
+
+        <div class="form-grid">
+          <div class="form-group">
+            <label for="old_password">Current Password *</label>
+            <Password 
+              id="old_password" 
+              v-model="changePasswordForm.old_password" 
+              placeholder="Enter current password"
+              :feedback="false" 
+              toggleMask 
+              required 
+              :disabled="changePasswordLoading"
+              class="full-width-password"
+              inputClass="full-width"
+            />
+          </div>
+
+          <div class="form-group">
+            <label for="new_password">New Password *</label>
+            <Password 
+              id="new_password" 
+              v-model="changePasswordForm.new_password" 
+              placeholder="Enter new password (min 8 chars)"
+              toggleMask 
+              required 
+              :disabled="changePasswordLoading"
+              class="full-width-password"
+              inputClass="full-width"
+            />
+          </div>
+
+          <div class="form-group">
+            <label for="confirm_password">Confirm New Password *</label>
+            <Password 
+              id="confirm_password" 
+              v-model="changePasswordForm.confirm_password" 
+              placeholder="Confirm new password"
+              :feedback="false" 
+              toggleMask 
+              required 
+              :disabled="changePasswordLoading"
+              class="full-width-password"
+              inputClass="full-width"
+            />
+          </div>
+        </div>
+
+        <div class="dialog-footer">
+          <Button 
+            type="submit" 
+            label="Update Password & Sign In" 
+            icon="pi pi-check" 
+            :loading="changePasswordLoading" 
+            severity="success" 
+            class="full-width-btn"
+          />
+        </div>
+      </form>
+    </Dialog>
+
+    <!-- Add User Dialog (Admin Only) -->
+    <Dialog 
+      v-model:visible="displayAddUserDialog" 
+      header="Register New User Account" 
+      modal 
+      :style="{ width: '440px' }" 
+      class="custom-dialog"
+    >
+      <form @submit.prevent="saveUser" class="endpoint-form">
+        <div class="form-grid">
+          <div class="form-group">
+            <label for="new_username">Username *</label>
+            <InputText id="new_username" v-model="userForm.username" placeholder="Enter username (min 3 chars)" required />
+          </div>
+
+          <div class="form-group">
+            <label for="new_user_password">Password</label>
+            <InputText type="password" id="new_user_password" v-model="userForm.password" placeholder="Defaults to 'password123' if blank" />
+            <small class="form-help">The new user will be required to change this password on their initial login.</small>
+          </div>
+
+          <div class="form-group">
+            <label for="new_user_role">Privilege Role *</label>
+            <Dropdown 
+              id="new_user_role" 
+              v-model="userForm.role" 
+              :options="['VIEWER', 'ADMIN']" 
+              placeholder="Select privilege tier"
+              required 
+            />
+          </div>
+        </div>
+
+        <div class="dialog-footer">
+          <Button label="Cancel" icon="pi pi-times" severity="secondary" text @click="displayAddUserDialog = false" />
+          <Button type="submit" label="Register User" icon="pi pi-user-plus" :loading="userFormSaving" severity="success" />
+        </div>
+      </form>
+    </Dialog>
+
+    <!-- Reset User Password Dialog (Admin Only) -->
+    <Dialog 
+      v-model:visible="displayResetUserPasswordDialog" 
+      :header="`Reset Password — ${targetUsername}`" 
+      modal 
+      :style="{ width: '400px' }" 
+      class="custom-dialog"
+    >
+      <form @submit.prevent="executeResetUserPassword" class="endpoint-form">
+        <div class="form-grid">
+          <div class="info-alert warning-alert">
+            <i class="pi pi-exclamation-triangle"></i>
+            <span>This will immediately invalidate the current password for <strong>{{ targetUsername }}</strong>. They will be forced to set a new password on their next sign-in.</span>
+          </div>
+
+          <div class="form-group">
+            <label for="reset_user_password">New Temporary Password</label>
+            <InputText type="password" id="reset_user_password" v-model="resetPasswordForm.password" placeholder="Defaults to 'password123' if blank" />
+            <small class="form-help">Enter a temporary password or leave blank for 'password123'.</small>
+          </div>
+        </div>
+
+        <div class="dialog-footer">
+          <Button label="Cancel" icon="pi pi-times" severity="secondary" text @click="displayResetUserPasswordDialog = false" />
+          <Button type="submit" label="Reset Password" icon="pi pi-lock-open" :loading="userFormSaving" severity="warning" />
+        </div>
+      </form>
+    </Dialog>
   </div>
 </template>
 
@@ -161,6 +447,12 @@ import {
   createEndpoint, 
   updateEndpoint, 
   deleteEndpoint, 
+  changePassword,
+  getUsers,
+  createUser,
+  resetUserPassword,
+  updateUser,
+  deleteUser,
   logout 
 } from '../services/api.js'
 import EndpointCard from '../components/EndpointCard.vue'
@@ -170,6 +462,8 @@ import InputText from 'primevue/inputtext'
 import Textarea from 'primevue/textarea'
 import Dropdown from 'primevue/dropdown'
 import Checkbox from 'primevue/checkbox'
+import Password from 'primevue/password'
+import Message from 'primevue/message'
 
 const router = useRouter()
 const endpoints = ref([])
@@ -178,12 +472,37 @@ const error = ref(null)
 const lastRefreshed = ref(null)
 const user = ref(null)
 
+// Tab state
+const activeTab = ref('endpoints')
+
+// User management states
+const users = ref([])
+const usersLoading = ref(false)
+const usersError = ref(null)
+const displayAddUserDialog = ref(false)
+const displayResetUserPasswordDialog = ref(false)
+const userFormSaving = ref(false)
+const targetUserId = ref(null)
+const targetUsername = ref('')
+const userForm = ref({ username: '', password: '', role: 'VIEWER' })
+const resetPasswordForm = ref({ password: '' })
+
 // Form states
 const displayDialog = ref(false)
 const displayDeleteDialog = ref(false)
 const formSaving = ref(false)
 const isEditing = ref(false)
 const targetEndpointId = ref(null)
+
+// Change password states
+const displayChangePasswordDialog = ref(false)
+const changePasswordLoading = ref(false)
+const changePasswordError = ref(null)
+const changePasswordForm = ref({
+  old_password: '',
+  new_password: '',
+  confirm_password: ''
+})
 
 const deviceTypes = ['Server', 'Router', 'Switch', 'Access Point', 'Firewall', 'Printer', 'Other']
 
@@ -197,9 +516,102 @@ const form = ref({
 })
 
 const isAdmin = computed(() => user.value?.role === 'ADMIN')
+
+const fetchUsers = async () => {
+  if (!isAdmin.value) return
+  usersLoading.value = true
+  usersError.value = null
+  try {
+    const response = await getUsers()
+    users.value = response.data.data
+  } catch (err) {
+    usersError.value = err.response?.data?.error?.message || 'Failed to fetch users list.'
+  } finally {
+    usersLoading.value = false
+  }
+}
+
+const openAddUserDialog = () => {
+  userForm.value = { username: '', password: '', role: 'VIEWER' }
+  displayAddUserDialog.value = true
+}
+
+const saveUser = async () => {
+  if (userForm.value.username.trim().length < 3) {
+    alert('Username must be at least 3 characters long.')
+    return
+  }
+  userFormSaving.value = true
+  try {
+    await createUser({
+      username: userForm.value.username,
+      password: userForm.value.password ? userForm.value.password : null,
+      role: userForm.value.role
+    })
+    displayAddUserDialog.value = false
+    await fetchUsers()
+    alert('User account created successfully!')
+  } catch (err) {
+    alert(err.response?.data?.detail || 'Failed to create user.')
+  } finally {
+    userFormSaving.value = false
+  }
+}
+
+const openResetPasswordDialog = (usr) => {
+  targetUserId.value = usr.id
+  targetUsername.value = usr.username
+  resetPasswordForm.value = { password: '' }
+  displayResetUserPasswordDialog.value = true
+}
+
+const executeResetUserPassword = async () => {
+  userFormSaving.value = true
+  try {
+    await resetUserPassword(targetUserId.value, {
+      password: resetPasswordForm.value.password ? resetPasswordForm.value.password : null
+    })
+    displayResetUserPasswordDialog.value = false
+    alert(`Password reset successfully for user '${targetUsername.value}'!`)
+    await fetchUsers()
+  } catch (err) {
+    alert(err.response?.data?.detail || 'Failed to reset user password.')
+  } finally {
+    userFormSaving.value = false
+  }
+}
+
+const toggleUserActive = async (usr) => {
+  try {
+    await updateUser(usr.id, {
+      is_active: !usr.is_active
+    })
+    await fetchUsers()
+  } catch (err) {
+    alert(err.response?.data?.detail || 'Failed to update user status.')
+  }
+}
+
+const confirmDeleteUser = async (usr) => {
+  if (confirm(`Are you sure you want to deactivate and remove user '${usr.username}'?`)) {
+    try {
+      await deleteUser(usr.id)
+      await fetchUsers()
+      alert(`User '${usr.username}' deactivated successfully.`)
+    } catch (err) {
+      alert(err.response?.data?.detail || 'Failed to deactivate user.')
+    }
+  }
+}
 const dialogHeader = computed(() => isEditing.value ? 'Modify Endpoint' : 'Register Endpoint')
 
 const fetchEndpoints = async () => {
+  // If forced to change password, suspend API loading to avoid token-expire errors
+  if (user.value?.must_change_password) {
+    endpoints.value = []
+    return
+  }
+
   loading.value = true
   error.value = null
   try {
@@ -310,12 +722,56 @@ const executeDeleteEndpoint = async () => {
   }
 }
 
+// Forced password change logic
+const executeChangePassword = async () => {
+  if (changePasswordForm.value.new_password !== changePasswordForm.value.confirm_password) {
+    changePasswordError.value = 'New passwords do not match.'
+    return
+  }
+  if (changePasswordForm.value.new_password.length < 8) {
+    changePasswordError.value = 'Password must be at least 8 characters long.'
+    return
+  }
+  if (changePasswordForm.value.new_password.toLowerCase() === 'admin') {
+    changePasswordError.value = 'Password cannot be set to the default "admin" password.'
+    return
+  }
+
+  changePasswordLoading.value = true
+  changePasswordError.value = null
+
+  try {
+    await changePassword({
+      old_password: changePasswordForm.value.old_password,
+      new_password: changePasswordForm.value.new_password
+    })
+
+    // Reset MUST change password locally and fetch endpoints
+    user.value.must_change_password = false
+    localStorage.setItem('user', JSON.stringify(user.value))
+    displayChangePasswordDialog.value = false
+    
+    alert('Password updated successfully! Welcome to your dashboard.')
+    await fetchEndpoints()
+  } catch (err) {
+    changePasswordError.value = err.response?.data?.detail || 'Failed to change password. Verify your current password is correct.'
+  } finally {
+    changePasswordLoading.value = false
+  }
+}
+
 onMounted(() => {
   const storedUser = localStorage.getItem('user')
   if (storedUser) {
     user.value = JSON.parse(storedUser)
+    if (user.value.must_change_password) {
+      displayChangePasswordDialog.value = true
+    }
   }
   fetchEndpoints()
+  if (isAdmin.value) {
+    fetchUsers()
+  }
 })
 </script>
 
@@ -500,7 +956,203 @@ h1 {
   color: #94a3b8;
   margin-top: 0.25rem;
 }
+
+/* Forced password reset styling */
+.info-alert {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  background-color: rgba(4, 159, 108, 0.08);
+  color: #03754e;
+  padding: 0.85rem;
+  border-radius: 8px;
+  font-size: 0.85rem;
+  font-weight: 500;
+  margin-bottom: 1.25rem;
+  border-left: 3px solid #049f6c;
+}
+.error-container {
+  margin-bottom: 1rem;
+}
+.full-width-btn {
+  background-color: #049f6c !important;
+  border-color: #049f6c !important;
+  width: 100%;
+  padding: 0.65rem !important;
+  font-weight: 600 !important;
+}
+.full-width-btn:hover {
+  background-color: #038459 !important;
+  border-color: #038459 !important;
+}
+
 :deep(.p-dropdown), :deep(.p-inputtext), :deep(.p-textarea) {
   width: 100%;
+}
+:deep(.full-width-password) {
+  width: 100%;
+}
+:deep(.full-width-password input) {
+  width: 100%;
+}
+
+/* Tabs styling */
+.dashboard-tabs {
+  display: flex;
+  gap: 0.5rem;
+  border-bottom: 2px solid #e2e8f0;
+  margin-bottom: 2rem;
+  padding-bottom: 0.1px;
+}
+.tab-btn {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 1.25rem;
+  background: none;
+  border: none;
+  border-bottom: 3px solid transparent;
+  color: #64748b;
+  font-weight: 600;
+  font-size: 0.95rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  outline: none;
+}
+.tab-btn:hover {
+  color: #0f172a;
+}
+.tab-btn.active {
+  color: #049f6c;
+  border-bottom-color: #049f6c;
+}
+.tab-icon {
+  font-size: 1.05rem;
+}
+
+/* User table styling */
+.users-list-wrapper {
+  margin-top: 1.5rem;
+}
+.users-table-card {
+  background-color: white;
+  border-radius: 12px;
+  border: 1px solid #e2e8f0;
+  box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05), 0 2px 4px -1px rgba(0,0,0,0.03);
+  overflow-x: auto;
+}
+.users-table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+  font-size: 0.9rem;
+}
+.users-table th {
+  background-color: #f8fafc;
+  color: #475569;
+  font-weight: 600;
+  padding: 1rem 1.5rem;
+  border-bottom: 1px solid #e2e8f0;
+  white-space: nowrap;
+}
+.users-table td {
+  padding: 1rem 1.5rem;
+  border-bottom: 1px solid #e2e8f0;
+  color: #334155;
+  vertical-align: middle;
+}
+.users-table tbody tr:last-child td {
+  border-bottom: none;
+}
+.users-table tr.self-row {
+  background-color: rgba(4, 159, 108, 0.02);
+}
+.users-table tr:hover {
+  background-color: #f8fafc;
+}
+.username-col {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-weight: 600;
+}
+.user-row-icon {
+  color: #64748b;
+}
+.self-tag {
+  font-size: 0.75rem;
+  color: #049f6c;
+  background-color: rgba(4, 159, 108, 0.08);
+  padding: 0.1rem 0.4rem;
+  border-radius: 4px;
+  font-weight: 500;
+}
+.status-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  padding: 0.2rem 0.6rem;
+  border-radius: 9999px;
+  background-color: #fee2e2;
+  color: #ef4444;
+}
+.status-indicator.active {
+  background-color: rgba(4, 159, 108, 0.08);
+  color: #049f6c;
+}
+.status-indicator .dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background-color: #ef4444;
+}
+.status-indicator.active .dot {
+  background-color: #049f6c;
+}
+.reset-alert-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  background-color: #fef3c7;
+  color: #d97706;
+  padding: 0.2rem 0.5rem;
+  border-radius: 6px;
+}
+.reset-ok-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  background-color: #f0fdf4;
+  color: #16a34a;
+  padding: 0.2rem 0.5rem;
+  border-radius: 6px;
+}
+.date-col {
+  color: #64748b;
+  font-size: 0.85rem;
+}
+.actions-header {
+  text-align: right;
+}
+.actions-col {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+.warning-alert {
+  background-color: #fffbeb !important;
+  color: #b45309 !important;
+  border-left-color: #f59e0b !important;
+}
+.form-help {
+  font-size: 0.75rem;
+  color: #64748b;
+  margin-top: 0.2rem;
 }
 </style>

@@ -84,3 +84,27 @@ export function updateEndpoint(id, data) {
 export function deleteEndpoint(id) {
   return api.delete(`/endpoints/${id}`)
 }
+
+export function changePassword(data) {
+  return api.post('/auth/change-password', data)
+}
+
+export function getUsers() {
+  return api.get('/users/')
+}
+
+export function createUser(data) {
+  return api.post('/users/', data)
+}
+
+export function resetUserPassword(userId, data) {
+  return api.post(`/users/${userId}/reset-password`, data)
+}
+
+export function updateUser(userId, data) {
+  return api.patch(`/users/${userId}`, data)
+}
+
+export function deleteUser(userId) {
+  return api.delete(`/users/${userId}`)
+}

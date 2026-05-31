@@ -272,9 +272,9 @@ else
         DB_PASS=$(openssl rand -base64 18 | tr -dc 'a-zA-Z0-9' | head -c 16)
         echo "Database password auto-generated."
 
-        # Auto-generate admin password
-        ADMIN_PASS=$(openssl rand -base64 12 | tr -dc 'a-zA-Z0-9' | head -c 12)
-        echo "Default admin password auto-generated."
+        # Set default admin password to 'admin'
+        ADMIN_PASS="admin"
+        echo "Default admin password configured as 'admin'."
 
         SECRET_KEY=$(openssl rand -hex 32)
         echo "Secret key auto-generated."
@@ -282,8 +282,8 @@ else
         # Auto-detect IP address
         PRIMARY_IP=$(hostname -I | awk '{print $1}' 2>/dev/null || ip route get 1 2>/dev/null | awk '{print $NF;exit}' || echo "localhost")
         echo "Detected primary IP address: $PRIMARY_IP"
-        read -p "Server domain name or IP address [default: $PRIMARY_IP]: " DOMAIN_NAME
-        DOMAIN_NAME=${DOMAIN_NAME:-$PRIMARY_IP}
+        DOMAIN_NAME=$PRIMARY_IP
+        echo "Server domain/IP configured to: $DOMAIN_NAME"
 
         cat > "$ENV_FILE" <<EOF
 NETMON_DB_PASSWORD=$DB_PASS
@@ -296,10 +296,10 @@ EOF
         echo "Environment file created at $ENV_FILE"
     else
         DB_PASS="dryrun_password"
-        ADMIN_PASS="dryrun_admin_password"
+        ADMIN_PASS="admin"
         SECRET_KEY="dryrun_secret"
         DOMAIN_NAME="monitor.example.com"
-        echo "[DRY RUN] Would auto-generate DB password, admin password, secret key, and ask for domain name/IP"
+        echo "[DRY RUN] Would auto-generate DB password, set admin password to 'admin', generate secret key, and auto-detect IP address"
     fi
 fi
 
@@ -311,13 +311,13 @@ if [ "$DRY_RUN" = false ]; then
     if grep -q DEFAULT_ADMIN_PASSWORD "$ENV_FILE"; then
         ADMIN_PASS=$(grep DEFAULT_ADMIN_PASSWORD "$ENV_FILE" | cut -d'=' -f2-)
     else
-        ADMIN_PASS="Admin@noop1"
+        ADMIN_PASS="admin"
     fi
 else
     DB_PASS="dryrun_password"
     SECRET_KEY="dryrun_secret"
     DOMAIN_NAME="monitor.example.com"
-    ADMIN_PASS="dryrun_admin_password"
+    ADMIN_PASS="admin"
 fi
 
 # ============================================================

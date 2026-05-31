@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
 from app.schemas import APIResponse
 from app.services.auth_service import (
+    hash_password,
     verify_password,
     create_access_token,
     decode_access_token,
@@ -26,6 +27,7 @@ class LoginRequest(BaseModel):
 class LoginResponse(BaseModel):
     username: str
     role: str
+    must_change_password: bool
     message: str
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -44,7 +46,7 @@ async def login(
 
     query = text("""
         SELECT u.id, u.username, u.password_hash,
-               u.is_active, r.role_name
+               u.is_active, u.must_change_password, r.role_name
         FROM users u
         JOIN roles r ON u.role_id = r.id
         WHERE u.username = :username
@@ -95,6 +97,7 @@ async def login(
     response_body = LoginResponse(
         username=row.username,
         role=row.role_name,
+        must_change_password=row.must_change_password,
         message="Login successful."
     )
 
@@ -141,3 +144,55 @@ async def require_admin(
     if current_user.get("role") != "ADMIN":
         raise HTTPException(status_code=403, detail="Admin access required.")
     return current_user
+
+class ChangePasswordRequest(BaseModel):
+    old_password: str
+    new_password: str
+
+@router.post("/change-password")
+async def change_password(
+    request: ChangePasswordRequest,
+    current_user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    query = text("""
+        SELECT id, password_hash FROM users
+        WHERE id = :user_id AND is_active = TRUE
+        LIMIT 1
+    """)
+    result = await db.execute(query, {"user_id": current_user.get("sub")})
+    row = result.fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="User not found.")
+        
+    if not verify_password(request.old_password, row.password_hash):
+        raise HTTPException(status_code=400, detail="Invalid current password.")
+        
+    hashed = hash_password(request.new_password)
+    update_query = text("""
+        UPDATE users
+        SET password_hash = :p,
+            must_change_password = FALSE,
+            updated_at = NOW()
+        WHERE id = :user_id
+    """)
+    await db.execute(update_query, {
+        "p": hashed,
+        "user_id": str(current_user.get("sub"))
+    })
+    
+    audit_query = text("""
+        INSERT INTO audit_logs (
+            user_id, action, target_type, target_id, details
+        ) VALUES (
+            :user_id, 'USER:CHANGE_PASSWORD', 'users', :user_id, :details
+        )
+    """)
+    await db.execute(audit_query, {
+        "user_id": str(current_user.get("sub")),
+        "details": json.dumps({"username": current_user.get("username")})
+    })
+    
+    await db.commit()
+    
+    return APIResponse.success(data={"message": "Password changed successfully."})
