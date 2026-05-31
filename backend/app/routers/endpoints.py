@@ -39,7 +39,7 @@ async def list_endpoints(
         SELECT
             e.id,
             e.hostname,
-            e.ip_address::text,
+            host(e.ip_address) AS ip_address,
             e.device_type,
             e.location,
             e.endpoint_status,
@@ -106,7 +106,7 @@ async def get_endpoint(
         SELECT
             e.id,
             e.hostname,
-            e.ip_address::text,
+            host(e.ip_address) AS ip_address,
             e.device_type,
             e.location,
             e.description,
@@ -167,6 +167,60 @@ async def create_endpoint(
     check_result = await db.execute(check_query, {"ip_address": request.ip_address})
     if check_result.fetchone():
         raise HTTPException(status_code=409, detail="An endpoint with this IP address already exists.")
+        
+    # Check if a soft-deleted endpoint with the same IP already exists to restore it
+    deleted_query = text("""
+        SELECT id FROM endpoints
+        WHERE ip_address = :ip_address
+          AND endpoint_status = 'DELETED'
+    """)
+    deleted_result = await db.execute(deleted_query, {"ip_address": request.ip_address})
+    deleted_row = deleted_result.fetchone()
+    
+    if deleted_row:
+        restore_query = text("""
+            UPDATE endpoints
+            SET hostname = :hostname,
+                device_type = :device_type,
+                location = :location,
+                description = :description,
+                monitoring_enabled = :monitoring_enabled,
+                endpoint_status = 'ACTIVE',
+                deleted_at = NULL,
+                updated_at = NOW()
+            WHERE id = :endpoint_id
+        """)
+        await db.execute(restore_query, {
+            "hostname": request.hostname,
+            "device_type": request.device_type,
+            "location": request.location,
+            "description": request.description,
+            "monitoring_enabled": request.monitoring_enabled,
+            "endpoint_id": str(deleted_row.id)
+        })
+        
+        audit_query = text("""
+            INSERT INTO audit_logs (
+                user_id, action, target_type, target_id, details
+            ) VALUES (
+                :user_id, 'ENDPOINT:RESTORE', 'endpoints',
+                :target_id, :details
+            )
+        """)
+        await db.execute(audit_query, {
+            "user_id": current_user.get("sub"),
+            "target_id": str(deleted_row.id),
+            "details": json.dumps({
+                "ip_address": request.ip_address,
+                "hostname": request.hostname,
+                "note": "Restored soft-deleted endpoint"
+            })
+        })
+        
+        await db.commit()
+        return APIResponse.success(
+            data={"id": str(deleted_row.id), "message": "Endpoint restored successfully."},
+        )
         
     insert_query = text("""
         INSERT INTO endpoints (

@@ -129,7 +129,7 @@ async def main() -> None:
 
     for row in active_endpoints:
         endpoint_id = UUID(str(row.id))
-        ip_address = str(row.ip_address)
+        ip_address = str(row.ip_address).split('/')[0]
         tasks.append(
             asyncio.create_task(
                 monitor_endpoint(

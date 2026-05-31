@@ -86,7 +86,8 @@ const handleLogin = async () => {
     // Save user info (username and role) locally
     localStorage.setItem('user', JSON.stringify({
       username: response.data.username,
-      role: response.data.role
+      role: response.data.role,
+      must_change_password: response.data.must_change_password
     }))
     router.push('/')
   } catch (err) {
