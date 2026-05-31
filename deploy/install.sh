@@ -264,50 +264,60 @@ if [ -f "$ENV_FILE" ]; then
 else
     if [ "$DRY_RUN" = false ]; then
         echo ""
-        echo "Please provide configuration values."
+        echo "Configuring Netmon Platform..."
         echo "These will be stored in $ENV_FILE"
         echo ""
 
-        while true; do
-            read -s -p "Database password (min 12 chars): " DB_PASS
-            echo ""
-            if [ ${#DB_PASS} -ge 12 ]; then break; fi
-            echo "Password must be at least 12 characters."
-        done
+        # Auto-generate DB password
+        DB_PASS=$(openssl rand -base64 18 | tr -dc 'a-zA-Z0-9' | head -c 16)
+        echo "Database password auto-generated."
+
+        # Auto-generate admin password
+        ADMIN_PASS=$(openssl rand -base64 12 | tr -dc 'a-zA-Z0-9' | head -c 12)
+        echo "Default admin password auto-generated."
 
         SECRET_KEY=$(openssl rand -hex 32)
         echo "Secret key auto-generated."
 
-        read -p "Server domain name (e.g. monitor.yourdomain.com): " DOMAIN_NAME
+        # Auto-detect IP address
+        PRIMARY_IP=$(hostname -I | awk '{print $1}' 2>/dev/null || ip route get 1 2>/dev/null | awk '{print $NF;exit}' || echo "localhost")
+        echo "Detected primary IP address: $PRIMARY_IP"
+        read -p "Server domain name or IP address [default: $PRIMARY_IP]: " DOMAIN_NAME
+        DOMAIN_NAME=${DOMAIN_NAME:-$PRIMARY_IP}
 
         cat > "$ENV_FILE" <<EOF
 NETMON_DB_PASSWORD=$DB_PASS
 NETMON_SECRET_KEY=$SECRET_KEY
 DOMAIN_NAME=$DOMAIN_NAME
+DEFAULT_ADMIN_PASSWORD=$ADMIN_PASS
 EOF
         chmod 640 "$ENV_FILE"
         chown root:netmon "$ENV_FILE"
         echo "Environment file created at $ENV_FILE"
     else
         DB_PASS="dryrun_password"
+        ADMIN_PASS="dryrun_admin_password"
         SECRET_KEY="dryrun_secret"
         DOMAIN_NAME="monitor.example.com"
-        echo "[DRY RUN] Would prompt for DB password, generate secret key, and ask for domain name"
+        echo "[DRY RUN] Would auto-generate DB password, admin password, secret key, and ask for domain name/IP"
     fi
 fi
 
 # Read values for subsequent steps
 if [ "$DRY_RUN" = false ]; then
-    DB_PASS=$(grep NETMON_DB_PASSWORD "$ENV_FILE" \
-        | cut -d'=' -f2-)
-    SECRET_KEY=$(grep NETMON_SECRET_KEY "$ENV_FILE" \
-        | cut -d'=' -f2-)
-    DOMAIN_NAME=$(grep DOMAIN_NAME "$ENV_FILE" \
-        | cut -d'=' -f2-)
+    DB_PASS=$(grep NETMON_DB_PASSWORD "$ENV_FILE" | cut -d'=' -f2-)
+    SECRET_KEY=$(grep NETMON_SECRET_KEY "$ENV_FILE" | cut -d'=' -f2-)
+    DOMAIN_NAME=$(grep DOMAIN_NAME "$ENV_FILE" | cut -d'=' -f2-)
+    if grep -q DEFAULT_ADMIN_PASSWORD "$ENV_FILE"; then
+        ADMIN_PASS=$(grep DEFAULT_ADMIN_PASSWORD "$ENV_FILE" | cut -d'=' -f2-)
+    else
+        ADMIN_PASS="Admin@noop1"
+    fi
 else
     DB_PASS="dryrun_password"
     SECRET_KEY="dryrun_secret"
     DOMAIN_NAME="monitor.example.com"
+    ADMIN_PASS="dryrun_admin_password"
 fi
 
 # ============================================================
@@ -389,15 +399,18 @@ if [ "$DRY_RUN" = false ]; then
     sudo -H -u netmon bash -c "
         export NETMON_DB_PASSWORD='$DB_PASS' &&
         export NETMON_SECRET_KEY='$SECRET_KEY' &&
+        export DEFAULT_ADMIN_PASSWORD='$ADMIN_PASS' &&
         export PYTHONPATH='$INSTALL_DIR/backend' &&
         cd '$INSTALL_DIR/backend' &&
         '$VENV_DIR/bin/python3' - <<'PYEOF'
+import os
 import asyncio
 from app.database import AsyncSessionLocal
 from app.services.auth_service import hash_password
 from sqlalchemy import text
 
 async def create_default_admin():
+    admin_pass = os.environ.get('DEFAULT_ADMIN_PASSWORD', 'Admin@noop1')
     async with AsyncSessionLocal() as db:
         existing = await db.execute(
             text(\"SELECT id FROM users WHERE username = 'admin'\")
@@ -409,7 +422,7 @@ async def create_default_admin():
             text(\"SELECT id FROM roles WHERE role_name = 'ADMIN'\")
         )
         role_id = role.scalar()
-        hashed = hash_password('Admin@noop1')
+        hashed = hash_password(admin_pass)
         await db.execute(
             text(
                 'INSERT INTO users '
@@ -426,7 +439,7 @@ asyncio.run(create_default_admin())
 PYEOF
     "
 else
-    echo "[DRY RUN] Would create default admin user (admin / Admin@noop1)"
+    echo "[DRY RUN] Would create default admin user (admin / $ADMIN_PASS)"
 fi
 
 # ============================================================
@@ -450,6 +463,25 @@ run "Enabling netmon-api" systemctl enable netmon-api
 print_header "Step 16: Configuring Nginx"
 
 NGINX_CONF="/etc/nginx/sites-available/netmon"
+
+if [ "$DRY_RUN" = false ]; then
+    CERT_DIR="/etc/ssl/certs"
+    KEY_DIR="/etc/ssl/private"
+    mkdir -p "$CERT_DIR" "$KEY_DIR"
+    
+    if [ ! -f "$CERT_DIR/netmon.crt" ] || [ ! -f "$KEY_DIR/netmon.key" ]; then
+        echo "--> Generating self-signed SSL certificate for $DOMAIN_NAME"
+        openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+            -keyout "$KEY_DIR/netmon.key" \
+            -out "$CERT_DIR/netmon.crt" \
+            -subj "/C=US/ST=State/L=City/O=Netmon/CN=$DOMAIN_NAME" 2>/dev/null
+        chmod 600 "$KEY_DIR/netmon.key"
+        chmod 644 "$CERT_DIR/netmon.crt"
+        echo "Self-signed certificate generated successfully."
+    else
+        echo "SSL certificate and key already exist."
+    fi
+fi
 
 if [ ! -f "$NGINX_CONF" ]; then
     if [ "$DRY_RUN" = false ]; then
@@ -499,10 +531,16 @@ else
     echo "--------------------------------------------------------"
     echo "  DEFAULT ADMIN CREDENTIALS"
     echo "  Username: admin"
-    echo "  Password: Admin@noop1"
+    echo "  Password: $ADMIN_PASS"
     echo ""
     echo "  You will be required to change this password"
     echo "  on your first login."
+    echo "--------------------------------------------------------"
+    echo "  DATABASE CREDENTIALS (Auto-generated)"
+    echo "  Username: netmon_user"
+    echo "  Password: $DB_PASS"
+    echo "  Database: netmon"
+    echo "  Stored in: $ENV_FILE"
     echo "--------------------------------------------------------"
     echo ""
     echo "  Service status:"
