@@ -1,8 +1,30 @@
 <template>
   <Card class="endpoint-card" @click="handleClick">
     <template #title>
-      <div class="hostname" :title="endpoint.hostname">
-        {{ endpoint.hostname }}
+      <div class="card-header-row">
+        <div class="hostname" :title="endpoint.hostname">
+          {{ endpoint.hostname }}
+        </div>
+        <div v-if="isAdmin" class="admin-actions" @click.stop>
+          <Button 
+            icon="pi pi-pencil" 
+            severity="secondary" 
+            text 
+            rounded 
+            size="small" 
+            @click="handleEdit" 
+            v-tooltip="'Edit' "
+          />
+          <Button 
+            icon="pi pi-trash" 
+            severity="danger" 
+            text 
+            rounded 
+            size="small" 
+            @click="handleDelete" 
+            v-tooltip="'Delete'"
+          />
+        </div>
       </div>
     </template>
     <template #subtitle>
@@ -29,18 +51,31 @@
 <script setup>
 import { computed } from 'vue'
 import Card from 'primevue/card'
+import Button from 'primevue/button'
 
 const props = defineProps({
   endpoint: {
     type: Object,
     required: true
+  },
+  isAdmin: {
+    type: Boolean,
+    default: false
   }
 })
 
-const emit = defineEmits(['select'])
+const emit = defineEmits(['select', 'edit', 'delete'])
 
 const handleClick = () => {
   emit('select', props.endpoint.id)
+}
+
+const handleEdit = () => {
+  emit('edit', props.endpoint)
+}
+
+const handleDelete = () => {
+  emit('delete', props.endpoint.id)
 }
 
 const stateColor = computed(() => {
@@ -86,12 +121,23 @@ const timeAgo = computed(() => {
   transform: translateY(-2px);
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
 }
+.card-header-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.5rem;
+}
 .hostname {
   font-weight: bold;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
   font-size: 1.1rem;
+  flex: 1;
+}
+.admin-actions {
+  display: flex;
+  gap: 0.15rem;
 }
 .ip-address {
   color: #64748b;

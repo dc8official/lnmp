@@ -72,3 +72,15 @@ export function login(username, password) {
 export function logout() {
   return api.post('/auth/logout')
 }
+
+export function createEndpoint(data) {
+  return api.post('/endpoints/', data)
+}
+
+export function updateEndpoint(id, data) {
+  return api.patch(`/endpoints/${id}`, data)
+}
+
+export function deleteEndpoint(id) {
+  return api.delete(`/endpoints/${id}`)
+}
