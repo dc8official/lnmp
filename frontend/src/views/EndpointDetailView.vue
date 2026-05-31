@@ -7,6 +7,15 @@
         <span>lnmp Platform</span>
       </div>
       <div class="user-profile" v-if="user">
+        <Button
+          :icon="isDarkMode ? 'pi pi-sun' : 'pi pi-moon'"
+          @click="toggleTheme"
+          text
+          severity="secondary"
+          size="small"
+          class="theme-toggle-btn p-button-text"
+          style="color: #A3A3A3 !important; padding: 0.25rem !important; margin-right: 0.5rem;"
+        />
         <span class="user-badge" :class="user.role.toLowerCase()">
           {{ user.role }}: {{ user.username }}
         </span>
@@ -297,6 +306,21 @@ const route = useRoute()
 const router = useRouter()
 const endpointId = route.params.id
 
+const isDarkMode = ref(true)
+
+const toggleTheme = () => {
+  isDarkMode.value = !isDarkMode.value
+  if (isDarkMode.value) {
+    localStorage.setItem('theme', 'dark')
+    document.body.classList.add('dark-mode')
+    document.body.classList.remove('light-mode')
+  } else {
+    localStorage.setItem('theme', 'light')
+    document.body.classList.add('light-mode')
+    document.body.classList.remove('dark-mode')
+  }
+}
+
 const user = ref(null)
 const endpoint = ref(null)
 const uptimeReport = ref(null)
@@ -426,6 +450,9 @@ const handleLogout = async () => {
 }
 
 onMounted(() => {
+  const currentTheme = localStorage.getItem('theme') || 'dark'
+  isDarkMode.value = currentTheme === 'dark'
+
   const storedUser = localStorage.getItem('user')
   if (storedUser) {
     user.value = JSON.parse(storedUser)
@@ -1046,6 +1073,207 @@ h2 {
 }
 :deep(.p-button-text.p-button-danger:hover) {
   background-color: rgba(255, 0, 0, 0.08) !important;
+  color: #FF0000 !important;
+}
+
+/* ==========================================================================
+   Light Mode Theme Scoping Overrides
+   ========================================================================== */
+:global(body.light-mode) .detail-wrapper {
+  background-color: #f1f5f9;
+}
+:global(body.light-mode) .app-nav {
+  background-color: #ffffff;
+  border-bottom: 1px solid #e2e8f0;
+}
+:global(body.light-mode) .brand {
+  color: #0f172a;
+}
+:global(body.light-mode) .brand-icon {
+  color: #0f172a;
+}
+:global(body.light-mode) .user-badge.admin {
+  background-color: rgba(4, 159, 108, 0.08);
+  color: #049f6c;
+  border: 1px solid rgba(4, 159, 108, 0.15);
+}
+:global(body.light-mode) .user-badge.viewer {
+  background-color: #f1f5f9;
+  color: #475569;
+  border: 1px solid #cbd5e1;
+}
+:global(body.light-mode) .status-badge {
+  background-color: #ffffff;
+}
+:global(body.light-mode) .status-badge.active {
+  border: 1px solid #cbd5e1;
+  color: #334155;
+}
+:global(body.light-mode) .status-badge.disabled {
+  border: 1px solid #cbd5e1;
+  color: #64748b;
+}
+:global(body.light-mode) .monitoring-badge {
+  background-color: #ffffff;
+}
+:global(body.light-mode) .monitoring-badge.enabled {
+  border: 1px solid #cbd5e1;
+  color: #334155;
+}
+:global(body.light-mode) .monitoring-badge.disabled {
+  border: 1px solid #FF0000;
+  color: #FF0000;
+}
+:global(body.light-mode) .loading-state {
+  color: #475569;
+}
+:global(body.light-mode) .spinner-icon {
+  color: #0f172a;
+}
+:global(body.light-mode) .error-message {
+  background-color: #fef2f2;
+}
+:global(body.light-mode) .overview-card,
+:global(body.light-mode) .toolbar-card,
+:global(body.light-mode) .visualizer-container,
+:global(body.light-mode) .metric-card {
+  background-color: #ffffff !important;
+  border: 1px solid #e2e8f0 !important;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.02) !important;
+}
+:global(body.light-mode) .main-icon-styled {
+  background-color: #f8fafc;
+  border: 1px solid #cbd5e1;
+  color: #475569;
+}
+:global(body.light-mode) .ip-display {
+  color: #475569;
+}
+:global(body.light-mode) h2 {
+  color: #0f172a;
+}
+:global(body.light-mode) .meta-label {
+  color: #475569;
+}
+:global(body.light-mode) .meta-value {
+  color: #0f172a;
+}
+:global(body.light-mode) .meta-value.desc {
+  color: #475569;
+}
+:global(body.light-mode) .toolbar-title {
+  color: #0f172a;
+}
+:global(body.light-mode) .date-picker-input {
+  background-color: #ffffff;
+  border: 1px solid #cbd5e1;
+  color: #0f172a;
+}
+:global(body.light-mode) .date-picker-input:focus {
+  border-color: #049f6c;
+}
+:global(body.light-mode) .metric-header {
+  color: #475569;
+}
+:global(body.light-mode) .metric-header i {
+  color: #64748b;
+}
+:global(body.light-mode) .metric-body .value {
+  color: #0f172a;
+}
+:global(body.light-mode) .metric-body .subtext {
+  color: #64748b;
+}
+:global(body.light-mode) .value.perfect { color: #334155; }
+:global(body.light-mode) .value.good { color: #334155; }
+:global(body.light-mode) .value.clean { color: #334155; }
+:global(body.light-mode) .panel-header {
+  border-bottom: 1px solid #e2e8f0;
+}
+:global(body.light-mode) .panel-header h3 {
+  color: #0f172a;
+}
+:global(body.light-mode) .header-icon {
+  color: #0f172a;
+}
+:global(body.light-mode) .panel-desc {
+  color: #475569;
+}
+:global(body.light-mode) .total-badge {
+  background-color: #f8fafc;
+  border: 1px solid #e2e8f0;
+  color: #475569;
+}
+:global(body.light-mode) .audit-table th {
+  background-color: #f8fafc;
+  color: #475569;
+  border-bottom: 2px solid #e2e8f0;
+}
+:global(body.light-mode) .audit-table td {
+  color: #334155;
+  border-bottom: 1px solid #e2e8f0;
+}
+:global(body.light-mode) .audit-table tr:hover {
+  background-color: #f8fafc;
+}
+:global(body.light-mode) .table-empty {
+  color: #64748b;
+}
+:global(body.light-mode) .text-success { color: #334155; }
+:global(body.light-mode) .table-badge.up {
+  color: #334155;
+}
+:global(body.light-mode) .table-detail-badge.up {
+  color: #334155;
+}
+
+/* Light mode PrimeVue overrides */
+:global(body.light-mode) :deep(.p-button) {
+  background-color: #ffffff !important;
+  border: 1px solid #cbd5e1 !important;
+  color: #475569 !important;
+}
+:global(body.light-mode) :deep(.p-button:hover) {
+  background-color: #f8fafc !important;
+  border-color: #94a3b8 !important;
+  color: #0f172a !important;
+}
+:global(body.light-mode) :deep(.p-button:not(.p-button-outlined)) {
+  background-color: #0f172a !important;
+  border-color: #0f172a !important;
+  color: #ffffff !important;
+}
+:global(body.light-mode) :deep(.p-button:not(.p-button-outlined):hover) {
+  background-color: #334155 !important;
+  border-color: #334155 !important;
+  color: #ffffff !important;
+}
+:global(body.light-mode) .back-btn {
+  background-color: #ffffff !important;
+  border: 1px solid #cbd5e1 !important;
+  color: #334155 !important;
+}
+:global(body.light-mode) :deep(.p-button-danger) {
+  background-color: #ffffff !important;
+  border: 1px solid #FF0000 !important;
+  color: #FF0000 !important;
+}
+:global(body.light-mode) :deep(.p-button-danger:hover) {
+  background-color: rgba(255, 0, 0, 0.05) !important;
+  border-color: #FF0000 !important;
+  color: #FF0000 !important;
+}
+:global(body.light-mode) :deep(.p-button-text) {
+  background: transparent !important;
+  border-color: transparent !important;
+  color: #475569 !important;
+}
+:global(body.light-mode) :deep(.p-button-text:hover) {
+  background-color: rgba(0,0,0,0.05) !important;
+  color: #0f172a !important;
+}
+:global(body.light-mode) :deep(.p-button-text.p-button-danger:hover) {
+  background-color: rgba(255, 0, 0, 0.05) !important;
   color: #FF0000 !important;
 }
 </style>

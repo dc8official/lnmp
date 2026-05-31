@@ -7,6 +7,15 @@
         <span>lnmp Monitoring</span>
       </div>
       <div class="user-profile" v-if="user">
+        <Button
+          :icon="isDarkMode ? 'pi pi-sun' : 'pi pi-moon'"
+          @click="toggleTheme"
+          text
+          severity="secondary"
+          size="small"
+          class="theme-toggle-btn"
+          style="color: #A3A3A3 !important; padding: 0.25rem !important;"
+        />
         <span class="user-badge" :class="user.role.toLowerCase()">
           {{ user.username }} ({{ user.role }})
         </span>
@@ -466,6 +475,21 @@ import Password from 'primevue/password'
 import Message from 'primevue/message'
 
 const router = useRouter()
+const isDarkMode = ref(true)
+
+const toggleTheme = () => {
+  isDarkMode.value = !isDarkMode.value
+  if (isDarkMode.value) {
+    localStorage.setItem('theme', 'dark')
+    document.body.classList.add('dark-mode')
+    document.body.classList.remove('light-mode')
+  } else {
+    localStorage.setItem('theme', 'light')
+    document.body.classList.add('light-mode')
+    document.body.classList.remove('dark-mode')
+  }
+}
+
 const endpoints = ref([])
 const loading = ref(false)
 const error = ref(null)
@@ -761,6 +785,9 @@ const executeChangePassword = async () => {
 }
 
 onMounted(() => {
+  const currentTheme = localStorage.getItem('theme') || 'dark'
+  isDarkMode.value = currentTheme === 'dark'
+
   const storedUser = localStorage.getItem('user')
   if (storedUser) {
     user.value = JSON.parse(storedUser)
@@ -1245,6 +1272,160 @@ h1 {
 .form-help {
   font-size: 0.75rem;
   color: #A3A3A3;
-  margin-top: 0.2rem;
+  margin-top: 0.25rem;
+}
+
+/* ==========================================================================
+   Light Mode Theme Scoping Overrides
+   ========================================================================== */
+:global(body.light-mode) .dashboard-wrapper {
+  background-color: #f1f5f9;
+}
+:global(body.light-mode) .app-nav {
+  background-color: #ffffff;
+  border-bottom: 1px solid #e2e8f0;
+}
+:global(body.light-mode) .brand {
+  color: #0f172a;
+}
+:global(body.light-mode) .brand-icon {
+  color: #0f172a;
+}
+:global(body.light-mode) .user-badge.admin {
+  background-color: rgba(4, 159, 108, 0.08);
+  color: #049f6c;
+  border: 1px solid rgba(4, 159, 108, 0.15);
+}
+:global(body.light-mode) .user-badge.viewer {
+  background-color: #f1f5f9;
+  color: #475569;
+  border: 1px solid #cbd5e1;
+}
+:global(body.light-mode) .stat-card,
+:global(body.light-mode) .users-table-card,
+:global(body.light-mode) .incident-ticker {
+  background-color: #ffffff !important;
+  border: 1px solid #e2e8f0 !important;
+}
+:global(body.light-mode) .stat-value {
+  color: #0f172a;
+}
+:global(body.light-mode) .stat-title {
+  color: #475569;
+}
+:global(body.light-mode) .stat-desc {
+  color: #64748b;
+}
+:global(body.light-mode) .section-header h2 {
+  color: #0f172a;
+}
+:global(body.light-mode) .refresh-text {
+  color: #475569;
+}
+:global(body.light-mode) .dashboard-tabs {
+  border-bottom: 1px solid #cbd5e1;
+}
+:global(body.light-mode) .tab-btn {
+  color: #475569;
+}
+:global(body.light-mode) .tab-btn:hover {
+  color: #0f172a;
+}
+:global(body.light-mode) .tab-btn.active {
+  color: #049f6c;
+  border-bottom-color: #049f6c;
+}
+:global(body.light-mode) .users-table th {
+  background-color: #f8fafc;
+  color: #475569;
+  border-bottom: 2px solid #e2e8f0;
+}
+:global(body.light-mode) .users-table td {
+  color: #334155;
+  border-bottom: 1px solid #e2e8f0;
+}
+:global(body.light-mode) .users-table tr.self-row {
+  background-color: rgba(4, 159, 108, 0.02);
+}
+:global(body.light-mode) .users-table tr:hover {
+  background-color: #f8fafc;
+}
+:global(body.light-mode) .self-tag {
+  color: #049f6c;
+  background-color: rgba(4, 159, 108, 0.08);
+  border: 1px solid rgba(4, 159, 108, 0.15);
+}
+:global(body.light-mode) .status-indicator {
+  color: #475569;
+  background-color: #f1f5f9;
+  border: 1px solid #cbd5e1;
+}
+:global(body.light-mode) .status-indicator.active {
+  color: #049f6c;
+  background-color: rgba(4, 159, 108, 0.08);
+  border: 1px solid rgba(4, 159, 108, 0.15);
+}
+:global(body.light-mode) .date-col {
+  color: #475569;
+}
+:global(body.light-mode) .warning-alert {
+  background-color: #fffbeb !important;
+  color: #b45309 !important;
+  border: 1px solid #fef3c7 !important;
+  border-left: 3px solid #f59e0b !important;
+}
+:global(body.light-mode) .form-help {
+  color: #64748b;
+}
+
+/* Light mode PrimeVue overrides */
+:global(body.light-mode) :deep(.p-button) {
+  background-color: #ffffff !important;
+  border: 1px solid #cbd5e1 !important;
+  color: #475569 !important;
+}
+:global(body.light-mode) :deep(.p-button:hover) {
+  background-color: #f8fafc !important;
+  border-color: #94a3b8 !important;
+  color: #0f172a !important;
+}
+:global(body.light-mode) :deep(.p-button:not(.p-button-outlined)) {
+  background-color: #0f172a !important;
+  border-color: #0f172a !important;
+  color: #ffffff !important;
+}
+:global(body.light-mode) :deep(.p-button:not(.p-button-outlined):hover) {
+  background-color: #334155 !important;
+  border-color: #334155 !important;
+  color: #ffffff !important;
+}
+:global(body.light-mode) :deep(.p-button-danger) {
+  background-color: #fef2f2 !important;
+  border-color: #fee2e2 !important;
+  color: #ef4444 !important;
+}
+:global(body.light-mode) :deep(.p-button-danger:hover) {
+  background-color: #fef2f2 !important;
+  border-color: #fca5a5 !important;
+}
+:global(body.light-mode) :deep(.p-inputtext) {
+  background-color: #ffffff !important;
+  border: 1px solid #cbd5e1 !important;
+  color: #0f172a !important;
+}
+:global(body.light-mode) :deep(.p-inputtext:focus) {
+  border-color: #049f6c !important;
+}
+:global(body.light-mode) :deep(.p-dialog) {
+  background-color: #ffffff !important;
+  border: 1px solid #cbd5e1 !important;
+  color: #0f172a !important;
+  box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1) !important;
+}
+:global(body.light-mode) :deep(.p-dialog-header),
+:global(body.light-mode) :deep(.p-dialog-content),
+:global(body.light-mode) :deep(.p-dialog-footer) {
+  background-color: #ffffff !important;
+  color: #0f172a !important;
 }
 </style>

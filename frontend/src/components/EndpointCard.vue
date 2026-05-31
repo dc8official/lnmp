@@ -214,4 +214,45 @@ const timeAgo = computed(() => {
 .last-seen {
   color: #A3A3A3;
 }
+
+/* Light Mode Overrides */
+:global(body.light-mode) .endpoint-card {
+  background-color: #ffffff !important;
+  border: 1px solid #e2e8f0 !important;
+}
+:global(body.light-mode) .endpoint-card:hover {
+  border-color: #94a3b8 !important;
+}
+:global(body.light-mode) .hostname {
+  color: #0f172a;
+}
+:global(body.light-mode) .ip-address {
+  color: #475569;
+}
+:global(body.light-mode) .action-btn {
+  color: #475569 !important;
+}
+:global(body.light-mode) .action-btn:hover {
+  color: #0f172a !important;
+  background-color: rgba(0,0,0,0.05) !important;
+}
+:global(body.light-mode) .action-btn.delete:hover {
+  color: #FF0000 !important;
+  background-color: rgba(255,0,0,0.05) !important;
+}
+:global(body.light-mode) .state-text.up {
+  color: #334155 !important;
+}
+:global(body.light-mode) .metrics-row {
+  border-top: 1px solid #e2e8f0;
+}
+:global(body.light-mode) .metric-label {
+  color: #475569;
+}
+:global(body.light-mode) .metric-value {
+  color: #0f172a;
+}
+:global(body.light-mode) .last-seen {
+  color: #64748b;
+}
 </style>

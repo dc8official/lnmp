@@ -215,4 +215,47 @@ label {
   background-color: #A3A3A3 !important;
   border-color: #A3A3A3 !important;
 }
+
+/* Light Mode Overrides */
+:global(body.light-mode) .login-wrapper {
+  background-color: #f1f5f9;
+}
+:global(body.light-mode) .glass-container {
+  background-color: #ffffff;
+  border: 1px solid #e2e8f0;
+}
+:global(body.light-mode) .brand-icon {
+  color: #0f172a;
+  background-color: #f8fafc;
+  border: 1px solid #cbd5e1;
+}
+:global(body.light-mode) h2 {
+  color: #0f172a;
+}
+:global(body.light-mode) .brand-subtitle {
+  color: #475569;
+}
+:global(body.light-mode) label {
+  color: #475569;
+}
+:global(body.light-mode) .field-icon {
+  color: #64748b;
+}
+:global(body.light-mode) :deep(.p-inputtext) {
+  background-color: #ffffff !important;
+  border: 1px solid #cbd5e1 !important;
+  color: #0f172a !important;
+}
+:global(body.light-mode) :deep(.p-inputtext:focus) {
+  border-color: #049f6c !important;
+}
+:global(body.light-mode) .submit-button {
+  background-color: #0f172a !important;
+  border-color: #0f172a !important;
+  color: #ffffff !important;
+}
+:global(body.light-mode) .submit-button:hover {
+  background-color: #334155 !important;
+  border-color: #334155 !important;
+}
 </style>

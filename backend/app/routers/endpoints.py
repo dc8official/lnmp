@@ -49,7 +49,39 @@ async def list_endpoints(
             ev.operational_state  AS current_operational_state,
             ev.detailed_state     AS current_detailed_state,
             ev.health_score       AS current_health_score,
-            ev.start_time         AS last_seen
+            ev.start_time         AS last_seen,
+            COALESCE(
+                (
+                    SELECT
+                        ROUND(
+                            (
+                                COALESCE(
+                                    SUM(
+                                        CASE WHEN sub_ev.operational_state = 'UP' THEN
+                                            EXTRACT(EPOCH FROM (
+                                                LEAST(COALESCE(sub_ev.end_time, now()), now()) -
+                                                GREATEST(sub_ev.start_time, now() - INTERVAL '24 hours')
+                                            ))
+                                        ELSE 0 END
+                                    ),
+                                    0
+                                ) /
+                                NULLIF(
+                                    EXTRACT(EPOCH FROM (
+                                        now() - GREATEST(e.created_at, now() - INTERVAL '24 hours')
+                                    )),
+                                    0
+                                )
+                            )::numeric * 100,
+                            2
+                        )
+                    FROM endpoint_events sub_ev
+                    WHERE sub_ev.endpoint_id = e.id
+                      AND sub_ev.start_time < now()
+                      AND (sub_ev.end_time > now() - INTERVAL '24 hours' OR sub_ev.end_time IS NULL)
+                ),
+                100.0
+            ) AS uptime_percentage_24h
         FROM endpoints e
         LEFT JOIN endpoint_events ev
             ON ev.endpoint_id = e.id
@@ -84,7 +116,7 @@ async def list_endpoints(
             "current_detailed_state": row.current_detailed_state if row.current_detailed_state else "DOWN",
             "current_health_score": row.current_health_score if row.current_health_score is not None else 0.0,
             "last_seen": row.last_seen,
-            "uptime_percentage_24h": 0.0,
+            "uptime_percentage_24h": float(row.uptime_percentage_24h) if row.uptime_percentage_24h is not None else 100.0,
         })
         
     meta = PaginationMeta(
@@ -118,7 +150,39 @@ async def get_endpoint(
             ev.operational_state  AS current_operational_state,
             ev.detailed_state     AS current_detailed_state,
             ev.health_score       AS current_health_score,
-            ev.start_time         AS last_seen
+            ev.start_time         AS last_seen,
+            COALESCE(
+                (
+                    SELECT
+                        ROUND(
+                            (
+                                COALESCE(
+                                    SUM(
+                                        CASE WHEN sub_ev.operational_state = 'UP' THEN
+                                            EXTRACT(EPOCH FROM (
+                                                LEAST(COALESCE(sub_ev.end_time, now()), now()) -
+                                                GREATEST(sub_ev.start_time, now() - INTERVAL '24 hours')
+                                            ))
+                                        ELSE 0 END
+                                    ),
+                                    0
+                                ) /
+                                NULLIF(
+                                    EXTRACT(EPOCH FROM (
+                                        now() - GREATEST(e.created_at, now() - INTERVAL '24 hours')
+                                    )),
+                                    0
+                                )
+                            )::numeric * 100,
+                            2
+                        )
+                    FROM endpoint_events sub_ev
+                    WHERE sub_ev.endpoint_id = e.id
+                      AND sub_ev.start_time < now()
+                      AND (sub_ev.end_time > now() - INTERVAL '24 hours' OR sub_ev.end_time IS NULL)
+                ),
+                100.0
+            ) AS uptime_percentage_24h
         FROM endpoints e
         LEFT JOIN endpoint_events ev
             ON ev.endpoint_id = e.id
@@ -148,7 +212,7 @@ async def get_endpoint(
         "current_detailed_state": row.current_detailed_state if row.current_detailed_state else "DOWN",
         "current_health_score": row.current_health_score if row.current_health_score is not None else 0.0,
         "last_seen": row.last_seen,
-        "uptime_percentage_24h": 0.0,
+        "uptime_percentage_24h": float(row.uptime_percentage_24h) if row.uptime_percentage_24h is not None else 100.0,
     }
     
     return APIResponse.success(data=data)
