@@ -26,12 +26,6 @@ class UptimeReport(BaseModel):
             raise ValueError("uptime_percentage must be between 0.0 and 100.0 inclusive")
         return v
 
-    @model_validator(mode="after")
-    def validate_total_seconds(self) -> "UptimeReport":
-        if self.uptime_seconds + self.downtime_seconds + self.unknown_seconds != self.total_seconds:
-            raise ValueError("uptime_seconds + downtime_seconds + unknown_seconds must equal total_seconds")
-        return self
-
 class IncidentRecord(BaseModel):
     endpoint_id: UUID
     incident_start: datetime
