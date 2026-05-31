@@ -102,50 +102,60 @@ async def main() -> None:
         await resolve_startup_state(db)
         await db.commit()
 
-    async with AsyncSessionLocal() as db:
-        result = await db.execute(
-            text(
-                "SELECT id, ip_address FROM endpoints "
-                "WHERE endpoint_status = 'ACTIVE' "
-                "AND monitoring_enabled = TRUE"
-            )
-        )
-        active_endpoints = result.fetchall()
-
-    if not active_endpoints:
-        logger.warning(
-            "No active endpoints found. Engine running with no monitoring tasks."
-        )
-
     state_machine = StateMachine(confirmation_threshold=3)
 
-    tasks = []
-
-    tasks.append(
-        asyncio.create_task(
-            run_daily_split_scheduler(on_split_complete)
-        )
+    # Spawn daily split scheduler task once at startup
+    scheduler_task = asyncio.create_task(
+        run_daily_split_scheduler(on_split_complete)
     )
 
-    for row in active_endpoints:
-        endpoint_id = UUID(str(row.id))
-        ip_address = str(row.ip_address).split('/')[0]
-        tasks.append(
-            asyncio.create_task(
-                monitor_endpoint(
-                    endpoint_id,
-                    ip_address,
-                    state_machine,
+    running_tasks: dict[str, asyncio.Task] = {}
+
+    while True:
+        try:
+            async with AsyncSessionLocal() as db:
+                result = await db.execute(
+                    text(
+                        "SELECT id, ip_address FROM endpoints "
+                        "WHERE endpoint_status = 'ACTIVE' "
+                        "AND monitoring_enabled = TRUE"
+                    )
                 )
-            )
-        )
+                active_endpoints = result.fetchall()
 
-    logger.info(
-        "Engine running: %d endpoint tasks, 1 scheduler task.",
-        len(active_endpoints),
-    )
+            # Map of current active endpoints in PostgreSQL
+            db_active_ids = {}
+            for row in active_endpoints:
+                db_active_ids[str(row.id)] = str(row.ip_address).split('/')[0]
 
-    await asyncio.gather(*tasks)
+            # Dynamic Removal: cancel tasks for deactivated or deleted targets
+            for endpoint_id_str, task in list(running_tasks.items()):
+                if endpoint_id_str not in db_active_ids:
+                    logger.info("Deactivating monitoring task for endpoint %s", endpoint_id_str)
+                    task.cancel()
+                    running_tasks.pop(endpoint_id_str)
+                    async with states_lock:
+                        if endpoint_id_str in endpoint_states:
+                            endpoint_states.pop(endpoint_id_str)
+
+            # Dynamic Addition: spawn tasks for newly active/enabled targets
+            for endpoint_id_str, ip_address in db_active_ids.items():
+                if endpoint_id_str not in running_tasks:
+                    logger.info("Spawning monitoring task for endpoint %s at %s", endpoint_id_str, ip_address)
+                    endpoint_uuid = UUID(endpoint_id_str)
+                    task = asyncio.create_task(
+                        monitor_endpoint(
+                            endpoint_uuid,
+                            ip_address,
+                            state_machine,
+                        )
+                    )
+                    running_tasks[endpoint_id_str] = task
+
+        except Exception as e:
+            logger.error("Error in master orchestration loop: %s: %s", type(e).__name__, e)
+
+        await asyncio.sleep(30)
 
 
 if __name__ == "__main__":
