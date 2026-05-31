@@ -1,6 +1,7 @@
 from __future__ import annotations
 import asyncio
 import logging
+from datetime import datetime, timezone
 from uuid import UUID
 from sqlalchemy import text
 from app.database import AsyncSessionLocal
@@ -31,9 +32,55 @@ async def monitor_endpoint(
     async with states_lock:
         endpoint_states[str(endpoint_id)] = state
 
+    # Fractional First-Minute Handling:
+    # When a brand-new endpoint is registered and detected mid-minute (state is None),
+    # immediately fire a single baseline validation ping, write it to database,
+    # and sleep until the next top-of-the-minute boundary.
+    if state is None:
+        now_utc = datetime.now(timezone.utc)
+        if now_utc.second != 0 or now_utc.microsecond != 0:
+            logger.info(
+                "Endpoint %s is brand-new and detected mid-minute at %s. Firing baseline validation ping.",
+                str(endpoint_id),
+                now_utc,
+            )
+            try:
+                result = await run_ping_cycle(
+                    ip_address=ip_address,
+                    count=1,
+                    interval=6.0,
+                    timeout=2.0,
+                    privileged=True,
+                )
+
+                async with AsyncSessionLocal() as db:
+                    new_state = await state_machine.create_initial_event(
+                        endpoint_id, result, db
+                    )
+                    await db.commit()
+
+                async with states_lock:
+                    endpoint_states[str(endpoint_id)] = new_state
+                    state = new_state
+
+            except Exception as e:
+                logger.error(
+                    "Error in baseline validation ping for %s: %s: %s",
+                    ip_address,
+                    type(e).__name__,
+                    e,
+                )
+
+            # Sleep until the next top-of-the-minute boundary
+            now_utc = datetime.now(timezone.utc)
+            remaining_seconds = 60.0 - now_utc.second - (now_utc.microsecond / 1_000_000.0)
+            logger.info(
+                "Sleeping for %.4f seconds until the next top-of-the-minute boundary.",
+                remaining_seconds,
+            )
+            await asyncio.sleep(remaining_seconds)
+
     while True:
-        cycle_start = asyncio.get_event_loop().time()
-        
         try:
             result = await run_ping_cycle(
                 ip_address=ip_address,
@@ -68,9 +115,14 @@ async def monitor_endpoint(
                 e,
             )
 
-        elapsed = asyncio.get_event_loop().time() - cycle_start
-        sleep_time = max(0.0, 60.0 - elapsed)
-        await asyncio.sleep(sleep_time)
+        # Absolute Minute Loop Alignment:
+        # Dynamically compute the exact remaining seconds required to hit the top of the next absolute minute.
+        now_utc = datetime.now(timezone.utc)
+        remaining_seconds = 60.0 - now_utc.second - (now_utc.microsecond / 1_000_000.0)
+        if remaining_seconds <= 0:
+            remaining_seconds += 60.0
+
+        await asyncio.sleep(remaining_seconds)
 
 
 async def on_split_complete(

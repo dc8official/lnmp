@@ -1,8 +1,8 @@
 from __future__ import annotations
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Literal, Optional
 from uuid import UUID
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, field_validator, field_serializer
 
 class EventRecord(BaseModel):
     id: UUID
@@ -29,3 +29,21 @@ class EventRecord(BaseModel):
         if not (0.0 <= v <= 100.0):
             raise ValueError("health_score must be between 0.0 and 100.0 inclusive")
         return v
+
+    @field_serializer("start_time")
+    def serialize_start_time(self, v: datetime) -> str:
+        if v.tzinfo is None:
+            v = v.replace(tzinfo=timezone.utc)
+        else:
+            v = v.astimezone(timezone.utc)
+        return v.isoformat().replace("+00:00", "Z")
+
+    @field_serializer("end_time")
+    def serialize_end_time(self, v: Optional[datetime]) -> Optional[str]:
+        if v is None:
+            return None
+        if v.tzinfo is None:
+            v = v.replace(tzinfo=timezone.utc)
+        else:
+            v = v.astimezone(timezone.utc)
+        return v.isoformat().replace("+00:00", "Z")

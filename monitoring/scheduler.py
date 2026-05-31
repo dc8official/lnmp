@@ -133,7 +133,7 @@ async def execute_daily_split(
             new_event_id = new_event_row.id
             updates[UUID(str(row.endpoint_id))] = UUID(str(new_event_id))
 
-    logger.info(f"Daily split complete: {len(rows)} events split at {open_time}")
+    logger.info("Daily split complete: %d events split at %s", len(rows), open_time)
     
     return updates
 

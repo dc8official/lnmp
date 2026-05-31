@@ -72,8 +72,13 @@ const chartData = computed(() => {
   const allSegments = []
 
   props.events.forEach(ev => {
-    const start = Math.max(new Date(ev.start_time).getTime(), pStart)
-    const end = ev.end_time ? Math.min(new Date(ev.end_time).getTime(), pEnd) : pEnd
+    const evStart = new Date(ev.start_time).getTime()
+    let evEnd = ev.end_time ? new Date(ev.end_time).getTime() : pEnd
+    if (evEnd === evStart) {
+      evEnd = evStart + 60000 // Each high-density event represents a 60-second cycle
+    }
+    const start = Math.max(evStart, pStart)
+    const end = Math.min(evEnd, pEnd)
     if (end > start) {
       allSegments.push({
         state: ev.detailed_state,

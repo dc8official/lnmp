@@ -1,6 +1,6 @@
 from __future__ import annotations
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Literal, Optional
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -35,6 +35,9 @@ async def list_endpoints(
     current_user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
+    now_utc = datetime.now(timezone.utc)
+    since_utc = now_utc - timedelta(hours=24)
+    
     query_str = """
         SELECT
             e.id,
@@ -55,41 +58,33 @@ async def list_endpoints(
                     SELECT
                         ROUND(
                             (
-                                COALESCE(
-                                    SUM(
-                                        CASE WHEN sub_ev.operational_state = 'UP' THEN
-                                            EXTRACT(EPOCH FROM (
-                                                LEAST(COALESCE(sub_ev.end_time, now()), now()) -
-                                                GREATEST(sub_ev.start_time, now() - INTERVAL '24 hours')
-                                            ))
-                                        ELSE 0 END
-                                    ),
-                                    0
-                                ) /
-                                NULLIF(
-                                    EXTRACT(EPOCH FROM (
-                                        now() - GREATEST(e.created_at, now() - INTERVAL '24 hours')
-                                    )),
-                                    0
-                                )
-                            )::numeric * 100,
+                                COUNT(CASE WHEN sub_ev.operational_state = 'UP' THEN 1 END)::numeric /
+                                NULLIF(COUNT(sub_ev.id), 0)::numeric
+                            ) * 100,
                             2
                         )
                     FROM endpoint_events sub_ev
                     WHERE sub_ev.endpoint_id = e.id
-                      AND sub_ev.start_time < now()
-                      AND (sub_ev.end_time > now() - INTERVAL '24 hours' OR sub_ev.end_time IS NULL)
+                      AND sub_ev.start_time >= :since_utc
+                      AND sub_ev.start_time <= :now_utc
                 ),
                 100.0
             ) AS uptime_percentage_24h
         FROM endpoints e
-        LEFT JOIN endpoint_events ev
-            ON ev.endpoint_id = e.id
-            AND ev.end_time IS NULL
+        LEFT JOIN LATERAL (
+            SELECT operational_state, detailed_state, health_score, start_time
+            FROM endpoint_events
+            WHERE endpoint_id = e.id
+            ORDER BY start_time DESC
+            LIMIT 1
+        ) ev ON TRUE
         WHERE e.endpoint_status != 'DELETED'
     """
     
-    params = {}
+    params = {
+        "now_utc": now_utc,
+        "since_utc": since_utc,
+    }
     if status is not None:
         query_str += " AND e.endpoint_status = :status"
         params["status"] = status
@@ -134,6 +129,8 @@ async def get_endpoint(
     current_user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
+    now_utc = datetime.now(timezone.utc)
+    since_utc = now_utc - timedelta(hours=24)
     query = text("""
         SELECT
             e.id,
@@ -156,41 +153,34 @@ async def get_endpoint(
                     SELECT
                         ROUND(
                             (
-                                COALESCE(
-                                    SUM(
-                                        CASE WHEN sub_ev.operational_state = 'UP' THEN
-                                            EXTRACT(EPOCH FROM (
-                                                LEAST(COALESCE(sub_ev.end_time, now()), now()) -
-                                                GREATEST(sub_ev.start_time, now() - INTERVAL '24 hours')
-                                            ))
-                                        ELSE 0 END
-                                    ),
-                                    0
-                                ) /
-                                NULLIF(
-                                    EXTRACT(EPOCH FROM (
-                                        now() - GREATEST(e.created_at, now() - INTERVAL '24 hours')
-                                    )),
-                                    0
-                                )
-                            )::numeric * 100,
+                                COUNT(CASE WHEN sub_ev.operational_state = 'UP' THEN 1 END)::numeric /
+                                NULLIF(COUNT(sub_ev.id), 0)::numeric
+                            ) * 100,
                             2
                         )
                     FROM endpoint_events sub_ev
                     WHERE sub_ev.endpoint_id = e.id
-                      AND sub_ev.start_time < now()
-                      AND (sub_ev.end_time > now() - INTERVAL '24 hours' OR sub_ev.end_time IS NULL)
+                      AND sub_ev.start_time >= :since_utc
+                      AND sub_ev.start_time <= :now_utc
                 ),
                 100.0
             ) AS uptime_percentage_24h
         FROM endpoints e
-        LEFT JOIN endpoint_events ev
-            ON ev.endpoint_id = e.id
-            AND ev.end_time IS NULL
+        LEFT JOIN LATERAL (
+            SELECT operational_state, detailed_state, health_score, start_time
+            FROM endpoint_events
+            WHERE endpoint_id = e.id
+            ORDER BY start_time DESC
+            LIMIT 1
+        ) ev ON TRUE
         WHERE e.id = :endpoint_id
           AND e.endpoint_status != 'DELETED'
     """)
-    result = await db.execute(query, {"endpoint_id": str(endpoint_id)})
+    result = await db.execute(query, {
+        "endpoint_id": str(endpoint_id),
+        "now_utc": now_utc,
+        "since_utc": since_utc,
+    })
     row = result.fetchone()
     
     if not row:

@@ -50,6 +50,10 @@ const hasData = computed(() => {
   return validEvents.value.length > 0
 })
 
+const optimalPointRadius = computed(() => {
+  return validEvents.value.length > 100 ? 0 : 4
+})
+
 const formatTime = (isoString) => {
   const d = new Date(isoString)
   return `${d.getUTCHours().toString().padStart(2, '0')}:${d.getUTCMinutes().toString().padStart(2, '0')} UTC`
@@ -83,7 +87,7 @@ const chartData = computed(() => {
         backgroundColor: '#FFFFFF',
         borderWidth: 2,
         pointStyle: 'circle',
-        pointRadius: 4,
+        pointRadius: optimalPointRadius.value,
         spanGaps: true
       },
       {
@@ -94,7 +98,7 @@ const chartData = computed(() => {
         borderWidth: 2,
         borderDash: [5, 5],
         pointStyle: 'circle',
-        pointRadius: 4,
+        pointRadius: optimalPointRadius.value,
         pointBackgroundColor: '#000000',
         spanGaps: true
       }

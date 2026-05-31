@@ -52,9 +52,7 @@ class StateMachine:
         """
         Called once per endpoint when the monitoring engine starts.
 
-        Looks for an existing open event in the database for this endpoint.
-        If found, loads it as the current state. If not found, returns None
-        so the engine can call create_initial_event on the next ping cycle.
+        Looks for the latest event in the database for this endpoint to load the state.
         """
         row = (
             await db.execute(
@@ -63,7 +61,7 @@ class StateMachine:
                     SELECT id, operational_state, detailed_state
                     FROM endpoint_events
                     WHERE endpoint_id = :endpoint_id
-                      AND end_time IS NULL
+                    ORDER BY start_time DESC
                     LIMIT 1
                     """
                 ),
@@ -90,7 +88,7 @@ class StateMachine:
         db: AsyncSession,
     ) -> EndpointState:
         """
-        Called on the first ping cycle for an endpoint when no existing open
+        Called on the first ping cycle for an endpoint when no existing
         event was found. Creates the first event row and returns the initial
         EndpointState.
         """
@@ -112,6 +110,8 @@ class StateMachine:
                         avg_rtt_ms,
                         is_split_event,
                         start_time,
+                        end_time,
+                        duration_seconds,
                         monitoring_cycle_count
                     ) VALUES (
                         :endpoint_id,
@@ -123,6 +123,8 @@ class StateMachine:
                         :avg_rtt_ms,
                         false,
                         :start_time,
+                        :end_time,
+                        0,
                         1
                     ) RETURNING id
                     """
@@ -136,6 +138,7 @@ class StateMachine:
                     "health_score": health_score,
                     "avg_rtt_ms": result.avg_rtt_ms,
                     "start_time": start_time,
+                    "end_time": start_time,
                 },
             )
         ).fetchone()
@@ -172,19 +175,11 @@ class StateMachine:
         # Step 1: Classify the new result.
         new_operational_state, new_detailed_state = classify_ping_result(result)
 
-        # Step 2: Always increment the active event, regardless of transition
-        # state.
-        await self._increment_active_event(
-            event_id=state.active_event_id,
-            avg_rtt_ms=result.avg_rtt_ms,
-            db=db,
-        )
-
-        # Step 3: Determine what to do based on state comparison.
+        # Step 2: Determine what to do based on state comparison.
 
         # CASE A: No change — endpoint remains in the confirmed state.
         if new_detailed_state == state.confirmed_detailed_state:
-            return EndpointState(
+            next_state = EndpointState(
                 endpoint_id=state.endpoint_id,
                 active_event_id=state.active_event_id,
                 confirmed_operational_state=state.confirmed_operational_state,
@@ -196,12 +191,12 @@ class StateMachine:
         # CASE B: A potential transition is occurring.
 
         # Sub-case B1: The pending state is continuing.
-        if new_detailed_state == state.pending_detailed_state:
+        elif new_detailed_state == state.pending_detailed_state:
             new_pending_count = state.pending_cycle_count + 1
 
             # Not yet at the confirmation threshold — keep accumulating.
             if new_pending_count < self.confirmation_threshold:
-                return EndpointState(
+                next_state = EndpointState(
                     endpoint_id=state.endpoint_id,
                     active_event_id=state.active_event_id,
                     confirmed_operational_state=state.confirmed_operational_state,
@@ -209,128 +204,37 @@ class StateMachine:
                     pending_detailed_state=new_detailed_state,
                     pending_cycle_count=new_pending_count,
                 )
-
-            # Step 4: Commit the transition.
-            transition_time = datetime.now(timezone.utc)
-
-            # 4b. Close the current active event.
-            await self._close_event(
-                event_id=state.active_event_id,
-                end_time=transition_time,
-                db=db,
-            )
-
-            # 4c. Open the new event.
-            new_event_id = await self._open_event(
-                endpoint_id=state.endpoint_id,
-                result=result,
-                operational_state=new_operational_state,
-                detailed_state=new_detailed_state,
-                start_time=transition_time,
-                db=db,
-            )
-
-            logger.info(
-                "Committed transition for endpoint %s: %s -> %s (new event %s)",
-                state.endpoint_id,
-                state.confirmed_detailed_state,
-                new_detailed_state,
-                new_event_id,
-            )
-
-            # 4d. Return the new confirmed state.
-            return EndpointState(
-                endpoint_id=state.endpoint_id,
-                active_event_id=new_event_id,
-                confirmed_operational_state=new_operational_state,
-                confirmed_detailed_state=new_detailed_state,
-                pending_detailed_state=None,
-                pending_cycle_count=0,
-            )
+            else:
+                # Transition confirmed!
+                next_state = EndpointState(
+                    endpoint_id=state.endpoint_id,
+                    active_event_id=state.active_event_id,
+                    confirmed_operational_state=new_operational_state,
+                    confirmed_detailed_state=new_detailed_state,
+                    pending_detailed_state=None,
+                    pending_cycle_count=0,
+                )
+                logger.info(
+                    "Committed transition for endpoint %s: %s -> %s",
+                    state.endpoint_id,
+                    state.confirmed_detailed_state,
+                    new_detailed_state,
+                )
 
         # Sub-case B2: No transition was pending, or the pending state has
         # changed to a third state. Reset the pending tracker.
-        return EndpointState(
-            endpoint_id=state.endpoint_id,
-            active_event_id=state.active_event_id,
-            confirmed_operational_state=state.confirmed_operational_state,
-            confirmed_detailed_state=state.confirmed_detailed_state,
-            pending_detailed_state=new_detailed_state,
-            pending_cycle_count=1,
-        )
+        else:
+            next_state = EndpointState(
+                endpoint_id=state.endpoint_id,
+                active_event_id=state.active_event_id,
+                confirmed_operational_state=state.confirmed_operational_state,
+                confirmed_detailed_state=state.confirmed_detailed_state,
+                pending_detailed_state=new_detailed_state,
+                pending_cycle_count=1,
+            )
 
-    # ------------------------------------------------------------------
-    # Private helpers
-    # ------------------------------------------------------------------
-
-    async def _increment_active_event(
-        self,
-        event_id: UUID,
-        avg_rtt_ms: Optional[float],
-        db: AsyncSession,
-    ) -> None:
-        """
-        Increments monitoring_cycle_count by 1 on the active event.
-        Updates avg_rtt_ms only when the new value is not None; if None,
-        the existing database value is preserved via COALESCE.
-        """
-        await db.execute(
-            text(
-                """
-                UPDATE endpoint_events
-                SET
-                    monitoring_cycle_count = monitoring_cycle_count + 1,
-                    avg_rtt_ms = COALESCE(:avg_rtt_ms, avg_rtt_ms)
-                WHERE id = :event_id
-                """
-            ),
-            {"event_id": str(event_id), "avg_rtt_ms": avg_rtt_ms},
-        )
-
-    async def _close_event(
-        self,
-        event_id: UUID,
-        end_time: datetime,
-        db: AsyncSession,
-    ) -> None:
-        """
-        Closes the active event by setting end_time and calculating
-        duration_seconds as the difference between end_time and start_time
-        in whole seconds.
-        """
-        await db.execute(
-            text(
-                """
-                UPDATE endpoint_events
-                SET
-                    end_time = :end_time,
-                    duration_seconds = EXTRACT(
-                        EPOCH FROM (:end_time - start_time)
-                    )::BIGINT
-                WHERE id = :event_id
-                """
-            ),
-            {"event_id": str(event_id), "end_time": end_time},
-        )
-
-    async def _open_event(
-        self,
-        endpoint_id: UUID,
-        result: PingResult,
-        operational_state: str,
-        detailed_state: str,
-        start_time: datetime,
-        db: AsyncSession,
-    ) -> UUID:
-        """
-        Inserts a new open event row and returns its UUID.
-
-        monitoring_cycle_count starts at 1 because this method is called from
-        process_cycle, which already called _increment_active_event on the
-        old event for this cycle. The new event's first cycle is the one that
-        committed the transition.
-        """
-        health_score = result.health_score
+        # Step 3: Insert the record for this cycle to the database.
+        execution_time = datetime.now(timezone.utc)
 
         row = (
             await db.execute(
@@ -346,6 +250,8 @@ class StateMachine:
                         avg_rtt_ms,
                         is_split_event,
                         start_time,
+                        end_time,
+                        duration_seconds,
                         monitoring_cycle_count
                     ) VALUES (
                         :endpoint_id,
@@ -357,24 +263,25 @@ class StateMachine:
                         :avg_rtt_ms,
                         false,
                         :start_time,
+                        :end_time,
+                        0,
                         1
                     ) RETURNING id
                     """
                 ),
                 {
-                    "endpoint_id": str(endpoint_id),
-                    "operational_state": operational_state,
-                    "detailed_state": detailed_state,
+                    "endpoint_id": str(state.endpoint_id),
+                    "operational_state": next_state.confirmed_operational_state,
+                    "detailed_state": next_state.confirmed_detailed_state,
                     "success_count": result.success_count,
                     "failed_count": result.failed_count,
-                    "health_score": health_score,
+                    "health_score": result.health_score,
                     "avg_rtt_ms": result.avg_rtt_ms,
-                    "start_time": start_time,
+                    "start_time": execution_time,
+                    "end_time": execution_time,
                 },
             )
         ).fetchone()
 
-        return row.id
-
-
-
+        next_state.active_event_id = row.id
+        return next_state

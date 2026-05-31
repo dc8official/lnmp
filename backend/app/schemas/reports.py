@@ -1,8 +1,8 @@
 from __future__ import annotations
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Literal, Optional
 from uuid import UUID
-from pydantic import BaseModel, field_validator, model_validator
+from pydantic import BaseModel, field_validator, field_serializer
 
 class UptimeReport(BaseModel):
     endpoint_id: UUID
@@ -26,6 +26,14 @@ class UptimeReport(BaseModel):
             raise ValueError("uptime_percentage must be between 0.0 and 100.0 inclusive")
         return v
 
+    @field_serializer("period_start", "period_end")
+    def serialize_period(self, v: datetime) -> str:
+        if v.tzinfo is None:
+            v = v.replace(tzinfo=timezone.utc)
+        else:
+            v = v.astimezone(timezone.utc)
+        return v.isoformat().replace("+00:00", "Z")
+
 class IncidentRecord(BaseModel):
     endpoint_id: UUID
     incident_start: datetime
@@ -39,3 +47,21 @@ class IncidentRecord(BaseModel):
     model_config = {
         "from_attributes": True
     }
+
+    @field_serializer("incident_start")
+    def serialize_incident_start(self, v: datetime) -> str:
+        if v.tzinfo is None:
+            v = v.replace(tzinfo=timezone.utc)
+        else:
+            v = v.astimezone(timezone.utc)
+        return v.isoformat().replace("+00:00", "Z")
+
+    @field_serializer("incident_end")
+    def serialize_incident_end(self, v: Optional[datetime]) -> Optional[str]:
+        if v is None:
+            return None
+        if v.tzinfo is None:
+            v = v.replace(tzinfo=timezone.utc)
+        else:
+            v = v.astimezone(timezone.utc)
+        return v.isoformat().replace("+00:00", "Z")

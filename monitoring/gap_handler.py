@@ -54,7 +54,7 @@ async def open_monitoring_gap(
     )
     closed_count = update_result.rowcount
     
-    logger.info(f"Monitoring gap opened (type={event_type}): {closed_count} endpoint events closed at {gap_start}")
+    logger.info("Monitoring gap opened (type=%s): %s endpoint events closed at %s", event_type, closed_count, gap_start)
     
     return UUID(str(gap_id))
 
@@ -81,7 +81,7 @@ async def close_monitoring_gap(
         }
     )
     
-    logger.info(f"Monitoring gap {gap_id} closed at {end_time}")
+    logger.info("Monitoring gap %s closed at %s", gap_id, end_time)
 
 async def resolve_startup_state(db: AsyncSession) -> None:
     query_select = text("""

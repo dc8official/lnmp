@@ -79,7 +79,11 @@ async def get_uptime_report(
     period_start, period_end = _build_period(start_date, end_date)
     
     # Cap period_start to the creation time so we don't skew uptime statistics for time before registration
-    effective_start = max(period_start, exists_row.created_at)
+    # Ensure exists_row.created_at is timezone-aware UTC
+    created_at = exists_row.created_at
+    if created_at.tzinfo is None:
+        created_at = created_at.replace(tzinfo=timezone.utc)
+    effective_start = max(period_start, created_at)
     total_seconds = max(1, int((period_end - effective_start).total_seconds()))
 
     query_gaps = text("""
@@ -96,9 +100,16 @@ async def get_uptime_report(
 
     unknown_seconds = 0
     for row in gap_rows:
-        gap_start = max(row.start_time, effective_start)
+        row_start_time = row.start_time
+        if row_start_time.tzinfo is None:
+            row_start_time = row_start_time.replace(tzinfo=timezone.utc)
+        row_end_time = row.end_time
+        if row_end_time is not None and row_end_time.tzinfo is None:
+            row_end_time = row_end_time.replace(tzinfo=timezone.utc)
+
+        gap_start = max(row_start_time, effective_start)
         gap_end = min(
-            row.end_time if row.end_time is not None else period_end,
+            row_end_time if row_end_time is not None else period_end,
             period_end
         )
         unknown_seconds += max(
@@ -109,8 +120,8 @@ async def get_uptime_report(
         SELECT operational_state, start_time, end_time
         FROM endpoint_events
         WHERE endpoint_id = :endpoint_id
-          AND start_time < :period_end
-          AND (end_time > :effective_start OR end_time IS NULL)
+          AND start_time >= :effective_start
+          AND start_time <= :period_end
         ORDER BY start_time ASC
     """)
     result_events = await db.execute(query_events, {
@@ -124,13 +135,7 @@ async def get_uptime_report(
     downtime_seconds = 0
 
     for row in event_rows:
-        ev_start = max(row.start_time, effective_start)
-        ev_end = min(
-            row.end_time if row.end_time is not None else period_end,
-            period_end
-        )
-        duration = max(0, int((ev_end - ev_start).total_seconds()))
-
+        duration = 60
         if row.operational_state == 'UP':
             uptime_seconds += duration
         else:
@@ -197,8 +202,8 @@ async def get_incident_report(
             end_time
         FROM endpoint_events
         WHERE endpoint_id = :endpoint_id
-          AND start_time < :period_end
-          AND (end_time > :period_start OR end_time IS NULL)
+          AND start_time >= :period_start
+          AND start_time <= :period_end
         ORDER BY start_time ASC
     """)
     result_events = await db.execute(query_events, {
@@ -236,12 +241,7 @@ async def get_incident_report(
         incidents.append(current_incident)
 
     for inc in incidents:
-        if inc["end"] is not None:
-            inc["duration_seconds"] = int(
-                (inc["end"] - inc["start"]).total_seconds()
-            )
-        else:
-            inc["duration_seconds"] = None
+        inc["duration_seconds"] = inc["count"] * 60
 
     total = len(incidents)
     total_pages = ceil(total / page_size) if total > 0 else 1
@@ -292,9 +292,8 @@ async def get_endpoint_events(
                    duration_seconds, monitoring_cycle_count
             FROM endpoint_events
             WHERE endpoint_id = :endpoint_id
-              AND start_time < :period_end
-              AND (end_time > :period_start
-                   OR end_time IS NULL)
+              AND start_time >= :period_start
+              AND start_time <= :period_end
             ORDER BY start_time ASC
         """),
         {
