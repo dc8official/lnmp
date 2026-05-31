@@ -104,18 +104,16 @@ const handleLogin = async () => {
   display: flex;
   justify-content: center;
   align-items: center;
-  background: radial-gradient(circle at 10% 20%, rgb(4, 159, 108) 0%, rgb(194, 254, 113) 90.1%);
+  background-color: #0A0A0A;
   padding: 1rem;
 }
 .glass-container {
   width: 100%;
   max-width: 440px;
-  backdrop-filter: blur(16px) saturate(180%);
-  -webkit-backdrop-filter: blur(16px) saturate(180%);
-  background-color: rgba(255, 255, 255, 0.75);
-  border-radius: 16px;
-  border: 1px solid rgba(209, 213, 219, 0.3);
-  box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.15);
+  background-color: #000000;
+  border-radius: 8px;
+  border: 1px solid #262626;
+  box-shadow: none;
 }
 .login-card {
   background: transparent !important;
@@ -128,22 +126,24 @@ const handleLogin = async () => {
   margin-bottom: 2rem;
 }
 .brand-icon {
-  font-size: 2.5rem;
-  color: #049f6c;
-  background-color: rgba(4, 159, 108, 0.1);
-  padding: 1rem;
-  border-radius: 50%;
+  font-size: 2rem;
+  color: #FFFFFF;
+  background-color: #0A0A0A;
+  border: 1px solid #262626;
+  padding: 0.85rem;
+  border-radius: 4px;
   margin-bottom: 1rem;
 }
 h2 {
-  font-size: 1.6rem;
+  font-size: 1.5rem;
   font-weight: 700;
-  color: #0f172a;
+  color: #FFFFFF;
   margin-bottom: 0.25rem;
+  letter-spacing: -0.02em;
 }
 .brand-subtitle {
-  color: #64748b;
-  font-size: 0.9rem;
+  color: #A3A3A3;
+  font-size: 0.85rem;
 }
 .login-form {
   display: flex;
@@ -159,9 +159,11 @@ h2 {
   gap: 0.5rem;
 }
 label {
-  font-size: 0.85rem;
+  font-size: 0.8rem;
   font-weight: 600;
-  color: #334155;
+  color: #A3A3A3;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
 }
 .input-with-icon {
   position: relative;
@@ -171,7 +173,7 @@ label {
 .field-icon {
   position: absolute;
   left: 0.75rem;
-  color: #94a3b8;
+  color: #A3A3A3;
   z-index: 10;
   pointer-events: none;
 }
@@ -186,17 +188,31 @@ label {
   width: 100%;
   padding-left: 2.25rem !important;
 }
+:deep(.p-inputtext) {
+  background-color: #000000 !important;
+  border: 1px solid #262626 !important;
+  color: #FFFFFF !important;
+  border-radius: 4px !important;
+}
+:deep(.p-inputtext:focus) {
+  border-color: #A3A3A3 !important;
+}
 .submit-button {
-  background-color: #049f6c !important;
-  border-color: #049f6c !important;
+  background-color: #FFFFFF !important;
+  border-color: #FFFFFF !important;
+  color: #000000 !important;
   padding: 0.75rem !important;
-  font-size: 1rem !important;
-  font-weight: 600 !important;
+  font-size: 0.9rem !important;
+  font-weight: 700 !important;
   margin-top: 1rem;
   width: 100%;
+  border-radius: 4px !important;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  transition: background-color 0.2s ease, border-color 0.2s ease;
 }
 .submit-button:hover {
-  background-color: #038459 !important;
-  border-color: #038459 !important;
+  background-color: #A3A3A3 !important;
+  border-color: #A3A3A3 !important;
 }
 </style>
