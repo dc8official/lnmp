@@ -85,8 +85,16 @@ export function logout() {
   return api.post('/auth/logout')
 }
 
-export function createEndpoint(data) {
-  return api.post('/endpoints/', data)
+export function createEndpoint(dataOrIp, hostname, device_type, location) {
+  if (typeof dataOrIp === 'object' && dataOrIp !== null) {
+    return api.post('/endpoints/', dataOrIp)
+  }
+  return api.post('/endpoints/', {
+    ip_address: dataOrIp,
+    hostname,
+    device_type,
+    location,
+  })
 }
 
 export function updateEndpoint(id, data) {
