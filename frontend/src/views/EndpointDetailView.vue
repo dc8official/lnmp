@@ -377,16 +377,16 @@ function getPastDateStr(daysAgo) {
 function getPastDateTimeStr(daysAgo) {
   const d = new Date()
   d.setDate(d.getDate() - daysAgo)
-  const year = d.getFullYear()
-  const month = String(d.getMonth() + 1).padStart(2, '0')
-  const day = String(d.getDate()).padStart(2, '0')
-  const hours = String(d.getHours()).padStart(2, '0')
-  const minutes = String(d.getMinutes()).padStart(2, '0')
+  const year = d.getUTCFullYear()
+  const month = String(d.getUTCMonth() + 1).padStart(2, '0')
+  const day = String(d.getUTCDate()).padStart(2, '0')
+  const hours = String(d.getUTCHours()).padStart(2, '0')
+  const minutes = String(d.getUTCMinutes()).padStart(2, '0')
   return `${year}-${month}-${day}T${hours}:${minutes}`
 }
 
 // Date Range filters
-const filterRange = ref('7d')
+const filterRange = ref('24h')
 const customStartDate = ref(getPastDateTimeStr(7))
 const customEndDate = ref(getPastDateTimeStr(0))
 
@@ -409,17 +409,21 @@ const loadTableEvents = async () => {
   loadingTable.value = true
   
   let start = ''
-  let end = getPastDateStr(0)
+  let end = ''
   
   if (filterRange.value === '24h') {
-    start = getPastDateStr(1)
-  } else if (filterRange.value === '7d') {
-    start = getPastDateStr(7)
-  } else if (filterRange.value === '30d') {
-    start = getPastDateStr(30)
+    start = getPastDateTimeStr(1)
+    end = getPastDateTimeStr(0)
   } else {
-    start = customStartDate.value
-    end = customEndDate.value
+    end = getPastDateStr(0)
+    if (filterRange.value === '7d') {
+      start = getPastDateStr(7)
+    } else if (filterRange.value === '30d') {
+      start = getPastDateStr(30)
+    } else {
+      start = customStartDate.value
+      end = customEndDate.value
+    }
   }
   
   try {
@@ -452,21 +456,25 @@ const loadData = async () => {
   tablePage.value = 1
   
   let start = ''
-  let end = getPastDateStr(0)
+  let end = ''
   
   if (filterRange.value === '24h') {
-    start = getPastDateStr(1)
-  } else if (filterRange.value === '7d') {
-    start = getPastDateStr(7)
-  } else if (filterRange.value === '30d') {
-    start = getPastDateStr(30)
+    start = getPastDateTimeStr(1)
+    end = getPastDateTimeStr(0)
   } else {
-    start = customStartDate.value
-    end = customEndDate.value
+    end = getPastDateStr(0)
+    if (filterRange.value === '7d') {
+      start = getPastDateStr(7)
+    } else if (filterRange.value === '30d') {
+      start = getPastDateStr(30)
+    } else {
+      start = customStartDate.value
+      end = customEndDate.value
+    }
   }
   
   // Format period boundary strings for visual components
-  if (filterRange.value === 'custom') {
+  if (filterRange.value === 'custom' || filterRange.value === '24h') {
     periodStartStr.value = `${start}:00Z`
     periodEndStr.value = `${end}:00Z`
   } else {

@@ -1,11 +1,11 @@
 <template>
   <div class="state-timeline">
-    <Bar v-if="chartData" :data="chartData" :options="chartOptions" />
+    <Bar v-if="chartData" :key="isDark" :data="chartData" :options="chartOptions" />
   </div>
 </template>
 
 <script setup>
-import { computed } from 'vue'
+import { ref, onMounted, onBeforeUnmount, computed } from 'vue'
 import { Bar } from 'vue-chartjs'
 import {
   Chart as ChartJS,
@@ -45,13 +45,33 @@ const props = defineProps({
   }
 })
 
-const STATE_COLORS = {
+const isDark = ref(true)
+let observer = null
+
+onMounted(() => {
+  isDark.value = document.documentElement.classList.contains('dark')
+  observer = new MutationObserver(() => {
+    isDark.value = document.documentElement.classList.contains('dark')
+  })
+  observer.observe(document.documentElement, {
+    attributes: true,
+    attributeFilter: ['class']
+  })
+})
+
+onBeforeUnmount(() => {
+  if (observer) {
+    observer.disconnect()
+  }
+})
+
+const STATE_COLORS = computed(() => ({
   'UP': '#4a6b4a',
   'UP-UNSTABLE': '#F59E0B',
   'DOWN-UNSTABLE': '#F59E0B',
   'DOWN': '#FF0000',
-  'UNKNOWN': '#262626'
-}
+  'UNKNOWN': isDark.value ? '#262626' : '#cbd5e1'
+}))
 
 const formatDuration = (ms) => {
   if (ms < 0) return '0m'
@@ -132,10 +152,10 @@ const chartData = computed(() => {
   const datasets = Object.keys(datasetsMap).map(key => ({
     label: key,
     data: datasetsMap[key],
-    backgroundColor: STATE_COLORS[key],
+    backgroundColor: STATE_COLORS.value[key],
     grouped: false,
     borderWidth: key === 'UNKNOWN' ? 1 : 0,
-    borderColor: key === 'UNKNOWN' ? '#262626' : 'transparent',
+    borderColor: key === 'UNKNOWN' ? (isDark.value ? '#262626' : '#cbd5e1') : 'transparent',
     borderSkipped: false
   }))
 
@@ -145,70 +165,75 @@ const chartData = computed(() => {
   }
 })
 
-const chartOptions = {
-  indexAxis: 'y',
-  responsive: true,
-  maintainAspectRatio: false,
-  plugins: {
-    legend: {
-      position: 'bottom',
-      labels: {
-        color: '#A3A3A3',
-        font: {
-          family: 'monospace',
-          size: 11
+const chartOptions = computed(() => {
+  const gridColor = isDark.value ? '#262626' : '#cbd5e1'
+  const textColor = isDark.value ? '#A3A3A3' : '#475569'
+
+  return {
+    indexAxis: 'y',
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {
+      legend: {
+        position: 'bottom',
+        labels: {
+          color: textColor,
+          font: {
+            family: 'monospace',
+            size: 11
+          }
+        }
+      },
+      tooltip: {
+        callbacks: {
+          title: () => '',
+          label: (context) => {
+            const seg = context.raw.segmentData
+            const startStr = new Date(seg.startTime).toLocaleString()
+            const endStr = seg.endTime ? new Date(seg.endTime).toLocaleString() : 'Ongoing'
+            const duration = formatDuration(seg.endMs - seg.startMs)
+            
+            let lines = [
+              `State: ${seg.state}`,
+              `Start: ${startStr}`,
+              `End: ${endStr}`,
+              `Duration: ${duration}`
+            ]
+            
+            if (seg.isSplit) {
+              lines.push('(RTT inherited from previous day)')
+            }
+            
+            return lines
+          }
         }
       }
     },
-    tooltip: {
-      callbacks: {
-        title: () => '',
-        label: (context) => {
-          const seg = context.raw.segmentData
-          const startStr = new Date(seg.startTime).toLocaleString()
-          const endStr = seg.endTime ? new Date(seg.endTime).toLocaleString() : 'Ongoing'
-          const duration = formatDuration(seg.endMs - seg.startMs)
-          
-          let lines = [
-            `State: ${seg.state}`,
-            `Start: ${startStr}`,
-            `End: ${endStr}`,
-            `Duration: ${duration}`
-          ]
-          
-          if (seg.isSplit) {
-            lines.push('(RTT inherited from previous day)')
+    scales: {
+      x: {
+        type: 'linear',
+        min: 0,
+        max: 1,
+        grid: {
+          color: gridColor,
+          drawBorder: false
+        },
+        ticks: {
+          color: textColor,
+          callback: function(value) {
+            return (value * 100) + '%'
           }
-          
-          return lines
-        }
-      }
-    }
-  },
-  scales: {
-    x: {
-      type: 'linear',
-      min: 0,
-      max: 1,
-      grid: {
-        color: '#262626',
-        drawBorder: false
-      },
-      ticks: {
-        color: '#A3A3A3',
-        callback: function(value) {
-          return (value * 100) + '%'
+        },
+        title: {
+          display: false
         }
       },
-      title: {
+      y: {
         display: false
       }
-    },
-    y: {
-      display: false
     }
   }
-}
+})
 </script>
 
 <style scoped>
@@ -221,5 +246,11 @@ const chartOptions = {
   border-radius: 4px;
   box-shadow: none;
   margin-bottom: 1.5rem;
+  transition: background-color 0.2s, border-color 0.2s;
+}
+
+:global(html:not(.dark)) .state-timeline {
+  background: #ffffff;
+  border-color: #cbd5e1;
 }
 </style>

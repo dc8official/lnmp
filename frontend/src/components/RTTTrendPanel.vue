@@ -4,13 +4,13 @@
       No RTT data available for this period.
     </div>
     <div v-else class="chart-wrapper">
-      <LineChart :data="chartData" :options="chartOptions" />
+      <LineChart :key="isDark" :data="chartData" :options="chartOptions" />
     </div>
   </div>
 </template>
 
 <script setup>
-import { computed } from 'vue'
+import { ref, onMounted, onBeforeUnmount, computed } from 'vue'
 import { Line as LineChart } from 'vue-chartjs'
 import {
   Chart as ChartJS,
@@ -39,6 +39,26 @@ const props = defineProps({
   events: {
     type: Array,
     required: true
+  }
+})
+
+const isDark = ref(true)
+let observer = null
+
+onMounted(() => {
+  isDark.value = document.documentElement.classList.contains('dark')
+  observer = new MutationObserver(() => {
+    isDark.value = document.documentElement.classList.contains('dark')
+  })
+  observer.observe(document.documentElement, {
+    attributes: true,
+    attributeFilter: ['class']
+  })
+})
+
+onBeforeUnmount(() => {
+  if (observer) {
+    observer.disconnect()
   }
 })
 
@@ -77,14 +97,18 @@ const chartData = computed(() => {
   const measuredData = processed.map(ev => !ev.is_split_event ? ev.avg_rtt_ms : null)
   const inheritedData = processed.map(ev => ev.is_split_event ? ev.avg_rtt_ms : null)
 
+  const measuredColor = isDark.value ? '#FFFFFF' : '#0f172a'
+  const inheritedColor = '#A3A3A3'
+  const inheritedPointBg = isDark.value ? '#000000' : '#ffffff'
+
   return {
     labels,
     datasets: [
       {
         label: 'Measured RTT',
         data: measuredData,
-        borderColor: '#FFFFFF',
-        backgroundColor: '#FFFFFF',
+        borderColor: measuredColor,
+        backgroundColor: measuredColor,
         borderWidth: 2,
         pointStyle: 'circle',
         pointRadius: optimalPointRadius.value,
@@ -93,87 +117,92 @@ const chartData = computed(() => {
       {
         label: 'Inherited RTT',
         data: inheritedData,
-        borderColor: '#A3A3A3',
+        borderColor: inheritedColor,
         backgroundColor: 'transparent',
         borderWidth: 2,
         borderDash: [5, 5],
         pointStyle: 'circle',
         pointRadius: optimalPointRadius.value,
-        pointBackgroundColor: '#000000',
+        pointBackgroundColor: inheritedPointBg,
         spanGaps: true
       }
     ]
   }
 })
 
-const chartOptions = {
-  responsive: true,
-  maintainAspectRatio: false,
-  plugins: {
-    legend: {
-      position: 'top',
-      labels: {
-        color: '#A3A3A3',
-        font: {
-          family: 'monospace',
-          size: 11
-        }
-      }
-    },
-    tooltip: {
-      callbacks: {
-        label: (context) => {
-          let label = `${context.dataset.label}: ${context.raw} ms`
-          if (context.dataset.label === 'Inherited RTT') {
-            return [label, 'Inherited value (RTT not measured at this boundary)']
+const chartOptions = computed(() => {
+  const gridColor = isDark.value ? '#262626' : '#cbd5e1'
+  const textColor = isDark.value ? '#A3A3A3' : '#475569'
+
+  return {
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {
+      legend: {
+        position: 'top',
+        labels: {
+          color: textColor,
+          font: {
+            family: 'monospace',
+            size: 11
           }
-          return label
         }
-      }
-    }
-  },
-  scales: {
-    x: {
-      display: true,
-      title: {
-        display: false
       },
-      grid: {
-        color: '#262626',
-        drawBorder: false
-      },
-      ticks: {
-        color: '#A3A3A3',
-        maxTicksLimit: 10,
-        font: {
-          family: 'monospace'
+      tooltip: {
+        callbacks: {
+          label: (context) => {
+            let label = `${context.dataset.label}: ${context.raw} ms`
+            if (context.dataset.label === 'Inherited RTT') {
+              return [label, 'Inherited value (RTT not measured at this boundary)']
+            }
+            return label
+          }
         }
       }
     },
-    y: {
-      display: true,
-      title: {
+    scales: {
+      x: {
         display: true,
-        text: 'RTT (ms)',
-        color: '#A3A3A3',
-        font: {
-          family: 'monospace'
+        title: {
+          display: false
+        },
+        grid: {
+          color: gridColor,
+          drawBorder: false
+        },
+        ticks: {
+          color: textColor,
+          maxTicksLimit: 10,
+          font: {
+            family: 'monospace'
+          }
         }
       },
-      grid: {
-        color: '#262626',
-        drawBorder: false
-      },
-      ticks: {
-        color: '#A3A3A3',
-        font: {
-          family: 'monospace'
-        }
-      },
-      beginAtZero: true
+      y: {
+        display: true,
+        title: {
+          display: true,
+          text: 'RTT (ms)',
+          color: textColor,
+          font: {
+            family: 'monospace'
+          }
+        },
+        grid: {
+          color: gridColor,
+          drawBorder: false
+        },
+        ticks: {
+          color: textColor,
+          font: {
+            family: 'monospace'
+          }
+        },
+        beginAtZero: true
+      }
     }
   }
-}
+})
 </script>
 
 <style scoped>
@@ -187,6 +216,7 @@ const chartOptions = {
   height: 350px;
   display: flex;
   flex-direction: column;
+  transition: background-color 0.2s, border-color 0.2s;
 }
 .chart-wrapper {
   flex: 1;
@@ -201,5 +231,14 @@ const chartOptions = {
   color: #A3A3A3;
   font-family: monospace;
   font-size: 1rem;
+  transition: color 0.2s;
+}
+
+:global(html:not(.dark)) .rtt-trend-panel {
+  background: #ffffff;
+  border-color: #cbd5e1;
+}
+:global(html:not(.dark)) .empty-state {
+  color: #475569;
 }
 </style>
