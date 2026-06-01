@@ -1,474 +1,429 @@
 <template>
-  <div class="dashboard-wrapper">
-    <!-- Navigation / Header Bar -->
-    <header class="app-nav">
-      <div class="brand">
-        <i class="pi pi-shield brand-icon"></i>
-        <span>lnmp <span class="version-tag">v1(beta)</span> Monitoring</span>
+  <div class="dashboard">
+    <!-- Header Toolbar -->
+    <div class="dashboard-toolbar">
+      <div class="toolbar-left">
+        <h1 class="page-title">{{ activeTab === 'endpoints' ? 'Network Dashboard' : 'User Accounts' }}</h1>
+        <p class="page-sub" v-if="activeTab === 'endpoints' && !loading && !error">
+          {{ endpoints.length }} monitored endpoint{{ endpoints.length !== 1 ? 's' : '' }}
+          <span class="separator">·</span>
+          Sync: {{ lastRefreshedLabel }}
+        </p>
+        <p class="page-sub" v-else-if="activeTab === 'users' && !usersLoading && !usersError">
+          {{ users.length }} registered user account{{ users.length !== 1 ? 's' : '' }}
+        </p>
       </div>
-      <div class="user-profile" v-if="user">
-        <Button
-          :icon="isDarkMode ? 'pi pi-sun' : 'pi pi-moon'"
-          @click="toggleTheme"
-          text
-          severity="secondary"
-          size="small"
-          class="theme-toggle-btn"
-          style="color: #A3A3A3 !important; padding: 0.25rem !important;"
-        />
-        <span class="user-badge" :class="user.role.toLowerCase()">
-          {{ user.username }} ({{ user.role }})
-        </span>
-        <Button 
-          icon="pi pi-sign-out" 
-          label="Sign Out" 
-          @click="handleLogout" 
-          severity="danger" 
-          text
-          size="small"
-        />
-      </div>
-    </header>
-
-    <div class="dashboard-container">
-      <!-- Tabs toggle for Admins -->
-      <div class="dashboard-tabs" v-if="isAdmin">
+      <div class="toolbar-right">
         <button 
-          class="tab-btn" 
-          :class="{ active: activeTab === 'endpoints' }" 
-          @click="activeTab = 'endpoints'"
+          v-if="activeTab === 'endpoints'" 
+          class="btn-secondary" 
+          @click="fetchEndpoints" 
+          :disabled="loading"
         >
-          <i class="pi pi-server tab-icon"></i>
-          <span>Monitored Endpoints</span>
+          <span>{{ loading ? 'Refreshing...' : '↻ Refresh' }}</span>
         </button>
         <button 
-          class="tab-btn" 
-          :class="{ active: activeTab === 'users' }" 
-          @click="activeTab = 'users'"
+          v-if="activeTab === 'endpoints' && isAdmin" 
+          class="btn-primary" 
+          @click="openAddDialog"
         >
-          <i class="pi pi-users tab-icon"></i>
-          <span>User Management</span>
+          + Add Endpoint
+        </button>
+
+        <button 
+          v-if="activeTab === 'users'" 
+          class="btn-secondary" 
+          @click="fetchUsers" 
+          :disabled="usersLoading"
+        >
+          <span>{{ usersLoading ? 'Refreshing...' : '↻ Refresh' }}</span>
+        </button>
+        <button 
+          v-if="activeTab === 'users' && isAdmin" 
+          class="btn-primary" 
+          @click="openAddUserDialog"
+        >
+          + Add User
+        </button>
+      </div>
+    </div>
+
+    <!-- Admin Console Tabs -->
+    <div class="dashboard-tabs" v-if="isAdmin">
+      <button 
+        class="tab-btn" 
+        :class="{ active: activeTab === 'endpoints' }" 
+        @click="activeTab = 'endpoints'"
+      >
+        Monitored Endpoints
+      </button>
+      <button 
+        class="tab-btn" 
+        :class="{ active: activeTab === 'users' }" 
+        @click="activeTab = 'users'"
+      >
+        User Management
+      </button>
+    </div>
+
+    <!-- Endpoints Content -->
+    <div v-if="activeTab === 'endpoints'">
+      <div v-if="error" class="alert-error">
+        {{ error }}
+      </div>
+
+      <div v-if="loading && endpoints.length === 0" class="empty-state">
+        <div class="spinner"></div>
+        <p>Synchronizing network status...</p>
+      </div>
+
+      <div v-else-if="!loading && endpoints.length === 0 && !error" class="empty-state">
+        <p class="empty-title">No endpoints configured</p>
+        <p class="empty-sub">Add your first monitored endpoint to begin uptime tracking.</p>
+        <button v-if="isAdmin" class="btn-primary" @click="openAddDialog">
+          + Add Endpoint
         </button>
       </div>
 
-      <!-- Endpoints Tab Content -->
-      <div v-if="activeTab === 'endpoints'">
-        <header class="dashboard-header">
-          <div class="header-info">
-            <h1>Network Dashboard</h1>
-            <p class="subtitle" v-if="!loading && !error">
-              Active Endpoints: <strong>{{ endpoints.length }}</strong> | Last sync: {{ lastRefreshedTime }}
-            </p>
-          </div>
-          <div class="action-buttons">
-            <Button 
-              v-if="isAdmin"
-              icon="pi pi-plus" 
-              label="Add Endpoint" 
-              @click="openAddDialog" 
-              severity="success"
-            />
-            <Button 
-              icon="pi pi-refresh" 
-              label="Refresh" 
-              @click="fetchEndpoints" 
-              :loading="loading"
-              severity="secondary"
-            />
-          </div>
-        </header>
-
-        <div v-if="error" class="error-message">
-          <i class="pi pi-exclamation-triangle"></i>
-          <span>{{ error }}</span>
-        </div>
-
-        <div v-else-if="loading && endpoints.length === 0" class="loading-state">
-          <i class="pi pi-spin pi-spinner spinner-icon"></i>
-          <p>Synchronizing network status...</p>
-        </div>
-
-        <div v-else-if="endpoints.length === 0" class="empty-state">
-          <i class="pi pi-search empty-icon"></i>
-          <h3>No endpoints found</h3>
-          <p v-if="isAdmin">Click "Add Endpoint" to register your first monitored host.</p>
-          <p v-else>Please contact the system administrator to configure monitored nodes.</p>
-        </div>
-
-        <div v-else>
-          <!-- Dynamic Selection Contextual Banner -->
-          <transition name="fade">
-            <div v-if="selectedIds.length > 0" class="selection-banner">
-              <div class="banner-content">
-                <span class="selection-count">
-                  <i class="pi pi-check-circle selection-icon"></i>
-                  <strong>{{ selectedIds.length }}</strong> target(s) selected for CSV export
-                </span>
-                <Button 
-                  label="Export Selected CSV" 
-                  icon="pi pi-download" 
-                  size="small" 
-                  class="export-btn"
-                  :loading="exporting"
-                  @click="exportSelectedCSV"
-                />
-              </div>
-            </div>
-          </transition>
-
-          <div class="endpoint-grid">
-            <EndpointCard 
-              v-for="endpoint in endpoints" 
-              :key="endpoint.id" 
-              :endpoint="endpoint" 
-              :isAdmin="isAdmin"
-              :selected="selectedIds.includes(endpoint.id)"
-              @select="navigateToEndpoint"
-              @toggle-select="toggleEndpointSelect"
-              @edit="openEditDialog"
-              @delete="confirmDeleteEndpoint"
-            />
-          </div>
-        </div>
+      <div v-else class="endpoint-grid">
+        <EndpointCard
+          v-for="ep in endpoints"
+          :key="ep.id"
+          :endpoint="ep"
+          :isAdmin="isAdmin"
+          :selected="selectedIds.includes(ep.id)"
+          @select="navigateTo"
+          @toggle-select="toggleEndpointSelect"
+          @edit="openEditDialog"
+          @delete="confirmDeleteEndpoint"
+        />
       </div>
 
-      <!-- User Management Tab Content (Admin Only) -->
-      <div v-else-if="activeTab === 'users' && isAdmin">
-        <header class="dashboard-header">
-          <div class="header-info">
-            <h1>User Accounts</h1>
-            <p class="subtitle">
-              Manage platform users, update role privileges, and execute password resets.
-            </p>
+      <!-- Selection Contextual Banner -->
+      <transition name="fade">
+        <div v-if="selectedIds.length > 0" class="selection-banner">
+          <div class="banner-content">
+            <span class="selection-count">
+              <strong>{{ selectedIds.length }}</strong> target(s) selected for CSV export
+            </span>
+            <button 
+              class="btn-primary btn-small" 
+              :disabled="exporting" 
+              @click="exportSelectedCSV"
+            >
+              {{ exporting ? 'Exporting...' : 'Export Selected CSV' }}
+            </button>
           </div>
-          <div class="action-buttons">
-            <Button 
-              icon="pi pi-user-plus" 
-              label="Add User" 
-              @click="openAddUserDialog" 
-              severity="success"
-            />
-            <Button 
-              icon="pi pi-refresh" 
-              label="Refresh" 
-              @click="fetchUsers" 
-              :loading="usersLoading"
-              severity="secondary"
-            />
-          </div>
-        </header>
-
-        <div v-if="usersError" class="error-message">
-          <i class="pi pi-exclamation-triangle"></i>
-          <span>{{ usersError }}</span>
         </div>
+      </transition>
+    </div>
 
-        <div v-else-if="usersLoading && users.length === 0" class="loading-state">
-          <i class="pi pi-spin pi-spinner spinner-icon"></i>
-          <p>Loading user list...</p>
-        </div>
+    <!-- User Accounts Content (Admin Only) -->
+    <div v-else-if="activeTab === 'users' && isAdmin">
+      <div v-if="usersError" class="alert-error">
+        {{ usersError }}
+      </div>
 
-        <div v-else class="users-list-wrapper">
-          <div class="users-table-card">
-            <table class="users-table">
-              <thead>
-                <tr>
-                  <th>Username</th>
-                  <th>Role</th>
-                  <th>Status</th>
-                  <th>Credentials State</th>
-                  <th>Last Signed In</th>
-                  <th>Created Date</th>
-                  <th class="actions-header">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="usr in users" :key="usr.id" :class="{ 'self-row': usr.id === user?.id }">
-                  <td class="username-col">
-                    <i class="pi pi-user user-row-icon"></i>
-                    <span>{{ usr.username }}</span>
-                    <span v-if="usr.id === user?.id" class="self-tag">(You)</span>
-                  </td>
-                  <td>
-                    <span class="user-badge" :class="usr.role.toLowerCase()">
-                      {{ usr.role }}
-                    </span>
-                  </td>
-                  <td>
-                    <span class="status-indicator" :class="{ active: usr.is_active }">
-                      <span class="dot"></span>
-                      {{ usr.is_active ? 'Active' : 'Disabled' }}
-                    </span>
-                  </td>
-                  <td>
-                    <span v-if="usr.must_change_password" class="reset-alert-badge">
-                      <i class="pi pi-key"></i> Password Reset Pending
-                    </span>
-                    <span v-else class="reset-ok-badge">
-                      <i class="pi pi-check-circle"></i> Secure
-                    </span>
-                  </td>
-                  <td class="date-col">
-                    {{ usr.last_login ? new Date(usr.last_login).toLocaleString() : 'Never' }}
-                  </td>
-                  <td class="date-col">
-                    {{ new Date(usr.created_at).toLocaleDateString() }}
-                  </td>
-                  <td class="actions-col">
-                    <Button 
-                      icon="pi pi-lock-open" 
-                      label="Reset Pass" 
-                      size="small" 
-                      severity="warning" 
-                      text 
-                      @click="openResetPasswordDialog(usr)"
-                    />
-                    <Button 
-                      v-if="usr.id !== user?.id"
-                      :icon="usr.is_active ? 'pi pi-ban' : 'pi pi-check'" 
-                      :label="usr.is_active ? 'Disable' : 'Enable'" 
-                      size="small" 
-                      :severity="usr.is_active ? 'danger' : 'success'" 
-                      text 
-                      @click="toggleUserActive(usr)"
-                    />
-                    <Button 
-                      v-if="usr.id !== user?.id"
-                      icon="pi pi-trash" 
-                      size="small" 
-                      severity="danger" 
-                      text 
-                      @click="confirmDeleteUser(usr)"
-                    />
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
+      <div v-if="usersLoading && users.length === 0" class="empty-state">
+        <div class="spinner"></div>
+        <p>Loading user list...</p>
+      </div>
+
+      <div v-else class="table-card">
+        <div class="table-responsive">
+          <table class="audit-table">
+            <thead>
+              <tr>
+                <th>Username</th>
+                <th>Role</th>
+                <th>Status</th>
+                <th>Credentials State</th>
+                <th>Last Signed In</th>
+                <th class="actions-header">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="usr in users" :key="usr.id" :class="{ 'self-row': usr.id === user?.id }">
+                <td class="username-col">
+                  <strong>{{ usr.username }}</strong>
+                  <span v-if="usr.id === user?.id" class="self-tag">(You)</span>
+                </td>
+                <td>
+                  <span class="role-badge">{{ usr.role }}</span>
+                </td>
+                <td>
+                  <span :class="['badge', usr.is_active ? 'badge-up' : 'badge-down']">
+                    <span :class="['status-dot', usr.is_active ? 'dot-up' : 'dot-down']"></span>
+                    {{ usr.is_active ? 'Active' : 'Disabled' }}
+                  </span>
+                </td>
+                <td>
+                  <span v-if="usr.must_change_password" class="badge badge-up-unstable">
+                    Password Reset Pending
+                  </span>
+                  <span v-else class="badge badge-up">
+                    Secure
+                  </span>
+                </td>
+                <td>
+                  {{ usr.last_login ? new Date(usr.last_login).toLocaleString() : 'Never' }}
+                </td>
+                <td class="actions-col">
+                  <button class="btn-action-warning" @click="openResetPasswordDialog(usr)">
+                    Reset Pass
+                  </button>
+                  <button 
+                    v-if="usr.id !== user?.id"
+                    :class="usr.is_active ? 'btn-action-danger' : 'btn-action-success'"
+                    @click="toggleUserActive(usr)"
+                  >
+                    {{ usr.is_active ? 'Disable' : 'Enable' }}
+                  </button>
+                  <button 
+                    v-if="usr.id !== user?.id" 
+                    class="btn-action-danger" 
+                    @click="confirmDeleteUser(usr)"
+                  >
+                    Delete
+                  </button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
         </div>
       </div>
     </div>
 
-    <!-- Add / Edit Dialog -->
-    <Dialog 
-      v-model:visible="displayDialog" 
-      :header="dialogHeader" 
-      modal 
-      :style="{ width: '480px' }" 
-      class="custom-dialog"
-    >
-      <form @submit.prevent="saveEndpoint" class="endpoint-form">
-        <div class="form-grid">
-          <div class="form-group">
-            <label for="hostname">Hostname *</label>
-            <InputText id="hostname" v-model="form.hostname" placeholder="e.g. core-router.local" required />
-          </div>
+    <!-- ── Unified Redesign Modals ── -->
 
-          <div class="form-group">
-            <label for="ip_address">IP Address *</label>
-            <InputText id="ip_address" v-model="form.ip_address" placeholder="e.g. 192.168.1.1" required :disabled="isEditing" />
-          </div>
-
-          <div class="form-group">
-            <label for="device_type">Device Type *</label>
-            <Dropdown 
-              id="device_type" 
-              v-model="form.device_type" 
-              :options="deviceTypes" 
-              placeholder="Select device type"
-              required 
-            />
-          </div>
-
-          <div class="form-group">
-            <label for="location">Location</label>
-            <InputText id="location" v-model="form.location" placeholder="e.g. Datacenter rack A5" />
-          </div>
-
-          <div class="form-group full-width">
-            <label for="description">Description</label>
-            <Textarea id="description" v-model="form.description" rows="3" placeholder="Additional endpoint metadata" autoResize />
-          </div>
-
-          <div class="form-group checkbox-group full-width">
-            <Checkbox id="monitoring_enabled" v-model="form.monitoring_enabled" :binary="true" />
-            <label for="monitoring_enabled">Enable automated uptime checks</label>
-          </div>
+    <!-- Add / Edit Endpoint Modal -->
+    <div v-if="displayDialog" class="modal-overlay" @click.self="displayDialog = false">
+      <div class="modal">
+        <div class="modal-header">
+          <h2 class="modal-title">{{ isEditing ? 'Modify Endpoint' : 'Register Endpoint' }}</h2>
+          <button class="modal-close" @click="displayDialog = false">×</button>
         </div>
+        <form @submit.prevent="saveEndpoint">
+          <div class="modal-body">
+            <div class="form-group">
+              <label class="form-label">Hostname *</label>
+              <input 
+                class="form-input" 
+                v-model="form.hostname" 
+                placeholder="e.g. core-router.local" 
+                required 
+              />
+            </div>
+            <div class="form-group">
+              <label class="form-label">IP Address *</label>
+              <input 
+                class="form-input" 
+                v-model="form.ip_address" 
+                placeholder="e.g. 192.168.1.1" 
+                required 
+                :disabled="isEditing" 
+              />
+            </div>
+            <div class="form-group">
+              <label class="form-label">Device Type *</label>
+              <select class="form-input" v-model="form.device_type" required>
+                <option v-for="type in deviceTypes" :key="type" :value="type">
+                  {{ type }}
+                </option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Location (optional)</label>
+              <input 
+                class="form-input" 
+                v-model="form.location" 
+                placeholder="e.g. Datacenter rack A5" 
+              />
+            </div>
+            <div class="form-group">
+              <label class="form-label">Description (optional)</label>
+              <textarea 
+                class="form-input form-textarea" 
+                v-model="form.description" 
+                rows="3" 
+                placeholder="Additional endpoint metadata"
+              ></textarea>
+            </div>
+            <div class="form-group checkbox-form-group">
+              <input 
+                type="checkbox" 
+                id="monitoring_enabled" 
+                v-model="form.monitoring_enabled" 
+              />
+              <label for="monitoring_enabled">Enable automated uptime checks</label>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn-secondary" @click="displayDialog = false">Cancel</button>
+            <button type="submit" class="btn-primary" :disabled="formSaving">
+              {{ formSaving ? 'Saving...' : 'Save Endpoint' }}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
 
-        <div class="dialog-footer">
-          <Button label="Cancel" icon="pi pi-times" severity="secondary" text @click="displayDialog = false" />
-          <Button type="submit" label="Save" icon="pi pi-check" :loading="formSaving" severity="success" />
+    <!-- Delete Confirmation Modal -->
+    <div v-if="displayDeleteDialog" class="modal-overlay" @click.self="displayDeleteDialog = false">
+      <div class="modal">
+        <div class="modal-header">
+          <h2 class="modal-title">Confirm Deletion</h2>
+          <button class="modal-close" @click="displayDeleteDialog = false">×</button>
         </div>
-      </form>
-    </Dialog>
-
-    <!-- Delete Confirmation Dialog -->
-    <Dialog 
-      v-model:visible="displayDeleteDialog" 
-      header="Confirm Deletion" 
-      modal 
-      :style="{ width: '400px' }"
-    >
-      <div class="delete-confirm-content">
-        <i class="pi pi-exclamation-triangle warning-icon"></i>
-        <div>
-          <p>Are you sure you want to delete this endpoint?</p>
-          <p class="warning-subtext">This action will stop active monitoring and is irreversible.</p>
+        <div class="modal-body text-center">
+          <p class="modal-alert-text">Are you sure you want to delete this endpoint?</p>
+          <p class="warning-subtext">This action will stop active monitoring and is completely irreversible.</p>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn-secondary" @click="displayDeleteDialog = false">Cancel</button>
+          <button type="button" class="btn-danger" :disabled="formSaving" @click="executeDeleteEndpoint">
+            {{ formSaving ? 'Deleting...' : 'Delete Host' }}
+          </button>
         </div>
       </div>
-      <template #footer>
-        <Button label="Cancel" icon="pi pi-times" severity="secondary" text @click="displayDeleteDialog = false" />
-        <Button label="Delete" icon="pi pi-trash" :loading="formSaving" severity="danger" @click="executeDeleteEndpoint" />
-      </template>
-    </Dialog>
+    </div>
 
-    <!-- Forced Password Change Dialog (Initial Setup) -->
-    <Dialog 
-      v-model:visible="displayChangePasswordDialog" 
-      header="Initial Setup — Password Reset Required" 
-      modal 
-      :closable="false"
-      :style="{ width: '420px' }"
-      class="forced-password-dialog"
-    >
-      <form @submit.prevent="executeChangePassword" class="endpoint-form">
-        <div class="info-alert">
-          <i class="pi pi-info-circle"></i>
-          <span>For security reasons, you are required to change your default password on your initial sign-in.</span>
+    <!-- Forced Password Change Modal (Initial Setup) -->
+    <div v-if="displayChangePasswordDialog" class="modal-overlay">
+      <div class="modal">
+        <div class="modal-header">
+          <h2 class="modal-title">Initial Setup — Password Reset Required</h2>
         </div>
+        <form @submit.prevent="executeChangePassword">
+          <div class="modal-body">
+            <div class="alert-info">
+              For security reasons, you are required to change your default password on your initial sign-in.
+            </div>
+            
+            <div v-if="changePasswordError" class="alert-error">
+              {{ changePasswordError }}
+            </div>
 
-        <div v-if="changePasswordError" class="error-container">
-          <Message severity="error" :closable="false">{{ changePasswordError }}</Message>
+            <div class="form-group">
+              <label class="form-label">Current Password *</label>
+              <input 
+                type="password"
+                class="form-input" 
+                v-model="changePasswordForm.old_password" 
+                placeholder="Enter current password" 
+                required 
+                :disabled="changePasswordLoading"
+              />
+            </div>
+            <div class="form-group">
+              <label class="form-label">New Password *</label>
+              <input 
+                type="password"
+                class="form-input" 
+                v-model="changePasswordForm.new_password" 
+                placeholder="Enter new password (min 8 chars)" 
+                required 
+                :disabled="changePasswordLoading"
+              />
+            </div>
+            <div class="form-group">
+              <label class="form-label">Confirm New Password *</label>
+              <input 
+                type="password"
+                class="form-input" 
+                v-model="changePasswordForm.confirm_password" 
+                placeholder="Confirm new password" 
+                required 
+                :disabled="changePasswordLoading"
+              />
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button type="submit" class="btn-primary full-width-btn" :disabled="changePasswordLoading">
+              {{ changePasswordLoading ? 'Updating...' : 'Update Password & Sign In' }}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- Add User Modal (Admin Only) -->
+    <div v-if="displayAddUserDialog" class="modal-overlay" @click.self="displayAddUserDialog = false">
+      <div class="modal">
+        <div class="modal-header">
+          <h2 class="modal-title">Register New User Account</h2>
+          <button class="modal-close" @click="displayAddUserDialog = false">×</button>
         </div>
-
-        <div class="form-grid">
-          <div class="form-group">
-            <label for="old_password">Current Password *</label>
-            <Password 
-              id="old_password" 
-              v-model="changePasswordForm.old_password" 
-              placeholder="Enter current password"
-              :feedback="false" 
-              toggleMask 
-              required 
-              :disabled="changePasswordLoading"
-              class="full-width-password"
-              inputClass="full-width"
-            />
+        <form @submit.prevent="saveUser">
+          <div class="modal-body">
+            <div class="form-group">
+              <label class="form-label">Username *</label>
+              <input 
+                class="form-input" 
+                v-model="userForm.username" 
+                placeholder="Enter username (min 3 chars)" 
+                required 
+              />
+            </div>
+            <div class="form-group">
+              <label class="form-label">Password</label>
+              <input 
+                type="password"
+                class="form-input" 
+                v-model="userForm.password" 
+                placeholder="Defaults to 'password123' if blank" 
+              />
+              <small class="form-help">New users must change this temporary password on initial sign-in.</small>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Privilege Role *</label>
+              <select class="form-input" v-model="userForm.role" required>
+                <option value="VIEWER">VIEWER</option>
+                <option value="ADMIN">ADMIN</option>
+              </select>
+            </div>
           </div>
-
-          <div class="form-group">
-            <label for="new_password">New Password *</label>
-            <Password 
-              id="new_password" 
-              v-model="changePasswordForm.new_password" 
-              placeholder="Enter new password (min 8 chars)"
-              toggleMask 
-              required 
-              :disabled="changePasswordLoading"
-              class="full-width-password"
-              inputClass="full-width"
-            />
+          <div class="modal-footer">
+            <button type="button" class="btn-secondary" @click="displayAddUserDialog = false">Cancel</button>
+            <button type="submit" class="btn-primary" :disabled="userFormSaving">
+              {{ userFormSaving ? 'Registering...' : 'Register User' }}
+            </button>
           </div>
+        </form>
+      </div>
+    </div>
 
-          <div class="form-group">
-            <label for="confirm_password">Confirm New Password *</label>
-            <Password 
-              id="confirm_password" 
-              v-model="changePasswordForm.confirm_password" 
-              placeholder="Confirm new password"
-              :feedback="false" 
-              toggleMask 
-              required 
-              :disabled="changePasswordLoading"
-              class="full-width-password"
-              inputClass="full-width"
-            />
-          </div>
+    <!-- Reset User Password Modal (Admin Only) -->
+    <div v-if="displayResetUserPasswordDialog" class="modal-overlay" @click.self="displayResetUserPasswordDialog = false">
+      <div class="modal">
+        <div class="modal-header">
+          <h2 class="modal-title">Reset Password — {{ targetUsername }}</h2>
+          <button class="modal-close" @click="displayResetUserPasswordDialog = false">×</button>
         </div>
-
-        <div class="dialog-footer">
-          <Button 
-            type="submit" 
-            label="Update Password & Sign In" 
-            icon="pi pi-check" 
-            :loading="changePasswordLoading" 
-            severity="success" 
-            class="full-width-btn"
-          />
-        </div>
-      </form>
-    </Dialog>
-
-    <!-- Add User Dialog (Admin Only) -->
-    <Dialog 
-      v-model:visible="displayAddUserDialog" 
-      header="Register New User Account" 
-      modal 
-      :style="{ width: '440px' }" 
-      class="custom-dialog"
-    >
-      <form @submit.prevent="saveUser" class="endpoint-form">
-        <div class="form-grid">
-          <div class="form-group">
-            <label for="new_username">Username *</label>
-            <InputText id="new_username" v-model="userForm.username" placeholder="Enter username (min 3 chars)" required />
+        <form @submit.prevent="executeResetUserPassword">
+          <div class="modal-body">
+            <div class="alert-info warning-alert">
+              This will immediately invalidate the current password for <strong>{{ targetUsername }}</strong>. They will be forced to set a new password on their next sign-in.
+            </div>
+            <div class="form-group">
+              <label class="form-label">New Temporary Password</label>
+              <input 
+                type="password"
+                class="form-input" 
+                v-model="resetPasswordForm.password" 
+                placeholder="Defaults to 'password123' if blank" 
+              />
+            </div>
           </div>
-
-          <div class="form-group">
-            <label for="new_user_password">Password</label>
-            <InputText type="password" id="new_user_password" v-model="userForm.password" placeholder="Defaults to 'password123' if blank" />
-            <small class="form-help">The new user will be required to change this password on their initial login.</small>
+          <div class="modal-footer">
+            <button type="button" class="btn-secondary" @click="displayResetUserPasswordDialog = false">Cancel</button>
+            <button type="submit" class="btn-primary" :disabled="userFormSaving">
+              {{ userFormSaving ? 'Resetting...' : 'Reset Password' }}
+            </button>
           </div>
-
-          <div class="form-group">
-            <label for="new_user_role">Privilege Role *</label>
-            <Dropdown 
-              id="new_user_role" 
-              v-model="userForm.role" 
-              :options="['VIEWER', 'ADMIN']" 
-              placeholder="Select privilege tier"
-              required 
-            />
-          </div>
-        </div>
-
-        <div class="dialog-footer">
-          <Button label="Cancel" icon="pi pi-times" severity="secondary" text @click="displayAddUserDialog = false" />
-          <Button type="submit" label="Register User" icon="pi pi-user-plus" :loading="userFormSaving" severity="success" />
-        </div>
-      </form>
-    </Dialog>
-
-    <!-- Reset User Password Dialog (Admin Only) -->
-    <Dialog 
-      v-model:visible="displayResetUserPasswordDialog" 
-      :header="`Reset Password — ${targetUsername}`" 
-      modal 
-      :style="{ width: '400px' }" 
-      class="custom-dialog"
-    >
-      <form @submit.prevent="executeResetUserPassword" class="endpoint-form">
-        <div class="form-grid">
-          <div class="info-alert warning-alert">
-            <i class="pi pi-exclamation-triangle"></i>
-            <span>This will immediately invalidate the current password for <strong>{{ targetUsername }}</strong>. They will be forced to set a new password on their next sign-in.</span>
-          </div>
-
-          <div class="form-group">
-            <label for="reset_user_password">New Temporary Password</label>
-            <InputText type="password" id="reset_user_password" v-model="resetPasswordForm.password" placeholder="Defaults to 'password123' if blank" />
-            <small class="form-help">Enter a temporary password or leave blank for 'password123'.</small>
-          </div>
-        </div>
-
-        <div class="dialog-footer">
-          <Button label="Cancel" icon="pi pi-times" severity="secondary" text @click="displayResetUserPasswordDialog = false" />
-          <Button type="submit" label="Reset Password" icon="pi pi-lock-open" :loading="userFormSaving" severity="warning" />
-        </div>
-      </form>
-    </Dialog>
+        </form>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -486,34 +441,12 @@ import {
   resetUserPassword,
   updateUser,
   deleteUser,
-  logout,
   exportBatchTelemetry
 } from '../services/api.js'
 import EndpointCard from '../components/EndpointCard.vue'
-import Button from 'primevue/button'
-import Dialog from 'primevue/dialog'
-import InputText from 'primevue/inputtext'
-import Textarea from 'primevue/textarea'
-import Dropdown from 'primevue/dropdown'
-import Checkbox from 'primevue/checkbox'
-import Password from 'primevue/password'
-import Message from 'primevue/message'
 
 const router = useRouter()
 const isDarkMode = ref(true)
-
-const toggleTheme = () => {
-  isDarkMode.value = !isDarkMode.value
-  if (isDarkMode.value) {
-    localStorage.setItem('theme', 'dark')
-    document.body.classList.add('dark-mode')
-    document.body.classList.remove('light-mode')
-  } else {
-    localStorage.setItem('theme', 'light')
-    document.body.classList.add('light-mode')
-    document.body.classList.remove('dark-mode')
-  }
-}
 
 const endpoints = ref([])
 const loading = ref(false)
@@ -600,7 +533,7 @@ const deviceTypes = ['Server', 'Router', 'Switch', 'Access Point', 'Firewall', '
 const form = ref({
   hostname: '',
   ip_address: '',
-  device_type: '',
+  device_type: 'Router',
   location: '',
   description: '',
   monitoring_enabled: true
@@ -614,7 +547,7 @@ const fetchUsers = async () => {
   usersError.value = null
   try {
     const response = await getUsers()
-    users.value = response.data.data
+    users.value = response.data.data || []
   } catch (err) {
     usersError.value = err.response?.data?.error?.message || 'Failed to fetch users list.'
   } finally {
@@ -694,10 +627,8 @@ const confirmDeleteUser = async (usr) => {
     }
   }
 }
-const dialogHeader = computed(() => isEditing.value ? 'Modify Endpoint' : 'Register Endpoint')
 
 const fetchEndpoints = async () => {
-  // If forced to change password, suspend API loading to avoid token-expire errors
   if (user.value?.must_change_password) {
     endpoints.value = []
     return
@@ -707,12 +638,13 @@ const fetchEndpoints = async () => {
   error.value = null
   try {
     const response = await getEndpoints()
-    endpoints.value = response.data.data
+    endpoints.value = response.data.data || []
     lastRefreshed.value = new Date()
     selectedIds.value = []
   } catch (err) {
     if (err.response?.status === 401) {
-      handleLogoutLocal()
+      localStorage.removeItem('user')
+      router.push('/login')
     } else {
       error.value = err.response?.data?.error?.message || 'Failed to connect to backend engine. Verify backend is running.'
     }
@@ -721,29 +653,14 @@ const fetchEndpoints = async () => {
   }
 }
 
-const navigateToEndpoint = (id) => {
+const navigateTo = (id) => {
   router.push(`/endpoints/${id}`)
 }
 
-const lastRefreshedTime = computed(() => {
-  if (!lastRefreshed.value) return 'Never'
+const lastRefreshedLabel = computed(() => {
+  if (!lastRefreshed.value) return 'never'
   return lastRefreshed.value.toLocaleTimeString()
 })
-
-const handleLogoutLocal = () => {
-  localStorage.removeItem('user')
-  router.push('/login')
-}
-
-const handleLogout = async () => {
-  try {
-    await logout()
-  } catch (err) {
-    console.error('Logout error on backend', err)
-  } finally {
-    handleLogoutLocal()
-  }
-}
 
 // Dialog management
 const openAddDialog = () => {
@@ -751,7 +668,7 @@ const openAddDialog = () => {
   form.value = {
     hostname: '',
     ip_address: '',
-    device_type: '',
+    device_type: 'Router',
     location: '',
     description: '',
     monitoring_enabled: true
@@ -814,751 +731,614 @@ const executeDeleteEndpoint = async () => {
   }
 }
 
-// Forced password change logic
 const executeChangePassword = async () => {
   if (changePasswordForm.value.new_password !== changePasswordForm.value.confirm_password) {
-    changePasswordError.value = 'New passwords do not match.'
+    changePasswordError.value = 'Passwords do not match.'
     return
   }
   if (changePasswordForm.value.new_password.length < 8) {
-    changePasswordError.value = 'Password must be at least 8 characters long.'
-    return
-  }
-  if (changePasswordForm.value.new_password.toLowerCase() === 'admin') {
-    changePasswordError.value = 'Password cannot be set to the default "admin" password.'
+    changePasswordError.value = 'New password must be at least 8 characters long.'
     return
   }
 
   changePasswordLoading.value = true
   changePasswordError.value = null
-
   try {
     await changePassword({
       old_password: changePasswordForm.value.old_password,
       new_password: changePasswordForm.value.new_password
     })
-
-    // Reset MUST change password locally and fetch endpoints
-    user.value.must_change_password = false
-    localStorage.setItem('user', JSON.stringify(user.value))
-    displayChangePasswordDialog.value = false
     
-    alert('Password updated successfully! Welcome to your dashboard.')
+    // Update local storage user details
+    const storedUser = localStorage.getItem('user')
+    if (storedUser) {
+      const parsed = JSON.parse(storedUser)
+      parsed.must_change_password = false
+      localStorage.setItem('user', JSON.stringify(parsed))
+      user.value = parsed
+    }
+    
+    displayChangePasswordDialog.value = false
     await fetchEndpoints()
   } catch (err) {
-    changePasswordError.value = err.response?.data?.detail || 'Failed to change password. Verify your current password is correct.'
+    changePasswordError.value = err.response?.data?.detail || 'Failed to update password. Verify current password.'
   } finally {
     changePasswordLoading.value = false
   }
 }
 
-onMounted(() => {
+onMounted(async () => {
   const currentTheme = localStorage.getItem('theme') || 'dark'
   isDarkMode.value = currentTheme === 'dark'
+  if (isDarkMode.value) {
+    document.documentElement.classList.add('dark')
+  } else {
+    document.documentElement.classList.remove('dark')
+  }
 
   const storedUser = localStorage.getItem('user')
   if (storedUser) {
-    user.value = JSON.parse(storedUser)
-    if (user.value.must_change_password) {
-      displayChangePasswordDialog.value = true
+    try {
+      user.value = JSON.parse(storedUser)
+      if (user.value?.must_change_password) {
+        displayChangePasswordDialog.value = true
+      }
+    } catch (e) {
+      console.error('Failed to parse onMounted user state:', e)
     }
   }
-  fetchEndpoints()
+  await fetchEndpoints()
   if (isAdmin.value) {
-    fetchUsers()
+    await fetchUsers()
   }
 })
 </script>
 
 <style scoped>
-.dashboard-wrapper {
-  min-height: 100vh;
-  background-color: var(--canvas-bg);
-}
-.app-nav {
-  background-color: var(--card-bg);
-  border-bottom: 1px solid var(--card-border);
-  padding: 0.75rem 2rem;
+.dashboard {
   display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.dashboard-toolbar {
+  display: flex;
+  align-items: flex-start;
   justify-content: space-between;
-  align-items: center;
-  box-shadow: none;
+  margin-bottom: 8px;
+  gap: 16px;
+  flex-wrap: wrap;
 }
-.brand {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
+
+.page-title {
+  margin: 0 0 4px;
+  font-size: 24px;
   font-weight: 700;
-  font-size: 1.1rem;
-  color: #FFFFFF;
-}
-.brand-icon {
-  color: #A3A3A3;
-}
-.user-profile {
-  display: flex;
-  align-items: center;
-  gap: 1rem;
-}
-.user-badge {
-  font-size: 0.8rem;
-  padding: 0.25rem 0.75rem;
-  border-radius: 4px;
-  font-weight: 600;
-  border: 1px solid #262626;
-}
-.user-badge.admin {
-  background-color: #000000;
-  color: #FFFFFF;
-}
-.user-badge.viewer {
-  background-color: #000000;
-  color: #A3A3A3;
-}
-.dashboard-container {
-  padding: 2rem;
-  max-width: 1400px;
-  margin: 0 auto;
-}
-.dashboard-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 2rem;
-}
-.action-buttons {
-  display: flex;
-  gap: 0.75rem;
-}
-h1 {
-  font-size: 1.6rem;
-  font-weight: 700;
-  color: #FFFFFF;
-  margin-bottom: 0.25rem;
+  color: var(--text-primary);
   letter-spacing: -0.02em;
 }
-.subtitle {
-  color: #A3A3A3;
-  font-size: 0.9rem;
+
+.page-sub {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-muted);
 }
-.error-message {
+
+.separator {
+  margin: 0 6px;
+}
+
+.toolbar-right {
   display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  background-color: #000000;
-  color: #FF0000;
-  padding: 1rem;
-  border-radius: 4px;
-  margin-bottom: 1.5rem;
-  border: 1px solid #262626;
-  border-left: 4px solid #FF0000;
-  font-size: 0.9rem;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+/* ── Buttons Design System ── */
+.btn-primary {
+  background: var(--accent);
+  color: var(--text-inverse);
+  padding: 8px 16px;
+  border-radius: var(--radius);
+  font-size: 13px;
   font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  transition: background 0.15s, opacity 0.15s;
 }
-.loading-state {
+
+.btn-primary:hover {
+  background: var(--accent-hover);
+}
+
+.btn-primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn-secondary {
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  padding: 8px 16px;
+  border-radius: var(--radius);
+  font-size: 13px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  border: 1px solid var(--border-color-strong);
+  transition: background 0.15s;
+}
+
+.btn-secondary:hover {
+  background: var(--bg-surface-selected);
+}
+
+.btn-secondary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn-danger {
+  background: var(--color-down);
+  color: var(--text-inverse);
+  padding: 8px 16px;
+  border-radius: var(--radius);
+  font-size: 13px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  transition: background 0.15s, opacity 0.15s;
+}
+
+.btn-danger:hover {
+  background: #b91c1c;
+}
+
+.btn-small {
+  padding: 6px 12px;
+  font-size: 11px;
+}
+
+/* ── Tabs ── */
+.dashboard-tabs {
   display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  color: #A3A3A3;
-  padding: 6rem 0;
-  gap: 1rem;
+  border-bottom: 1px solid var(--border-color);
+  gap: 8px;
+  margin-bottom: 12px;
 }
-.spinner-icon {
-  font-size: 2rem;
-  color: #FFFFFF;
+
+.tab-btn {
+  padding: 10px 16px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  border-bottom: 2px solid transparent;
+  transition: all 0.15s ease;
+  margin-bottom: -1px;
 }
-.empty-state {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  padding: 4rem 2rem;
-  text-align: center;
-  background-color: #000000;
-  border-radius: 4px;
-  border: 1px dashed #262626;
-  color: #A3A3A3;
+
+.tab-btn:hover {
+  color: var(--text-primary);
 }
-.empty-icon {
-  font-size: 2.5rem;
-  color: #A3A3A3;
-  margin-bottom: 1rem;
+
+.tab-btn.active {
+  color: var(--text-primary);
+  border-bottom: 2px solid var(--accent);
 }
-.empty-state h3 {
-  color: #FFFFFF;
-  margin-bottom: 0.5rem;
-}
+
+/* ── Grid ── */
 .endpoint-grid {
   display: grid;
-  gap: 1rem;
+  gap: 16px;
   grid-template-columns: repeat(1, 1fr);
 }
 
-@media (min-width: 768px) {
-  .endpoint-grid {
-    grid-template-columns: repeat(2, 1fr);
-  }
+@media (min-width: 640px) {
+  .endpoint-grid { grid-template-columns: repeat(2, 1fr); }
 }
+
 @media (min-width: 1024px) {
-  .endpoint-grid {
-    grid-template-columns: repeat(3, 1fr);
-  }
+  .endpoint-grid { grid-template-columns: repeat(3, 1fr); }
 }
 
-/* Dialog and Form styling */
-.endpoint-form {
-  padding: 0.5rem 0 0 0;
+@media (min-width: 1280px) {
+  .endpoint-grid { grid-template-columns: repeat(4, 1fr); }
 }
-.form-grid {
+
+/* ── Alerts ── */
+.alert-error {
+  background: var(--color-down-bg);
+  color: var(--color-down);
+  border: 1px solid var(--color-down);
+  padding: 12px 16px;
+  border-radius: var(--radius);
+  font-size: 14px;
+  margin-bottom: 20px;
+}
+
+.alert-info {
+  background: var(--color-unknown-bg);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color-strong);
+  padding: 12px 16px;
+  border-radius: var(--radius);
+  font-size: 13px;
+  margin-bottom: 16px;
+  font-weight: 500;
+}
+
+.warning-alert {
+  background: var(--color-up-unstable-bg);
+  color: var(--color-up-unstable);
+  border-color: var(--color-up-unstable);
+}
+
+/* ── Empty States ── */
+.empty-state {
+  text-align: center;
+  padding: 80px 20px;
   display: flex;
   flex-direction: column;
-  gap: 1.25rem;
-  margin-bottom: 1.5rem;
-}
-.form-group {
-  display: flex;
-  flex-direction: column;
-  gap: 0.35rem;
-}
-.form-group label {
-  font-size: 0.8rem;
-  font-weight: 600;
-  color: #A3A3A3;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-}
-.checkbox-group {
-  flex-direction: row;
   align-items: center;
-  gap: 0.75rem;
-  padding: 0.5rem 0;
-}
-.checkbox-group label {
-  font-weight: 600;
-  cursor: pointer;
-  color: #FFFFFF;
-}
-.dialog-footer {
-  display: flex;
-  justify-content: flex-end;
-  gap: 0.75rem;
-  border-top: 1px solid #262626;
-  padding-top: 1rem;
-}
-.delete-confirm-content {
-  display: flex;
-  align-items: flex-start;
-  gap: 1rem;
-  padding: 0.5rem 0;
-}
-.warning-icon {
-  font-size: 2rem;
-  color: #FF0000;
-}
-.warning-subtext {
-  font-size: 0.8rem;
-  color: #A3A3A3;
-  margin-top: 0.25rem;
+  gap: 12px;
 }
 
-/* Forced password reset styling */
-.info-alert {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  background-color: #000000;
-  color: #FFFFFF;
-  padding: 0.85rem;
-  border-radius: 4px;
-  font-size: 0.85rem;
-  font-weight: 600;
-  margin-bottom: 1.25rem;
-  border: 1px solid #262626;
-  border-left: 3px solid #FFFFFF;
-}
-.error-container {
-  margin-bottom: 1rem;
-}
-.full-width-btn {
-  width: 100%;
-  padding: 0.65rem !important;
-  font-weight: 700 !important;
+.empty-title {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 0;
 }
 
-/* PrimeVue Component Overrides */
-:deep(.p-dropdown), :deep(.p-inputtext), :deep(.p-textarea) {
-  width: 100%;
-  background-color: #000000 !important;
-  border: 1px solid #262626 !important;
-  color: #FFFFFF !important;
-  border-radius: 4px !important;
-  outline: none !important;
-}
-:deep(.p-dropdown:focus), :deep(.p-inputtext:focus), :deep(.p-textarea:focus) {
-  border-color: #A3A3A3 !important;
-}
-:deep(.p-dropdown-panel) {
-  background-color: #000000 !important;
-  border: 1px solid #262626 !important;
-  color: #FFFFFF !important;
-}
-:deep(.p-dropdown-item) {
-  color: #A3A3A3 !important;
-}
-:deep(.p-dropdown-item:hover), :deep(.p-dropdown-item.p-highlight) {
-  color: #FFFFFF !important;
-  background-color: rgba(255,255,255,0.08) !important;
-}
-:deep(.p-dialog) {
-  background-color: #000000 !important;
-  border: 1px solid #262626 !important;
-  color: #FFFFFF !important;
-  box-shadow: none !important;
-  border-radius: 4px !important;
-}
-:deep(.p-dialog-header), :deep(.p-dialog-content), :deep(.p-dialog-footer) {
-  background-color: #000000 !important;
-  color: #FFFFFF !important;
-  border: none !important;
-}
-:deep(.p-dialog-title) {
-  color: #FFFFFF !important;
-  font-weight: 700 !important;
-  font-size: 1.1rem !important;
-}
-:deep(.p-button.p-button-success) {
-  background-color: #FFFFFF !important;
-  border-color: #FFFFFF !important;
-  color: #000000 !important;
-  border-radius: 4px !important;
-  font-weight: 700 !important;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-}
-:deep(.p-button.p-button-success:hover) {
-  background-color: #A3A3A3 !important;
-  border-color: #A3A3A3 !important;
-}
-:deep(.p-button.p-button-secondary) {
-  background-color: #000000 !important;
-  border-color: #262626 !important;
-  color: #A3A3A3 !important;
-  border-radius: 4px !important;
-}
-:deep(.p-button.p-button-secondary:hover) {
-  color: #FFFFFF !important;
-  border-color: #A3A3A3 !important;
-}
-:deep(.p-button.p-button-danger) {
-  background-color: #FF0000 !important;
-  border-color: #FF0000 !important;
-  color: #FFFFFF !important;
-  border-radius: 4px !important;
-  font-weight: 700 !important;
-}
-:deep(.p-button.p-button-danger:hover) {
-  background-color: #CC0000 !important;
-  border-color: #CC0000 !important;
-}
-:deep(.p-checkbox-box) {
-  background-color: #000000 !important;
-  border: 1px solid #262626 !important;
-  border-radius: 4px !important;
-}
-:deep(.p-checkbox-checked .p-checkbox-box) {
-  background-color: #FFFFFF !important;
-  border-color: #FFFFFF !important;
-  color: #000000 !important;
-}
-.full-width-password {
-  width: 100%;
-}
-:deep(.full-width-password input) {
-  width: 100%;
+.empty-sub {
+  color: var(--text-muted);
+  margin: 0;
+  font-size: 13px;
 }
 
-/* Tabs styling */
-.dashboard-tabs {
-  display: flex;
-  gap: 0.5rem;
-  border-bottom: 1px solid #262626;
-  margin-bottom: 2rem;
-  padding-bottom: 0.1px;
-}
-.tab-btn {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0.75rem 1.25rem;
-  background: none;
-  border: none;
-  border-bottom: 2px solid transparent;
-  color: #A3A3A3;
-  font-weight: 600;
-  font-size: 0.9rem;
-  cursor: pointer;
-  transition: all 0.15s ease;
-  outline: none;
-}
-.tab-btn:hover {
-  color: #FFFFFF;
-}
-.tab-btn.active {
-  color: #FFFFFF;
-  border-bottom-color: #FFFFFF;
-}
-.tab-icon {
-  font-size: 1rem;
+.spinner {
+  width: 32px;
+  height: 32px;
+  border: 2px solid var(--border-color);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
 }
 
-/* User table styling */
-.users-list-wrapper {
-  margin-top: 1.5rem;
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ── Tables Redesign ── */
+.table-card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius);
+  overflow: hidden;
+  box-shadow: var(--shadow);
 }
-.users-table-card {
-  background-color: var(--card-bg);
-  border-radius: 4px;
-  border: 1px solid var(--card-border);
-  box-shadow: none;
+
+.table-responsive {
+  width: 100%;
   overflow-x: auto;
 }
-.users-table {
+
+.audit-table {
   width: 100%;
   border-collapse: collapse;
   text-align: left;
-  font-size: 0.85rem;
+  font-size: 13px;
 }
-.users-table th {
-  background-color: #0A0A0A;
-  color: #A3A3A3;
-  font-weight: 700;
-  padding: 1rem 1.5rem;
-  border-bottom: 2px solid #262626;
-  white-space: nowrap;
+
+.audit-table th {
+  background: var(--bg-surface-selected);
+  color: var(--text-secondary);
+  font-weight: 600;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border-color);
+  text-transform: uppercase;
+  font-size: 11px;
+  letter-spacing: 0.05em;
 }
-.users-table td {
-  padding: 1rem 1.5rem;
-  border-bottom: 1px solid #262626;
-  color: #FFFFFF;
-  vertical-align: middle;
+
+.audit-table td {
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border-color);
+  color: var(--text-primary);
 }
-.users-table tbody tr:last-child td {
+
+.audit-table tr:last-child td {
   border-bottom: none;
 }
-.users-table tr.self-row {
-  background-color: rgba(255, 255, 255, 0.02);
+
+.audit-table tr:hover td {
+  background: var(--bg-surface-hover);
 }
-.users-table tr:hover {
-  background-color: #0A0A0A;
+
+.self-row td {
+  background: var(--bg-surface-selected);
 }
-.username-col {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  font-weight: 700;
-}
-.user-row-icon {
-  color: #A3A3A3;
-}
+
 .self-tag {
-  font-size: 0.7rem;
-  color: #FFFFFF;
-  border: 1px solid #262626;
-  background-color: #0A0A0A;
-  padding: 0.1rem 0.4rem;
-  border-radius: 4px;
-  font-weight: 600;
+  font-size: 11px;
+  color: var(--text-muted);
+  font-weight: 400;
+  margin-left: 4px;
 }
-.status-indicator {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.4rem;
-  font-size: 0.75rem;
-  font-weight: 700;
-  padding: 0.2rem 0.6rem;
-  border-radius: 4px;
-  background-color: transparent;
-  color: #A3A3A3;
-  border: 1px solid #262626;
-  text-transform: uppercase;
-}
-.status-indicator.active {
-  color: #FFFFFF;
-}
-.status-indicator .dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background-color: #FF0000;
-}
-.status-indicator.active .dot {
-  background-color: #588157;
-}
-.reset-alert-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.35rem;
-  font-size: 0.75rem;
-  font-weight: 700;
-  background-color: transparent;
-  color: #F59E0B;
-  border: 1px solid #262626;
-  padding: 0.2rem 0.5rem;
-  border-radius: 4px;
-}
-.reset-ok-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.35rem;
-  font-size: 0.75rem;
-  font-weight: 700;
-  background-color: transparent;
-  color: #FFFFFF;
-  border: 1px solid #262626;
-  padding: 0.2rem 0.5rem;
-  border-radius: 4px;
-}
-.date-col {
-  color: #A3A3A3;
-  font-size: 0.8rem;
+
+.role-badge {
   font-family: monospace;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-secondary);
 }
+
+/* Row Action Buttons */
 .actions-header {
-  text-align: right;
+  text-align: right !important;
 }
+
 .actions-col {
+  text-align: right;
   display: flex;
   justify-content: flex-end;
-  gap: 0.5rem;
-}
-.warning-alert {
-  background-color: #000000 !important;
-  color: #F59E0B !important;
-  border: 1px solid #262626 !important;
-  border-left: 3px solid #F59E0B !important;
-}
-.form-help {
-  font-size: 0.75rem;
-  color: #A3A3A3;
-  margin-top: 0.25rem;
+  gap: 8px;
 }
 
-/* ==========================================================================
-   Light Mode Theme Scoping Overrides
-   ========================================================================== */
-:global(body.light-mode) .dashboard-wrapper {
-  background-color: #ffffff;
-}
-:global(body.light-mode) .app-nav {
-  background-color: #ffffff;
-  border-bottom: 1px solid #cbd5e1;
-}
-:global(body.light-mode) .brand {
-  color: #0f172a;
-}
-:global(body.light-mode) .brand-icon {
-  color: #0f172a;
-}
-:global(body.light-mode) .user-badge.admin {
-  background-color: rgba(4, 159, 108, 0.08);
-  color: #049f6c;
-  border: 1px solid rgba(4, 159, 108, 0.15);
-}
-:global(body.light-mode) .user-badge.viewer {
-  background-color: #f1f5f9;
-  color: #475569;
-  border: 1px solid #cbd5e1;
-}
-:global(body.light-mode) .stat-card,
-:global(body.light-mode) .users-table-card,
-:global(body.light-mode) .incident-ticker {
-  background-color: #fafafa !important;
-  border: 1px solid #cbd5e1 !important;
-}
-
-.version-tag {
-  font-family: monospace;
-  font-size: 0.75rem;
-  color: var(--text-muted, #737373);
-  margin-left: 0.25rem;
-  font-weight: 500;
-  text-transform: none;
-}
-:global(body.light-mode) .stat-value {
-  color: #0f172a;
-}
-:global(body.light-mode) .stat-title {
-  color: #475569;
-}
-:global(body.light-mode) .stat-desc {
-  color: #64748b;
-}
-:global(body.light-mode) .section-header h2 {
-  color: #0f172a;
-}
-:global(body.light-mode) .refresh-text {
-  color: #475569;
-}
-:global(body.light-mode) .dashboard-tabs {
-  border-bottom: 1px solid #cbd5e1;
-}
-:global(body.light-mode) .tab-btn {
-  color: #475569;
-}
-:global(body.light-mode) .tab-btn:hover {
-  color: #0f172a;
-}
-:global(body.light-mode) .tab-btn.active {
-  color: #049f6c;
-  border-bottom-color: #049f6c;
-}
-:global(body.light-mode) .users-table th {
-  background-color: #f8fafc;
-  color: #475569;
-  border-bottom: 2px solid #e2e8f0;
-}
-:global(body.light-mode) .users-table td {
-  color: #334155;
-  border-bottom: 1px solid #e2e8f0;
-}
-:global(body.light-mode) .users-table tr.self-row {
-  background-color: rgba(4, 159, 108, 0.02);
-}
-:global(body.light-mode) .users-table tr:hover {
-  background-color: #f8fafc;
-}
-:global(body.light-mode) .self-tag {
-  color: #049f6c;
-  background-color: rgba(4, 159, 108, 0.08);
-  border: 1px solid rgba(4, 159, 108, 0.15);
-}
-:global(body.light-mode) .status-indicator {
-  color: #475569;
-  background-color: #f1f5f9;
-  border: 1px solid #cbd5e1;
-}
-:global(body.light-mode) .status-indicator.active {
-  color: #049f6c;
-  background-color: rgba(4, 159, 108, 0.08);
-  border: 1px solid rgba(4, 159, 108, 0.15);
-}
-:global(body.light-mode) .date-col {
-  color: #475569;
-}
-:global(body.light-mode) .warning-alert {
-  background-color: #fffbeb !important;
-  color: #b45309 !important;
-  border: 1px solid #fef3c7 !important;
-  border-left: 3px solid #f59e0b !important;
-}
-:global(body.light-mode) .form-help {
-  color: #64748b;
-}
-
-/* Light mode PrimeVue overrides */
-:global(body.light-mode) :deep(.p-button) {
-  background-color: #ffffff !important;
-  border: 1px solid #cbd5e1 !important;
-  color: #475569 !important;
-}
-:global(body.light-mode) :deep(.p-button:hover) {
-  background-color: #f8fafc !important;
-  border-color: #94a3b8 !important;
-  color: #0f172a !important;
-}
-:global(body.light-mode) :deep(.p-button:not(.p-button-outlined)) {
-  background-color: #0f172a !important;
-  border-color: #0f172a !important;
-  color: #ffffff !important;
-}
-:global(body.light-mode) :deep(.p-button:not(.p-button-outlined):hover) {
-  background-color: #334155 !important;
-  border-color: #334155 !important;
-  color: #ffffff !important;
-}
-:global(body.light-mode) :deep(.p-button-danger) {
-  background-color: #fef2f2 !important;
-  border-color: #fee2e2 !important;
-  color: #ef4444 !important;
-}
-:global(body.light-mode) :deep(.p-button-danger:hover) {
-  background-color: #fef2f2 !important;
-  border-color: #fca5a5 !important;
-}
-:global(body.light-mode) :deep(.p-inputtext) {
-  background-color: #ffffff !important;
-  border: 1px solid #cbd5e1 !important;
-  color: #0f172a !important;
-}
-:global(body.light-mode) :deep(.p-inputtext:focus) {
-  border-color: #049f6c !important;
-}
-:global(body.light-mode) :deep(.p-dialog) {
-  background-color: #ffffff !important;
-  border: 1px solid #cbd5e1 !important;
-  color: #0f172a !important;
-  box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1) !important;
-}
-:global(body.light-mode) :deep(.p-dialog-header),
-:global(body.light-mode) :deep(.p-dialog-content),
-:global(body.light-mode) :deep(.p-dialog-footer) {
-  background-color: #ffffff !important;
-  color: #0f172a !important;
-}
-
-:global(body.light-mode) .selection-icon {
-  color: #0f172a !important;
-}
-
-/* Selection Contextual Banner Styles */
-.selection-banner {
-  background-color: var(--card-bg);
-  border: 1px solid var(--card-border);
+.btn-action-warning {
+  background: transparent;
+  color: var(--color-up-unstable);
+  border: 1px solid var(--color-up-unstable);
   border-radius: 4px;
-  padding: 0.75rem 1.5rem;
-  margin-bottom: 1.5rem;
-  font-family: monospace;
-  font-size: 0.85rem;
+  padding: 4px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  transition: all 0.15s;
+}
+
+.btn-action-warning:hover {
+  background: var(--color-up-unstable-bg);
+}
+
+.btn-action-danger {
+  background: transparent;
+  color: var(--color-down);
+  border: 1px solid var(--color-down);
+  border-radius: 4px;
+  padding: 4px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  transition: all 0.15s;
+}
+
+.btn-action-danger:hover {
+  background: var(--color-down-bg);
+}
+
+.btn-action-success {
+  background: transparent;
+  color: var(--color-up);
+  border: 1px solid var(--color-up);
+  border-radius: 4px;
+  padding: 4px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  transition: all 0.15s;
+}
+
+.btn-action-success:hover {
+  background: var(--color-up-bg);
+}
+
+/* ── Contextual Floating Selection Banner ── */
+.selection-banner {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--bg-surface);
+  border: 1px solid var(--accent);
+  box-shadow: var(--shadow-hover);
+  border-radius: var(--radius);
+  padding: 12px 24px;
+  z-index: 150;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   transition: all 0.2s ease;
 }
 
 .banner-content {
   display: flex;
-  justify-content: space-between;
   align-items: center;
+  gap: 20px;
+  white-space: nowrap;
 }
 
 .selection-count {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
+  font-size: 13px;
   color: var(--text-primary);
 }
 
-.selection-icon {
-  color: #049f6c;
-}
-
-.export-btn {
-  background-color: #049f6c !important;
-  border-color: #049f6c !important;
-  color: #ffffff !important;
-}
-
-.export-btn:hover {
-  background-color: #037f56 !important;
-  border-color: #037f56 !important;
-}
-
-/* fade transition */
 .fade-enter-active,
 .fade-leave-active {
-  transition: opacity 0.25s ease, transform 0.25s ease;
+  transition: opacity 0.2s ease, transform 0.2s ease;
 }
 
 .fade-enter-from,
 .fade-leave-to {
   opacity: 0;
-  transform: translateY(-10px);
+  transform: translate(-50%, 15px);
+}
+
+/* ── Unified Native Modals Overlays ── */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.65);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 200;
+  padding: 20px;
+  backdrop-filter: blur(2px);
+}
+
+.modal {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius);
+  width: 100%;
+  max-width: 460px;
+  box-shadow: var(--shadow-hover);
+  animation: modal-slide-in 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  overflow: hidden;
+}
+
+@keyframes modal-slide-in {
+  from { transform: translateY(10px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.modal-title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-primary);
+  letter-spacing: -0.01em;
+}
+
+.modal-close {
+  font-size: 20px;
+  color: var(--text-muted);
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  transition: background 0.15s, color 0.15s;
+}
+
+.modal-close:hover {
+  background: var(--bg-surface-selected);
+  color: var(--text-primary);
+}
+
+.modal-body {
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  max-height: 70vh;
+  overflow-y: auto;
+}
+
+.text-center {
+  text-align: center;
+}
+
+.modal-alert-text {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 4px;
+}
+
+.warning-subtext {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin: 0;
+}
+
+.form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.checkbox-form-group {
+  flex-direction: row !important;
+  align-items: center;
+  gap: 8px !important;
+  margin-top: 4px;
+}
+
+.checkbox-form-group input {
+  width: 14px;
+  height: 14px;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.checkbox-form-group label {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-primary);
+  cursor: pointer;
+  user-select: none;
+}
+
+.form-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.form-input {
+  background: var(--bg-app);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  font-size: 14px;
+  font-family: inherit;
+  transition: border-color 0.15s, box-shadow 0.15s;
+  width: 100%;
+  outline: none;
+}
+
+.form-input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--bg-surface-selected);
+}
+
+.form-input:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.form-textarea {
+  resize: vertical;
+  min-height: 70px;
+}
+
+.form-help {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: -2px;
+}
+
+.modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 16px 20px;
+  border-top: 1px solid var(--border-color);
+  background: var(--bg-surface-hover);
+}
+
+.full-width-btn {
+  width: 100%;
+  text-align: center;
+  justify-content: center;
 }
 </style>

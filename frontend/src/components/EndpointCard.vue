@@ -1,87 +1,71 @@
 <template>
-  <Card class="endpoint-card" @click="handleClick">
-    <div class="checkbox-container" @click.stop>
-      <input 
-        type="checkbox" 
-        :checked="selected" 
-        @change="handleCheckboxChange" 
-        class="low-profile-checkbox"
-      />
-    </div>
-    <template #title>
-      <div class="card-header-row">
-        <div class="hostname" :title="endpoint.hostname">
-          {{ endpoint.hostname }}
-        </div>
-        <div v-if="isAdmin" class="admin-actions" @click.stop>
-          <Button 
-            icon="pi pi-pencil" 
-            severity="secondary" 
-            text 
-            size="small" 
-            @click="handleEdit" 
-            v-tooltip="'Edit'"
-            class="action-btn"
-          />
-          <Button 
-            icon="pi pi-trash" 
-            severity="danger" 
-            text 
-            size="small" 
-            @click="handleDelete" 
-            v-tooltip="'Delete'"
-            class="action-btn delete"
+  <div
+    class="endpoint-card"
+    :class="{ 'card-selected': selected }"
+    @click="handleClick"
+  >
+    <div class="card-header">
+      <div class="card-title-row">
+        <div class="card-checkbox" @click.stop>
+          <input 
+            type="checkbox" 
+            :checked="selected" 
+            @change="handleCheckboxChange" 
           />
         </div>
+        <h3 class="card-hostname" :title="endpoint.hostname">{{ endpoint.hostname }}</h3>
       </div>
-    </template>
-    <template #subtitle>
-      <div class="ip-address font-mono">{{ endpoint.ip_address }}</div>
-    </template>
-    <template #content>
+      
+      <div v-if="isAdmin" class="admin-actions" @click.stop>
+        <button class="btn-icon" @click="handleEdit" title="Edit Endpoint">✎</button>
+        <button class="btn-icon delete" @click="handleDelete" title="Delete Endpoint">🗑</button>
+      </div>
+    </div>
+
+    <div class="card-body">
       <div class="status-row">
-        <span class="state-text" :class="stateClass" :style="{ color: stateTextColor }">
-          <span v-if="endpoint.current_detailed_state === 'UP'" class="state-dot"></span>
-          {{ endpoint.current_detailed_state }}
+        <span :class="['badge', statusBadgeClass]">
+          <span :class="['status-dot', statusDotClass]"></span>
+          {{ endpoint.current_detailed_state || 'UNKNOWN' }}
         </span>
       </div>
-      <div class="metrics-row font-mono">
-        <div class="uptime-metric">
-          <span class="metric-label">Availability:</span> 
-          <span class="metric-value">{{ formattedUptime }} SLA</span>
-        </div>
-        <div class="last-seen">
-          Last seen: {{ timeAgo }}
-        </div>
+
+      <div class="card-meta">
+        <span class="card-ip">{{ endpoint.ip_address }}</span>
+        <span class="card-separator">·</span>
+        <span class="card-device-type">{{ endpoint.device_type }}</span>
       </div>
-    </template>
-  </Card>
+
+      <div class="card-footer">
+        <div class="uptime-row">
+          <span class="uptime-label">Uptime</span>
+          <span class="uptime-value" :class="uptimeClass">
+            {{ formattedUptime }}
+          </span>
+        </div>
+        <span class="last-seen">Seen {{ timeAgo }}</span>
+      </div>
+    </div>
+  </div>
 </template>
 
 <script setup>
 import { computed } from 'vue'
-import Card from 'primevue/card'
-import Button from 'primevue/button'
 
 const props = defineProps({
-  endpoint: {
-    type: Object,
-    required: true
-  },
-  isAdmin: {
-    type: Boolean,
-    default: false
-  },
-  selected: {
-    type: Boolean,
-    default: false
-  }
+  endpoint: { type: Object, required: true },
+  isAdmin: { type: Boolean, default: false },
+  selected: { type: Boolean, default: false }
 })
 
 const emit = defineEmits(['select', 'edit', 'delete', 'toggle-select'])
 
 const handleClick = () => {
   emit('select', props.endpoint.id)
+}
+
+const handleCheckboxChange = () => {
+  emit('toggle-select', props.endpoint.id)
 }
 
 const handleEdit = () => {
@@ -92,225 +76,213 @@ const handleDelete = () => {
   emit('delete', props.endpoint.id)
 }
 
-const handleCheckboxChange = () => {
-  emit('toggle-select', props.endpoint.id)
-}
-
-const stateClass = computed(() => {
-  const state = props.endpoint.current_detailed_state
-  if (state === 'UP') return 'up'
-  if (state === 'UP-UNSTABLE' || state === 'DOWN-UNSTABLE') return 'unstable'
-  if (state === 'DOWN') return 'down'
-  return 'unknown'
+const statusBadgeClass = computed(() => {
+  const s = props.endpoint.current_detailed_state
+  if (s === 'UP') return 'badge-up'
+  if (s === 'UP-UNSTABLE') return 'badge-up-unstable'
+  if (s === 'DOWN-UNSTABLE') return 'badge-down-unstable'
+  if (s === 'DOWN') return 'badge-down'
+  return 'badge-unknown'
 })
 
-const stateTextColor = computed(() => {
-  const state = props.endpoint.current_detailed_state
-  if (state === 'UP') return '#FFFFFF' // Monochrome flat white for healthy
-  if (state === 'UP-UNSTABLE' || state === 'DOWN-UNSTABLE') return '#F59E0B' // Solid un-softened amber
-  if (state === 'DOWN') return '#FF0000' // Piercing high-saturation solid red
-  return '#A3A3A3'
+const statusDotClass = computed(() => {
+  const s = props.endpoint.current_detailed_state
+  if (s === 'UP') return 'dot-up'
+  if (s === 'UP-UNSTABLE') return 'dot-up-unstable'
+  if (s === 'DOWN-UNSTABLE') return 'dot-down-unstable'
+  if (s === 'DOWN') return 'dot-down'
+  return 'dot-unknown'
 })
 
 const formattedUptime = computed(() => {
-  if (props.endpoint.uptime_percentage_24h == null) return '0.00%'
-  return `${props.endpoint.uptime_percentage_24h}%`
+  const v = props.endpoint.uptime_percentage_24h
+  if (v == null) return '—'
+  return `${parseFloat(v).toFixed(2)}%`
+})
+
+const uptimeClass = computed(() => {
+  const v = parseFloat(props.endpoint.uptime_percentage_24h)
+  if (isNaN(v)) return ''
+  if (v >= 99) return 'uptime-good'
+  if (v >= 95) return 'uptime-warn'
+  return 'uptime-bad'
 })
 
 const timeAgo = computed(() => {
-  if (!props.endpoint.last_seen) return 'Never'
-  
-  const now = new Date()
-  const past = new Date(props.endpoint.last_seen)
-  const diffMs = now - past
-  const diffMins = Math.floor(diffMs / 60000)
-  
-  if (diffMins < 1) return 'Just now'
-  if (diffMins < 60) return `${diffMins}m ago`
-  
-  const diffHours = Math.floor(diffMins / 60)
-  if (diffHours < 24) return `${diffHours}h ago`
-  
-  const diffDays = Math.floor(diffHours / 24)
-  return `${diffDays}d ago`
+  if (!props.endpoint.last_seen) return 'never'
+  const now = Date.now()
+  const past = new Date(props.endpoint.last_seen).getTime()
+  const diff = Math.floor((now - past) / 1000)
+  if (diff < 60) return 'just now'
+  if (diff < 3600) {
+    const m = Math.floor(diff / 60)
+    return `${m}m ago`
+  }
+  if (diff < 86400) {
+    const h = Math.floor(diff / 3600)
+    return `${h}h ago`
+  }
+  const d = Math.floor(diff / 86400)
+  return `${d}d ago`
 })
 </script>
 
 <style scoped>
 .endpoint-card {
-  position: relative;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius);
+  padding: 16px;
   cursor: pointer;
-  height: 100%;
-  background-color: var(--card-bg) !important;
-  border: 1px solid var(--card-border) !important;
-  border-radius: 4px !important;
-  box-shadow: none !important;
-  transition: border-color 0.15s ease;
+  transition: box-shadow 0.15s, border-color 0.15s, background 0.15s;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  position: relative;
 }
+
 .endpoint-card:hover {
-  border-color: var(--text-secondary) !important;
+  box-shadow: var(--shadow-hover);
+  border-color: var(--border-color-strong);
 }
-:deep(.p-card-body) {
-  padding: 1.25rem !important;
+
+.card-selected {
+  border-color: var(--accent);
+  background: var(--bg-surface-selected);
 }
-.card-header-row {
+
+.card-header {
   display: flex;
+  align-items: center;
   justify-content: space-between;
-  align-items: center;
-  gap: 0.5rem;
-  padding-left: 20px;
+  gap: 8px;
 }
-.checkbox-container {
-  position: absolute;
-  top: 20px;
-  left: 16px;
-  z-index: 10;
+
+.card-title-row {
   display: flex;
   align-items: center;
-  justify-content: center;
+  gap: 8px;
+  min-width: 0;
+  flex: 1;
 }
-.low-profile-checkbox {
-  appearance: none;
-  -webkit-appearance: none;
+
+.card-checkbox input {
   width: 14px;
   height: 14px;
-  border: 1px solid var(--card-border);
-  border-radius: 3px;
-  background-color: transparent;
-  outline: none;
   cursor: pointer;
-  transition: background-color 0.15s, border-color 0.15s;
-  position: relative;
+  flex-shrink: 0;
+  accent-color: var(--accent);
 }
-.low-profile-checkbox:hover {
-  border-color: var(--text-secondary);
-}
-.low-profile-checkbox:checked {
-  background-color: var(--text-primary);
-  border-color: var(--text-primary);
-}
-.low-profile-checkbox:checked::after {
-  content: '';
-  position: absolute;
-  left: 4px;
-  top: 1px;
-  width: 3px;
-  height: 7px;
-  border: solid var(--card-bg);
-  border-width: 0 1.5px 1.5px 0;
-  transform: rotate(45deg);
-}
-.hostname {
+
+.card-hostname {
+  margin: 0;
+  font-size: 15px;
   font-weight: 700;
+  color: var(--text-primary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  font-size: 1.05rem;
-  flex: 1;
-  color: #FFFFFF;
 }
+
 .admin-actions {
   display: flex;
-  gap: 0.15rem;
+  gap: 4px;
+  opacity: 0;
+  transition: opacity 0.15s ease;
 }
-.action-btn {
-  color: #A3A3A3 !important;
-  padding: 0.25rem !important;
-  border-radius: 4px !important;
+
+.endpoint-card:hover .admin-actions {
+  opacity: 1;
 }
-.action-btn:hover {
-  color: #FFFFFF !important;
-  background-color: rgba(255,255,255,0.08) !important;
-}
-.action-btn.delete:hover {
-  color: #FF0000 !important;
-  background-color: rgba(255, 0, 0, 0.08) !important;
-}
-.ip-address {
-  color: #A3A3A3;
-  font-size: 0.8rem;
-  margin-bottom: 0.75rem;
-  font-weight: 500;
-}
-.status-row {
-  margin-bottom: 1.25rem;
-}
-.state-text {
-  font-size: 0.8rem;
-  font-weight: 700;
-  display: inline-flex;
+
+.btn-icon {
+  width: 26px;
+  height: 26px;
+  border-radius: 4px;
+  display: flex;
   align-items: center;
-  gap: 0.35rem;
+  justify-content: center;
+  color: var(--text-secondary);
+  font-size: 13px;
+  transition: background 0.15s, color 0.15s;
+}
+
+.btn-icon:hover {
+  background: var(--bg-surface-selected);
+  color: var(--text-primary);
+}
+
+.btn-icon.delete:hover {
+  background: var(--color-down-bg);
+  color: var(--color-down);
+}
+
+.card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.status-row {
+  display: flex;
+}
+
+.card-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+}
+
+.card-ip {
+  color: var(--text-secondary);
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-size: 12px;
+}
+
+.card-separator {
+  color: var(--text-muted);
+}
+
+.card-device-type {
+  color: var(--text-muted);
+  font-size: 12px;
   text-transform: uppercase;
   letter-spacing: 0.05em;
 }
-.state-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background-color: #588157; /* compact un-glowing gray-green dot */
-  display: inline-block;
-}
-.metrics-row {
+
+.card-footer {
   display: flex;
-  flex-direction: column;
-  gap: 0.35rem;
-  font-size: 0.8rem;
-  border-top: 1px solid #262626;
-  padding-top: 0.75rem;
-}
-.font-mono {
-  font-family: monospace;
-}
-.metric-label {
-  color: #A3A3A3;
-}
-.metric-value {
-  color: #FFFFFF;
-  font-weight: 700;
-}
-.last-seen {
-  color: #A3A3A3;
+  align-items: center;
+  justify-content: space-between;
+  padding-top: 10px;
+  border-top: 1px solid var(--border-color);
 }
 
-/* Light Mode Overrides */
-:global(body.light-mode) .endpoint-card {
-  background-color: #fafafa !important;
-  border: 1px solid #cbd5e1 !important;
+.uptime-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
-:global(body.light-mode) .endpoint-card:hover {
-  border-color: #94a3b8 !important;
+
+.uptime-label {
+  font-size: 11px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
 }
-:global(body.light-mode) .hostname {
-  color: #0f172a;
+
+.uptime-value {
+  font-size: 13px;
+  font-weight: 700;
 }
-:global(body.light-mode) .ip-address {
-  color: #475569;
-}
-:global(body.light-mode) .action-btn {
-  color: #475569 !important;
-}
-:global(body.light-mode) .action-btn:hover {
-  color: #0f172a !important;
-  background-color: rgba(0,0,0,0.05) !important;
-}
-:global(body.light-mode) .action-btn.delete:hover {
-  color: #FF0000 !important;
-  background-color: rgba(255,0,0,0.05) !important;
-}
-:global(body.light-mode) .state-text.up {
-  color: #334155 !important;
-}
-:global(body.light-mode) .metrics-row {
-  border-top: 1px solid #e2e8f0;
-}
-:global(body.light-mode) .metric-label {
-  color: #475569;
-}
-:global(body.light-mode) .metric-value {
-  color: #0f172a;
-}
-:global(body.light-mode) .last-seen {
-  color: #64748b;
+
+.uptime-good { color: var(--color-up); }
+.uptime-warn { color: var(--color-up-unstable); }
+.uptime-bad { color: var(--color-down); }
+
+.last-seen {
+  font-size: 12px;
+  color: var(--text-muted);
 }
 </style>
