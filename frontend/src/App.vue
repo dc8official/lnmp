@@ -21,6 +21,24 @@ onMounted(() => {
 </script>
 
 <style>
+:root {
+  --canvas-bg: #0a0a0a; /* bg-neutral-950 solid dark charcoal */
+  --card-bg: #000000;   /* pitch black */
+  --card-border: #262626;
+  --text-primary: #ffffff;
+  --text-secondary: #a3a3a3;
+  --text-muted: #737373;
+}
+
+body.light-mode {
+  --canvas-bg: #ffffff; /* bg-white clean, crisp flat white */
+  --card-bg: #fafafa;   /* bg-neutral-50 light minimalist gray */
+  --card-border: #cbd5e1;
+  --text-primary: #000000;
+  --text-secondary: #334155;
+  --text-muted: #64748b;
+}
+
 * {
   box-sizing: border-box;
   margin: 0;
@@ -30,14 +48,9 @@ onMounted(() => {
 body {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI',
     Roboto, Oxygen, Ubuntu, sans-serif;
-  background-color: #0A0A0A;
-  color: #A3A3A3;
+  background-color: var(--canvas-bg);
+  color: var(--text-secondary);
   transition: background-color 0.2s ease, color 0.2s ease;
-}
-
-body.light-mode {
-  background-color: #f1f5f9;
-  color: #334155;
 }
 
 #app {

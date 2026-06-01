@@ -124,14 +124,14 @@ const timeAgo = computed(() => {
 .endpoint-card {
   cursor: pointer;
   height: 100%;
-  background-color: #000000 !important;
-  border: 1px solid #262626 !important;
+  background-color: var(--card-bg) !important;
+  border: 1px solid var(--card-border) !important;
   border-radius: 4px !important;
   box-shadow: none !important;
   transition: border-color 0.15s ease;
 }
 .endpoint-card:hover {
-  border-color: #A3A3A3 !important;
+  border-color: var(--text-secondary) !important;
 }
 :deep(.p-card-body) {
   padding: 1.25rem !important;
@@ -217,8 +217,8 @@ const timeAgo = computed(() => {
 
 /* Light Mode Overrides */
 :global(body.light-mode) .endpoint-card {
-  background-color: #ffffff !important;
-  border: 1px solid #e2e8f0 !important;
+  background-color: #fafafa !important;
+  border: 1px solid #cbd5e1 !important;
 }
 :global(body.light-mode) .endpoint-card:hover {
   border-color: #94a3b8 !important;

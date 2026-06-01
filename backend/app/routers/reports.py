@@ -15,8 +15,32 @@ from app.schemas import (
     PaginationMeta,
     UptimeReport,
 )
+from app.services.uptime_calculator import (
+    calculate_uptime_denominator_and_percentage,
+    get_unknown_seconds_for_period,
+)
 
 router = APIRouter(prefix="/reports", tags=["reports"])
+
+def parse_datetime_param(val: str, is_end: bool = False) -> datetime:
+    # Try parsing as ISO datetime
+    try:
+        dt = datetime.fromisoformat(val.replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt
+    except ValueError:
+        pass
+    
+    # Try parsing as date
+    try:
+        d = date.fromisoformat(val)
+        if is_end:
+            return datetime(d.year, d.month, d.day, 23, 59, 59, tzinfo=timezone.utc)
+        else:
+            return datetime(d.year, d.month, d.day, 0, 0, 0, tzinfo=timezone.utc)
+    except ValueError:
+        raise HTTPException(status_code=400, detail=f"Invalid date/datetime format: {val}")
 
 def _build_period(
     start_date: date,
@@ -59,12 +83,14 @@ def _worse_state(state_a: str, state_b: str) -> str:
 @router.get("/uptime/{endpoint_id}", response_model=APIResponse)
 async def get_uptime_report(
     endpoint_id: UUID,
-    start_date: date = Query(...),
-    end_date: date = Query(...),
+    start_date: str = Query(...),
+    end_date: str = Query(...),
     current_user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    _validate_date_range(start_date, end_date)
+    start_dt = parse_datetime_param(start_date, is_end=False)
+    end_dt = parse_datetime_param(end_date, is_end=True)
+    _validate_date_range(start_dt, end_dt)
 
     query_exists = text("""
         SELECT id, created_at FROM endpoints
@@ -76,45 +102,20 @@ async def get_uptime_report(
     if not exists_row:
         raise HTTPException(status_code=404, detail="Endpoint not found.")
 
-    period_start, period_end = _build_period(start_date, end_date)
+    period_start, period_end = start_dt, end_dt
     
     # Cap period_start to the creation time so we don't skew uptime statistics for time before registration
     # Ensure exists_row.created_at is timezone-aware UTC
     created_at = exists_row.created_at
     if created_at.tzinfo is None:
         created_at = created_at.replace(tzinfo=timezone.utc)
+    
     effective_start = max(period_start, created_at)
-    total_seconds = max(1, int((period_end - effective_start).total_seconds()))
+    now_utc = datetime.now(timezone.utc)
+    effective_end = min(period_end, now_utc)
+    total_seconds = max(0, int((effective_end - effective_start).total_seconds()))
 
-    query_gaps = text("""
-        SELECT start_time, end_time
-        FROM monitoring_service_events
-        WHERE start_time < :period_end
-          AND (end_time > :effective_start OR end_time IS NULL)
-    """)
-    result_gaps = await db.execute(query_gaps, {
-        "effective_start": effective_start,
-        "period_end": period_end,
-    })
-    gap_rows = result_gaps.fetchall()
-
-    unknown_seconds = 0
-    for row in gap_rows:
-        row_start_time = row.start_time
-        if row_start_time.tzinfo is None:
-            row_start_time = row_start_time.replace(tzinfo=timezone.utc)
-        row_end_time = row.end_time
-        if row_end_time is not None and row_end_time.tzinfo is None:
-            row_end_time = row_end_time.replace(tzinfo=timezone.utc)
-
-        gap_start = max(row_start_time, effective_start)
-        gap_end = min(
-            row_end_time if row_end_time is not None else period_end,
-            period_end
-        )
-        unknown_seconds += max(
-            0, int((gap_end - gap_start).total_seconds())
-        )
+    unknown_seconds = await get_unknown_seconds_for_period(db, effective_start, period_end)
 
     query_events = text("""
         SELECT operational_state, start_time, end_time
@@ -141,14 +142,14 @@ async def get_uptime_report(
         else:
             downtime_seconds += duration
 
-    denominator = total_seconds - unknown_seconds
-    if denominator <= 0:
-        uptime_percentage = 0.0
-    else:
-        uptime_percentage = round(
-            (uptime_seconds / denominator) * 100, 2
-        )
-    uptime_percentage = max(0.0, min(100.0, uptime_percentage))
+    uptime_percentage = calculate_uptime_denominator_and_percentage(
+        created_at=created_at,
+        start_time=period_start,
+        end_time=period_end,
+        now_utc=now_utc,
+        up_events_count=uptime_seconds // 60,
+        unknown_seconds=unknown_seconds
+    )
 
     incident_count = 0
     prev_state = None
@@ -174,14 +175,16 @@ async def get_uptime_report(
 @router.get("/incidents/{endpoint_id}", response_model=APIResponse)
 async def get_incident_report(
     endpoint_id: UUID,
-    start_date: date = Query(...),
-    end_date: date = Query(...),
+    start_date: str = Query(...),
+    end_date: str = Query(...),
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=50, ge=1, le=200),
     current_user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    _validate_date_range(start_date, end_date)
+    start_dt = parse_datetime_param(start_date, is_end=False)
+    end_dt = parse_datetime_param(end_date, is_end=True)
+    _validate_date_range(start_dt, end_dt)
 
     query_exists = text("""
         SELECT id FROM endpoints
@@ -192,7 +195,7 @@ async def get_incident_report(
     if not result_exists.fetchone():
         raise HTTPException(status_code=404, detail="Endpoint not found.")
 
-    period_start, period_end = _build_period(start_date, end_date)
+    period_start, period_end = start_dt, end_dt
 
     query_events = text("""
         SELECT
@@ -274,15 +277,15 @@ async def get_incident_report(
 @router.get("/events/{endpoint_id}")
 async def get_endpoint_events(
     endpoint_id: UUID,
-    start_date: date = Query(...),
-    end_date: date = Query(...),
+    start_date: str = Query(...),
+    end_date: str = Query(...),
     current_user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    _validate_date_range(start_date, end_date)
-    period_start, period_end = _build_period(
-        start_date, end_date
-    )
+    start_dt = parse_datetime_param(start_date, is_end=False)
+    end_dt = parse_datetime_param(end_date, is_end=True)
+    _validate_date_range(start_dt, end_dt)
+    period_start, period_end = start_dt, end_dt
 
     result = await db.execute(
         text("""

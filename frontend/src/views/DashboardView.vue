@@ -4,7 +4,7 @@
     <header class="app-nav">
       <div class="brand">
         <i class="pi pi-shield brand-icon"></i>
-        <span>lnmp Monitoring</span>
+        <span>lnmp <span class="version-tag">v1(beta)</span> Monitoring</span>
       </div>
       <div class="user-profile" v-if="user">
         <Button
@@ -805,11 +805,11 @@ onMounted(() => {
 <style scoped>
 .dashboard-wrapper {
   min-height: 100vh;
-  background-color: #0A0A0A;
+  background-color: var(--canvas-bg);
 }
 .app-nav {
-  background-color: #000000;
-  border-bottom: 1px solid #262626;
+  background-color: var(--card-bg);
+  border-bottom: 1px solid var(--card-border);
   padding: 0.75rem 2rem;
   display: flex;
   justify-content: space-between;
@@ -1148,9 +1148,9 @@ h1 {
   margin-top: 1.5rem;
 }
 .users-table-card {
-  background-color: #000000;
+  background-color: var(--card-bg);
   border-radius: 4px;
-  border: 1px solid #262626;
+  border: 1px solid var(--card-border);
   box-shadow: none;
   overflow-x: auto;
 }
@@ -1279,11 +1279,11 @@ h1 {
    Light Mode Theme Scoping Overrides
    ========================================================================== */
 :global(body.light-mode) .dashboard-wrapper {
-  background-color: #f1f5f9;
+  background-color: #ffffff;
 }
 :global(body.light-mode) .app-nav {
   background-color: #ffffff;
-  border-bottom: 1px solid #e2e8f0;
+  border-bottom: 1px solid #cbd5e1;
 }
 :global(body.light-mode) .brand {
   color: #0f172a;
@@ -1304,8 +1304,17 @@ h1 {
 :global(body.light-mode) .stat-card,
 :global(body.light-mode) .users-table-card,
 :global(body.light-mode) .incident-ticker {
-  background-color: #ffffff !important;
-  border: 1px solid #e2e8f0 !important;
+  background-color: #fafafa !important;
+  border: 1px solid #cbd5e1 !important;
+}
+
+.version-tag {
+  font-family: monospace;
+  font-size: 0.75rem;
+  color: var(--text-muted, #737373);
+  margin-left: 0.25rem;
+  font-weight: 500;
+  text-transform: none;
 }
 :global(body.light-mode) .stat-value {
   color: #0f172a;

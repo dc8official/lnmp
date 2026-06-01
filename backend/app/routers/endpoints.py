@@ -10,6 +10,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
 from app.routers.auth import get_current_user, require_admin
 from app.schemas import APIResponse, PaginationMeta
+from app.services.uptime_calculator import (
+    calculate_uptime_denominator_and_percentage,
+    get_unknown_seconds_for_period,
+)
 
 class CreateEndpointRequest(BaseModel):
     ip_address: str
@@ -55,21 +59,15 @@ async def list_endpoints(
             ev.start_time         AS last_seen,
             COALESCE(
                 (
-                    SELECT
-                        ROUND(
-                            (
-                                COUNT(CASE WHEN sub_ev.operational_state = 'UP' THEN 1 END)::numeric /
-                                NULLIF(COUNT(sub_ev.id), 0)::numeric
-                            ) * 100,
-                            2
-                        )
+                    SELECT COUNT(*)
                     FROM endpoint_events sub_ev
                     WHERE sub_ev.endpoint_id = e.id
                       AND sub_ev.start_time >= :since_utc
                       AND sub_ev.start_time <= :now_utc
+                      AND sub_ev.operational_state = 'UP'
                 ),
-                100.0
-            ) AS uptime_percentage_24h
+                0
+            )::integer AS up_events_count
         FROM endpoints e
         LEFT JOIN LATERAL (
             SELECT operational_state, detailed_state, health_score, start_time
@@ -95,8 +93,18 @@ async def list_endpoints(
     result = await db.execute(query, params)
     rows = result.fetchall()
     
+    unknown_seconds = await get_unknown_seconds_for_period(db, since_utc, now_utc)
+    
     data = []
     for row in rows:
+        uptime_percentage = calculate_uptime_denominator_and_percentage(
+            created_at=row.created_at,
+            start_time=since_utc,
+            end_time=now_utc,
+            now_utc=now_utc,
+            up_events_count=row.up_events_count,
+            unknown_seconds=unknown_seconds
+        )
         data.append({
             "id": str(row.id),
             "hostname": row.hostname,
@@ -111,7 +119,7 @@ async def list_endpoints(
             "current_detailed_state": row.current_detailed_state if row.current_detailed_state else "DOWN",
             "current_health_score": row.current_health_score if row.current_health_score is not None else 0.0,
             "last_seen": row.last_seen,
-            "uptime_percentage_24h": float(row.uptime_percentage_24h) if row.uptime_percentage_24h is not None else 100.0,
+            "uptime_percentage_24h": uptime_percentage,
         })
         
     meta = PaginationMeta(
@@ -150,21 +158,15 @@ async def get_endpoint(
             ev.start_time         AS last_seen,
             COALESCE(
                 (
-                    SELECT
-                        ROUND(
-                            (
-                                COUNT(CASE WHEN sub_ev.operational_state = 'UP' THEN 1 END)::numeric /
-                                NULLIF(COUNT(sub_ev.id), 0)::numeric
-                            ) * 100,
-                            2
-                        )
+                    SELECT COUNT(*)
                     FROM endpoint_events sub_ev
                     WHERE sub_ev.endpoint_id = e.id
                       AND sub_ev.start_time >= :since_utc
                       AND sub_ev.start_time <= :now_utc
+                      AND sub_ev.operational_state = 'UP'
                 ),
-                100.0
-            ) AS uptime_percentage_24h
+                0
+            )::integer AS up_events_count
         FROM endpoints e
         LEFT JOIN LATERAL (
             SELECT operational_state, detailed_state, health_score, start_time
@@ -186,6 +188,16 @@ async def get_endpoint(
     if not row:
         raise HTTPException(status_code=404, detail="Endpoint not found.")
         
+    unknown_seconds = await get_unknown_seconds_for_period(db, since_utc, now_utc)
+    uptime_percentage = calculate_uptime_denominator_and_percentage(
+        created_at=row.created_at,
+        start_time=since_utc,
+        end_time=now_utc,
+        now_utc=now_utc,
+        up_events_count=row.up_events_count,
+        unknown_seconds=unknown_seconds
+    )
+    
     data = {
         "id": str(row.id),
         "hostname": row.hostname,
@@ -202,7 +214,7 @@ async def get_endpoint(
         "current_detailed_state": row.current_detailed_state if row.current_detailed_state else "DOWN",
         "current_health_score": row.current_health_score if row.current_health_score is not None else 0.0,
         "last_seen": row.last_seen,
-        "uptime_percentage_24h": float(row.uptime_percentage_24h) if row.uptime_percentage_24h is not None else 100.0,
+        "uptime_percentage_24h": uptime_percentage,
     }
     
     return APIResponse.success(data=data)

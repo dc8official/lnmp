@@ -4,7 +4,7 @@
     <nav class="app-nav">
       <div class="brand">
         <i class="pi pi-shield brand-icon"></i>
-        <span>lnmp Platform</span>
+        <span>lnmp <span class="version-tag">v1(beta)</span> Platform</span>
       </div>
       <div class="user-profile" v-if="user">
         <Button
@@ -135,11 +135,11 @@
           <div v-if="filterRange === 'custom'" class="toolbar-right">
             <div class="date-input-group">
               <label for="start_date">Start</label>
-              <input type="date" id="start_date" v-model="customStartDate" class="date-picker-input" />
+              <input type="datetime-local" id="start_date" v-model="customStartDate" class="date-picker-input" />
             </div>
             <div class="date-input-group">
               <label for="end_date">End</label>
-              <input type="date" id="end_date" v-model="customEndDate" class="date-picker-input" />
+              <input type="datetime-local" id="end_date" v-model="customEndDate" class="date-picker-input" />
             </div>
             <Button 
               label="Query" 
@@ -330,8 +330,8 @@ const error = ref(null)
 
 // Date Range filters
 const filterRange = ref('7d')
-const customStartDate = ref(getPastDateStr(7))
-const customEndDate = ref(getPastDateStr(0))
+const customStartDate = ref(getPastDateTimeStr(7))
+const customEndDate = ref(getPastDateTimeStr(0))
 
 // Detailed date strings for timeline component
 const periodStartStr = ref('')
@@ -341,6 +341,17 @@ function getPastDateStr(daysAgo) {
   const d = new Date()
   d.setDate(d.getDate() - daysAgo)
   return d.toISOString().split('T')[0]
+}
+
+function getPastDateTimeStr(daysAgo) {
+  const d = new Date()
+  d.setDate(d.getDate() - daysAgo)
+  const year = d.getFullYear()
+  const month = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  const hours = String(d.getHours()).padStart(2, '0')
+  const minutes = String(d.getMinutes()).padStart(2, '0')
+  return `${year}-${month}-${day}T${hours}:${minutes}`
 }
 
 const sortedEvents = computed(() => {
@@ -373,8 +384,13 @@ const loadData = async () => {
   }
   
   // Format period boundary strings for visual components
-  periodStartStr.value = `${start}T00:00:00Z`
-  periodEndStr.value = `${end}T23:59:59Z`
+  if (filterRange.value === 'custom') {
+    periodStartStr.value = `${start}:00Z`
+    periodEndStr.value = `${end}:00Z`
+  } else {
+    periodStartStr.value = `${start}T00:00:00Z`
+    periodEndStr.value = `${end}T23:59:59Z`
+  }
   
   try {
     const [endpointRes, uptimeRes, eventsRes] = await Promise.all([
@@ -464,12 +480,12 @@ onMounted(() => {
 <style scoped>
 .detail-wrapper {
   min-height: 100vh;
-  background-color: #0A0A0A;
+  background-color: var(--canvas-bg);
 }
 
 .app-nav {
-  background-color: #000000;
-  border-bottom: 1px solid #262626;
+  background-color: var(--card-bg);
+  border-bottom: 1px solid var(--card-border);
   padding: 0.75rem 2rem;
   display: flex;
   justify-content: space-between;
@@ -620,8 +636,8 @@ onMounted(() => {
 }
 
 .overview-card {
-  background-color: #000000 !important;
-  border: 1px solid #262626 !important;
+  background-color: var(--card-bg) !important;
+  border: 1px solid var(--card-border) !important;
   border-radius: 4px !important;
   box-shadow: none !important;
 }
@@ -715,10 +731,10 @@ h2 {
 
 /* Date Filters Toolbar */
 .toolbar-card {
-  background: #000000;
+  background: var(--card-bg);
   border-radius: 4px;
   padding: 1rem 1.5rem;
-  border: 1px solid #262626;
+  border: 1px solid var(--card-border);
   display: flex;
   flex-direction: column;
   gap: 1rem;
@@ -785,18 +801,18 @@ h2 {
 }
 
 .date-picker-input {
-  background-color: #000000;
-  border: 1px solid #262626;
+  background-color: var(--card-bg);
+  border: 1px solid var(--card-border);
   border-radius: 4px;
   padding: 0.35rem 0.5rem;
   font-size: 0.85rem;
   outline: none;
   font-family: monospace;
-  color: #FFFFFF;
+  color: var(--text-primary);
 }
 
 .date-picker-input:focus {
-  border-color: #A3A3A3;
+  border-color: var(--text-secondary);
 }
 
 /* Metrics Cards Grid */
@@ -819,9 +835,9 @@ h2 {
 }
 
 .metric-card {
-  background: #000000;
+  background: var(--card-bg);
   border-radius: 4px;
-  border: 1px solid #262626;
+  border: 1px solid var(--card-border);
   padding: 1.25rem 1.5rem;
   display: flex;
   flex-direction: column;
@@ -875,9 +891,9 @@ h2 {
 
 /* Visualizer Container panels */
 .visualizer-container {
-  background: #000000;
+  background: var(--card-bg);
   border-radius: 4px;
-  border: 1px solid #262626;
+  border: 1px solid var(--card-border);
   padding: 1.5rem;
   box-shadow: none;
 }
@@ -1080,11 +1096,11 @@ h2 {
    Light Mode Theme Scoping Overrides
    ========================================================================== */
 :global(body.light-mode) .detail-wrapper {
-  background-color: #f1f5f9;
+  background-color: #ffffff;
 }
 :global(body.light-mode) .app-nav {
   background-color: #ffffff;
-  border-bottom: 1px solid #e2e8f0;
+  border-bottom: 1px solid #cbd5e1;
 }
 :global(body.light-mode) .brand {
   color: #0f172a;
@@ -1137,9 +1153,18 @@ h2 {
 :global(body.light-mode) .toolbar-card,
 :global(body.light-mode) .visualizer-container,
 :global(body.light-mode) .metric-card {
-  background-color: #ffffff !important;
-  border: 1px solid #e2e8f0 !important;
+  background-color: #fafafa !important;
+  border: 1px solid #cbd5e1 !important;
   box-shadow: 0 1px 3px rgba(0,0,0,0.02) !important;
+}
+
+.version-tag {
+  font-family: monospace;
+  font-size: 0.75rem;
+  color: var(--text-muted, #737373);
+  margin-left: 0.25rem;
+  font-weight: 500;
+  text-transform: none;
 }
 :global(body.light-mode) .main-icon-styled {
   background-color: #f8fafc;
