@@ -4,7 +4,7 @@
       <div class="header-inner">
         <div class="brand">
           <span class="brand-icon">⬡</span>
-          <span class="brand-name">noop</span>
+          <span class="brand-name">lnmp</span>
           <span class="brand-version">v1(beta)</span>
         </div>
         <nav class="header-nav">
@@ -126,6 +126,11 @@ button { cursor: pointer; border: none; background: none; }
   --color-down-bg: rgba(220, 38, 38, 0.1);
   --color-unknown: #6b7280;
   --color-unknown-bg: rgba(107, 114, 128, 0.1);
+
+  /* Backwards-compatibility Aliases */
+  --canvas-bg: var(--bg-app);
+  --card-bg: var(--bg-surface);
+  --card-border: var(--border-color);
 }
 
 html.dark {

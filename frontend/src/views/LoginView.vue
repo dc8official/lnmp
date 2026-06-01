@@ -217,44 +217,44 @@ label {
 }
 
 /* Light Mode Overrides */
-:global(body.light-mode) .login-wrapper {
+:global(html:not(.dark)) .login-wrapper {
   background-color: #f1f5f9;
 }
-:global(body.light-mode) .glass-container {
+:global(html:not(.dark)) .glass-container {
   background-color: #ffffff;
   border: 1px solid #e2e8f0;
 }
-:global(body.light-mode) .brand-icon {
+:global(html:not(.dark)) .brand-icon {
   color: #0f172a;
   background-color: #f8fafc;
   border: 1px solid #cbd5e1;
 }
-:global(body.light-mode) h2 {
+:global(html:not(.dark)) h2 {
   color: #0f172a;
 }
-:global(body.light-mode) .brand-subtitle {
+:global(html:not(.dark)) .brand-subtitle {
   color: #475569;
 }
-:global(body.light-mode) label {
+:global(html:not(.dark)) label {
   color: #475569;
 }
-:global(body.light-mode) .field-icon {
+:global(html:not(.dark)) .field-icon {
   color: #64748b;
 }
-:global(body.light-mode) :deep(.p-inputtext) {
+:global(html:not(.dark)) :deep(.p-inputtext) {
   background-color: #ffffff !important;
   border: 1px solid #cbd5e1 !important;
   color: #0f172a !important;
 }
-:global(body.light-mode) :deep(.p-inputtext:focus) {
+:global(html:not(.dark)) :deep(.p-inputtext:focus) {
   border-color: #049f6c !important;
 }
-:global(body.light-mode) .submit-button {
+:global(html:not(.dark)) .submit-button {
   background-color: #0f172a !important;
   border-color: #0f172a !important;
   color: #ffffff !important;
 }
-:global(body.light-mode) .submit-button:hover {
+:global(html:not(.dark)) .submit-button:hover {
   background-color: #334155 !important;
   border-color: #334155 !important;
 }

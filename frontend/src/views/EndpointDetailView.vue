@@ -1,28 +1,6 @@
 <template>
   <div class="detail-wrapper">
-    <!-- Navigation Bar -->
-    <nav class="app-nav">
-      <div class="brand">
-        <i class="pi pi-shield brand-icon"></i>
-        <span>lnmp <span class="version-tag">v1(beta)</span> Platform</span>
-      </div>
-      <div class="user-profile" v-if="user">
-        <Button
-          :icon="isDarkMode ? 'pi pi-sun' : 'pi pi-moon'"
-          @click="toggleTheme"
-          text
-          severity="secondary"
-          size="small"
-          class="theme-toggle-btn p-button-text"
-          style="color: #A3A3A3 !important; padding: 0.25rem !important; margin-right: 0.5rem;"
-        />
-        <span class="user-badge" :class="user.role.toLowerCase()">
-          {{ user.role }}: {{ user.username }}
-        </span>
-        <Button label="Dashboard" icon="pi pi-home" class="p-button-text p-button-sm" @click="goToDashboard" />
-        <Button label="Sign Out" icon="pi pi-sign-out" class="p-button-text p-button-sm p-button-danger" @click="handleLogout" />
-      </div>
-    </nav>
+
 
     <!-- Main Container -->
     <div class="detail-container">
@@ -39,6 +17,15 @@
         />
         
         <div v-if="endpoint" class="device-actions">
+          <Button 
+            icon="pi pi-refresh" 
+            label="Refresh" 
+            @click="loadData" 
+            :loading="loading"
+            severity="secondary"
+            size="small"
+            class="refresh-btn"
+          />
           <span class="status-badge" :class="endpoint.endpoint_status.toLowerCase()">
             {{ endpoint.endpoint_status }}
           </span>
@@ -331,7 +318,7 @@
 
 <script setup>
 import { ref, onMounted, computed } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { useRoute, useRouter, RouterLink } from 'vue-router'
 import { getEndpoint, getUptimeReport, getEndpointEvents, logout } from '../services/api.js'
 import StateTimeline from '../components/StateTimeline.vue'
 import RTTTrendPanel from '../components/RTTTrendPanel.vue'
@@ -349,14 +336,14 @@ const toggleTheme = () => {
   isDarkMode.value = !isDarkMode.value
   if (isDarkMode.value) {
     localStorage.setItem('theme', 'dark')
-    document.body.classList.add('dark-mode')
-    document.body.classList.remove('light-mode')
+    document.documentElement.classList.add('dark')
   } else {
     localStorage.setItem('theme', 'light')
-    document.body.classList.add('light-mode')
-    document.body.classList.remove('dark-mode')
+    document.documentElement.classList.remove('dark')
   }
 }
+
+
 
 const user = ref(null)
 const endpoint = ref(null)
@@ -568,6 +555,11 @@ const handleLogout = async () => {
 onMounted(() => {
   const currentTheme = localStorage.getItem('theme') || 'dark'
   isDarkMode.value = currentTheme === 'dark'
+  if (isDarkMode.value) {
+    document.documentElement.classList.add('dark')
+  } else {
+    document.documentElement.classList.remove('dark')
+  }
 
   const storedUser = localStorage.getItem('user')
   if (storedUser) {
@@ -1195,64 +1187,64 @@ h2 {
 /* ==========================================================================
    Light Mode Theme Scoping Overrides
    ========================================================================== */
-:global(body.light-mode) .detail-wrapper {
+:global(html:not(.dark)) .detail-wrapper {
   background-color: #ffffff;
 }
-:global(body.light-mode) .app-nav {
+:global(html:not(.dark)) .app-nav {
   background-color: #ffffff;
   border-bottom: 1px solid #cbd5e1;
 }
-:global(body.light-mode) .brand {
+:global(html:not(.dark)) .brand {
   color: #0f172a;
 }
-:global(body.light-mode) .brand-icon {
+:global(html:not(.dark)) .brand-icon {
   color: #0f172a;
 }
-:global(body.light-mode) .user-badge.admin {
+:global(html:not(.dark)) .user-badge.admin {
   background-color: rgba(4, 159, 108, 0.08);
   color: #049f6c;
   border: 1px solid rgba(4, 159, 108, 0.15);
 }
-:global(body.light-mode) .user-badge.viewer {
+:global(html:not(.dark)) .user-badge.viewer {
   background-color: #f1f5f9;
   color: #475569;
   border: 1px solid #cbd5e1;
 }
-:global(body.light-mode) .status-badge {
+:global(html:not(.dark)) .status-badge {
   background-color: #ffffff;
 }
-:global(body.light-mode) .status-badge.active {
+:global(html:not(.dark)) .status-badge.active {
   border: 1px solid #cbd5e1;
   color: #334155;
 }
-:global(body.light-mode) .status-badge.disabled {
+:global(html:not(.dark)) .status-badge.disabled {
   border: 1px solid #cbd5e1;
   color: #64748b;
 }
-:global(body.light-mode) .monitoring-badge {
+:global(html:not(.dark)) .monitoring-badge {
   background-color: #ffffff;
 }
-:global(body.light-mode) .monitoring-badge.enabled {
+:global(html:not(.dark)) .monitoring-badge.enabled {
   border: 1px solid #cbd5e1;
   color: #334155;
 }
-:global(body.light-mode) .monitoring-badge.disabled {
+:global(html:not(.dark)) .monitoring-badge.disabled {
   border: 1px solid #FF0000;
   color: #FF0000;
 }
-:global(body.light-mode) .loading-state {
+:global(html:not(.dark)) .loading-state {
   color: #475569;
 }
-:global(body.light-mode) .spinner-icon {
+:global(html:not(.dark)) .spinner-icon {
   color: #0f172a;
 }
-:global(body.light-mode) .error-message {
+:global(html:not(.dark)) .error-message {
   background-color: #fef2f2;
 }
-:global(body.light-mode) .overview-card,
-:global(body.light-mode) .toolbar-card,
-:global(body.light-mode) .visualizer-container,
-:global(body.light-mode) .metric-card {
+:global(html:not(.dark)) .overview-card,
+:global(html:not(.dark)) .toolbar-card,
+:global(html:not(.dark)) .visualizer-container,
+:global(html:not(.dark)) .metric-card {
   background-color: #fafafa !important;
   border: 1px solid #cbd5e1 !important;
   box-shadow: 0 1px 3px rgba(0,0,0,0.02) !important;
@@ -1266,138 +1258,138 @@ h2 {
   font-weight: 500;
   text-transform: none;
 }
-:global(body.light-mode) .main-icon-styled {
+:global(html:not(.dark)) .main-icon-styled {
   background-color: #f8fafc;
   border: 1px solid #cbd5e1;
   color: #475569;
 }
-:global(body.light-mode) .ip-display {
+:global(html:not(.dark)) .ip-display {
   color: #475569;
 }
-:global(body.light-mode) h2 {
+:global(html:not(.dark)) h2 {
   color: #0f172a;
 }
-:global(body.light-mode) .meta-label {
+:global(html:not(.dark)) .meta-label {
   color: #475569;
 }
-:global(body.light-mode) .meta-value {
+:global(html:not(.dark)) .meta-value {
   color: #0f172a;
 }
-:global(body.light-mode) .meta-value.desc {
+:global(html:not(.dark)) .meta-value.desc {
   color: #475569;
 }
-:global(body.light-mode) .toolbar-title {
+:global(html:not(.dark)) .toolbar-title {
   color: #0f172a;
 }
-:global(body.light-mode) .date-picker-input {
+:global(html:not(.dark)) .date-picker-input {
   background-color: #ffffff;
   border: 1px solid #cbd5e1;
   color: #0f172a;
 }
-:global(body.light-mode) .date-picker-input:focus {
+:global(html:not(.dark)) .date-picker-input:focus {
   border-color: #049f6c;
 }
-:global(body.light-mode) .metric-header {
+:global(html:not(.dark)) .metric-header {
   color: #475569;
 }
-:global(body.light-mode) .metric-header i {
+:global(html:not(.dark)) .metric-header i {
   color: #64748b;
 }
-:global(body.light-mode) .metric-body .value {
+:global(html:not(.dark)) .metric-body .value {
   color: #0f172a;
 }
-:global(body.light-mode) .metric-body .subtext {
+:global(html:not(.dark)) .metric-body .subtext {
   color: #64748b;
 }
-:global(body.light-mode) .value.perfect { color: #334155; }
-:global(body.light-mode) .value.good { color: #334155; }
-:global(body.light-mode) .value.clean { color: #334155; }
-:global(body.light-mode) .panel-header {
+:global(html:not(.dark)) .value.perfect { color: #334155; }
+:global(html:not(.dark)) .value.good { color: #334155; }
+:global(html:not(.dark)) .value.clean { color: #334155; }
+:global(html:not(.dark)) .panel-header {
   border-bottom: 1px solid #e2e8f0;
 }
-:global(body.light-mode) .panel-header h3 {
+:global(html:not(.dark)) .panel-header h3 {
   color: #0f172a;
 }
-:global(body.light-mode) .header-icon {
+:global(html:not(.dark)) .header-icon {
   color: #0f172a;
 }
-:global(body.light-mode) .panel-desc {
+:global(html:not(.dark)) .panel-desc {
   color: #475569;
 }
-:global(body.light-mode) .total-badge {
+:global(html:not(.dark)) .total-badge {
   background-color: #f8fafc;
   border: 1px solid #e2e8f0;
   color: #475569;
 }
-:global(body.light-mode) .audit-table th {
+:global(html:not(.dark)) .audit-table th {
   background-color: #f8fafc;
   color: #475569;
   border-bottom: 2px solid #e2e8f0;
 }
-:global(body.light-mode) .audit-table td {
+:global(html:not(.dark)) .audit-table td {
   color: #334155;
   border-bottom: 1px solid #e2e8f0;
 }
-:global(body.light-mode) .audit-table tr:hover {
+:global(html:not(.dark)) .audit-table tr:hover {
   background-color: #f8fafc;
 }
-:global(body.light-mode) .table-empty {
+:global(html:not(.dark)) .table-empty {
   color: #64748b;
 }
-:global(body.light-mode) .text-success { color: #334155; }
-:global(body.light-mode) .table-badge.up {
+:global(html:not(.dark)) .text-success { color: #334155; }
+:global(html:not(.dark)) .table-badge.up {
   color: #334155;
 }
-:global(body.light-mode) .table-detail-badge.up {
+:global(html:not(.dark)) .table-detail-badge.up {
   color: #334155;
 }
 
 /* Light mode PrimeVue overrides */
-:global(body.light-mode) :deep(.p-button) {
+:global(html:not(.dark)) :deep(.p-button) {
   background-color: #ffffff !important;
   border: 1px solid #cbd5e1 !important;
   color: #475569 !important;
 }
-:global(body.light-mode) :deep(.p-button:hover) {
+:global(html:not(.dark)) :deep(.p-button:hover) {
   background-color: #f8fafc !important;
   border-color: #94a3b8 !important;
   color: #0f172a !important;
 }
-:global(body.light-mode) :deep(.p-button:not(.p-button-outlined)) {
+:global(html:not(.dark)) :deep(.p-button:not(.p-button-outlined)) {
   background-color: #0f172a !important;
   border-color: #0f172a !important;
   color: #ffffff !important;
 }
-:global(body.light-mode) :deep(.p-button:not(.p-button-outlined):hover) {
+:global(html:not(.dark)) :deep(.p-button:not(.p-button-outlined):hover) {
   background-color: #334155 !important;
   border-color: #334155 !important;
   color: #ffffff !important;
 }
-:global(body.light-mode) .back-btn {
+:global(html:not(.dark)) .back-btn {
   background-color: #ffffff !important;
   border: 1px solid #cbd5e1 !important;
   color: #334155 !important;
 }
-:global(body.light-mode) :deep(.p-button-danger) {
+:global(html:not(.dark)) :deep(.p-button-danger) {
   background-color: #ffffff !important;
   border: 1px solid #FF0000 !important;
   color: #FF0000 !important;
 }
-:global(body.light-mode) :deep(.p-button-danger:hover) {
+:global(html:not(.dark)) :deep(.p-button-danger:hover) {
   background-color: rgba(255, 0, 0, 0.05) !important;
   border-color: #FF0000 !important;
   color: #FF0000 !important;
 }
-:global(body.light-mode) :deep(.p-button-text) {
+:global(html:not(.dark)) :deep(.p-button-text) {
   background: transparent !important;
   border-color: transparent !important;
   color: #475569 !important;
 }
-:global(body.light-mode) :deep(.p-button-text:hover) {
+:global(html:not(.dark)) :deep(.p-button-text:hover) {
   background-color: rgba(0,0,0,0.05) !important;
   color: #0f172a !important;
 }
-:global(body.light-mode) :deep(.p-button-text.p-button-danger:hover) {
+:global(html:not(.dark)) :deep(.p-button-text.p-button-danger:hover) {
   background-color: rgba(255, 0, 0, 0.05) !important;
   color: #FF0000 !important;
 }
@@ -1476,7 +1468,7 @@ h2 {
 }
 
 /* Light mode hover background for arrow buttons */
-:global(body.light-mode) .nav-arrow-btn:hover:not(:disabled) {
+:global(html:not(.dark)) .nav-arrow-btn:hover:not(:disabled) {
   background-color: rgba(0, 0, 0, 0.05);
 }
 </style>
