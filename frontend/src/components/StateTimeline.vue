@@ -128,6 +128,22 @@ const chartData = computed(() => {
 
   allSegments.sort((a, b) => a.startMs - b.startMs)
 
+  const mergedSegments = []
+  allSegments.forEach(seg => {
+    if (mergedSegments.length === 0) {
+      mergedSegments.push({ ...seg })
+      return
+    }
+    const last = mergedSegments[mergedSegments.length - 1]
+    // Group consecutive segments with same state within 65s of each other (per-minute resolution)
+    if (last.state === seg.state && seg.startMs <= last.endMs + 65000) {
+      last.endMs = Math.max(last.endMs, seg.endMs)
+      last.endTime = seg.endTime
+    } else {
+      mergedSegments.push({ ...seg })
+    }
+  })
+
   const datasetsMap = {
     'UP': [],
     'UP-UNSTABLE': [],
@@ -136,7 +152,7 @@ const chartData = computed(() => {
     'UNKNOWN': []
   }
 
-  allSegments.forEach(seg => {
+  mergedSegments.forEach(seg => {
     const startPx = (seg.startMs - pStart) / totalDuration
     const endPx = (seg.endMs - pStart) / totalDuration
     
