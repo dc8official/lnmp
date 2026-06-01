@@ -7,7 +7,6 @@ from sqlalchemy import text
 from app.database import AsyncSessionLocal
 from monitoring.gap_handler import resolve_startup_state
 from monitoring.ping import run_ping_cycle
-from monitoring.scheduler import run_daily_split_scheduler
 from monitoring.state_machine import EndpointState, StateMachine
 
 logging.basicConfig(
@@ -125,27 +124,7 @@ async def monitor_endpoint(
         await asyncio.sleep(remaining_seconds)
 
 
-async def on_split_complete(
-    mapping: dict[UUID, UUID],
-) -> None:
-    async with states_lock:
-        for endpoint_id, new_event_id in mapping.items():
-            key = str(endpoint_id)
-            old_state = endpoint_states.get(key)
-            if old_state is not None:
-                endpoint_states[key] = EndpointState(
-                    endpoint_id=old_state.endpoint_id,
-                    active_event_id=new_event_id,
-                    confirmed_operational_state=old_state.confirmed_operational_state,
-                    confirmed_detailed_state=old_state.confirmed_detailed_state,
-                    pending_detailed_state=None,
-                    pending_cycle_count=0,
-                )
 
-    logger.info(
-        "Daily split: updated %d in-memory endpoint states.",
-        len(mapping),
-    )
 
 
 async def main() -> None:
@@ -156,10 +135,7 @@ async def main() -> None:
 
     state_machine = StateMachine(confirmation_threshold=3)
 
-    # Spawn daily split scheduler task once at startup
-    scheduler_task = asyncio.create_task(
-        run_daily_split_scheduler(on_split_complete)
-    )
+
 
     running_tasks: dict[str, asyncio.Task] = {}
 
