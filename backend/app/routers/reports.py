@@ -1,12 +1,15 @@
 from __future__ import annotations
+import logging
 from datetime import date, datetime, timezone
 from math import ceil
-from typing import Optional
+from typing import Optional, List
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import StreamingResponse
+from pydantic import BaseModel
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.database import get_db
+from app.database import get_db, AsyncSessionLocal
 from app.routers.auth import get_current_user
 from app.schemas import (
     APIResponse,
@@ -279,6 +282,8 @@ async def get_endpoint_events(
     endpoint_id: UUID,
     start_date: str = Query(...),
     end_date: str = Query(...),
+    page: int = Query(default=1, ge=1),
+    size: int = Query(default=100, ge=1, le=250),
     current_user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -287,6 +292,23 @@ async def get_endpoint_events(
     _validate_date_range(start_dt, end_dt)
     period_start, period_end = start_dt, end_dt
 
+    # Fetch total count of matched events
+    count_result = await db.execute(
+        text("""
+            SELECT COUNT(*) FROM endpoint_events
+            WHERE endpoint_id = :endpoint_id
+              AND start_time >= :period_start
+              AND start_time <= :period_end
+        """),
+        {
+            "endpoint_id": str(endpoint_id),
+            "period_start": period_start,
+            "period_end": period_end,
+        },
+    )
+    total = count_result.scalar() or 0
+
+    # Fetch paginated transition events
     result = await db.execute(
         text("""
             SELECT id, endpoint_id, operational_state,
@@ -298,11 +320,14 @@ async def get_endpoint_events(
               AND start_time >= :period_start
               AND start_time <= :period_end
             ORDER BY start_time ASC
+            LIMIT :limit OFFSET :offset
         """),
         {
             "endpoint_id": str(endpoint_id),
             "period_start": period_start,
             "period_end": period_end,
+            "limit": size,
+            "offset": (page - 1) * size,
         },
     )
     rows = result.fetchall()
@@ -326,12 +351,96 @@ async def get_endpoint_events(
         for row in rows
     ]
 
+    total_pages = ceil(total / size) if total > 0 else 1
+
     return APIResponse.success(
         data=events,
         meta=PaginationMeta(
-            total=len(events),
-            page=1,
-            page_size=len(events),
-            total_pages=1,
+            total=total,
+            page=page,
+            page_size=size,
+            total_pages=total_pages,
         ),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Batch Telemetry Export Streaming API
+# ---------------------------------------------------------------------------
+logger = logging.getLogger(__name__)
+
+class BatchExportRequest(BaseModel):
+    endpoint_ids: List[UUID]
+    start_time: datetime
+    end_time: datetime
+
+async def csv_generator(endpoint_ids: List[UUID], start_time: datetime, end_time: datetime):
+    # Yield CSV Header on startup
+    yield "Endpoint_ID,Timestamp,Operational_State,Detailed_State,Packet_Success_Rate,Avg_RTT_ms\n"
+    
+    offset = 0
+    limit = 1000
+    
+    while True:
+        rows = []
+        # Database connections must remain completely encapsulated within short-lived context managers
+        async with AsyncSessionLocal() as session:
+            # Open an asynchronous server-side cursor to PostgreSQL via stream()
+            result = await session.stream(
+                text("""
+                    SELECT endpoint_id, start_time, operational_state, detailed_state, health_score, avg_rtt_ms
+                    FROM endpoint_events
+                    WHERE endpoint_id = ANY(:endpoint_ids)
+                      AND start_time >= :start_time
+                      AND start_time <= :end_time
+                    ORDER BY start_time ASC
+                    LIMIT :limit OFFSET :offset
+                """),
+                {
+                    "endpoint_ids": [str(eid) for eid in endpoint_ids],
+                    "start_time": start_time,
+                    "end_time": end_time,
+                    "limit": limit,
+                    "offset": offset,
+                }
+            )
+            
+            async for row in result:
+                rows.append(row)
+                
+        if not rows:
+            break
+            
+        for row in rows:
+            endpoint_id_str = str(row.endpoint_id)
+            ts_str = row.start_time.isoformat().replace("+00:00", "Z") if row.start_time else ""
+            op_state = row.operational_state
+            det_state = row.detailed_state
+            success_rate = ("%.2f" % row.health_score) if row.health_score is not None else ""
+            rtt_val = ("%.2f" % row.avg_rtt_ms) if row.avg_rtt_ms is not None else ""
+            
+            yield "%s,%s,%s,%s,%s,%s\n" % (endpoint_id_str, ts_str, op_state, det_state, success_rate, rtt_val)
+            
+        if len(rows) < limit:
+            break
+            
+        offset += limit
+
+telemetry_router = APIRouter(prefix="/api/telemetry", tags=["telemetry"])
+
+@telemetry_router.post("/export/batch")
+async def batch_export_telemetry(
+    request: BatchExportRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    logger.info("Starting batch telemetry CSV streaming export for %d endpoints", len(request.endpoint_ids))
+    
+    generator = csv_generator(request.endpoint_ids, request.start_time, request.end_time)
+    
+    return StreamingResponse(
+        generator,
+        media_type="text/csv",
+        headers={
+            "Content-Disposition": "attachment; filename=batch_telemetry_export.csv"
+        }
     )

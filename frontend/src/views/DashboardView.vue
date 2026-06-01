@@ -95,16 +95,40 @@
           <p v-else>Please contact the system administrator to configure monitored nodes.</p>
         </div>
 
-        <div v-else class="endpoint-grid">
-          <EndpointCard 
-            v-for="endpoint in endpoints" 
-            :key="endpoint.id" 
-            :endpoint="endpoint" 
-            :isAdmin="isAdmin"
-            @select="navigateToEndpoint"
-            @edit="openEditDialog"
-            @delete="confirmDeleteEndpoint"
-          />
+        <div v-else>
+          <!-- Dynamic Selection Contextual Banner -->
+          <transition name="fade">
+            <div v-if="selectedIds.length > 0" class="selection-banner">
+              <div class="banner-content">
+                <span class="selection-count">
+                  <i class="pi pi-check-circle selection-icon"></i>
+                  <strong>{{ selectedIds.length }}</strong> target(s) selected for CSV export
+                </span>
+                <Button 
+                  label="Export Selected CSV" 
+                  icon="pi pi-download" 
+                  size="small" 
+                  class="export-btn"
+                  :loading="exporting"
+                  @click="exportSelectedCSV"
+                />
+              </div>
+            </div>
+          </transition>
+
+          <div class="endpoint-grid">
+            <EndpointCard 
+              v-for="endpoint in endpoints" 
+              :key="endpoint.id" 
+              :endpoint="endpoint" 
+              :isAdmin="isAdmin"
+              :selected="selectedIds.includes(endpoint.id)"
+              @select="navigateToEndpoint"
+              @toggle-select="toggleEndpointSelect"
+              @edit="openEditDialog"
+              @delete="confirmDeleteEndpoint"
+            />
+          </div>
         </div>
       </div>
 
@@ -462,7 +486,8 @@ import {
   resetUserPassword,
   updateUser,
   deleteUser,
-  logout 
+  logout,
+  exportBatchTelemetry
 } from '../services/api.js'
 import EndpointCard from '../components/EndpointCard.vue'
 import Button from 'primevue/button'
@@ -495,6 +520,48 @@ const loading = ref(false)
 const error = ref(null)
 const lastRefreshed = ref(null)
 const user = ref(null)
+
+const selectedIds = ref([])
+const exporting = ref(false)
+
+const toggleEndpointSelect = (id) => {
+  const idx = selectedIds.value.indexOf(id)
+  if (idx > -1) {
+    selectedIds.value.splice(idx, 1)
+  } else {
+    selectedIds.value.push(id)
+  }
+}
+
+const exportSelectedCSV = async () => {
+  if (selectedIds.value.length === 0) return
+  
+  exporting.value = true
+  try {
+    const now = new Date()
+    const endTime = now.toISOString()
+    const past = new Date()
+    past.setDate(past.getDate() - 7)
+    const startTime = past.toISOString()
+    
+    const response = await exportBatchTelemetry(selectedIds.value, startTime, endTime)
+    
+    const blob = new Blob([response.data], { type: 'text/csv' })
+    const link = document.createElement('a')
+    link.href = window.URL.createObjectURL(blob)
+    link.download = `batch_telemetry_${Date.now()}.csv`
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    
+    selectedIds.value = []
+  } catch (err) {
+    console.error('Failed to export CSV:', err)
+    alert('Failed to export selected telemetry CSV. Ensure the server is responsive.')
+  } finally {
+    exporting.value = false
+  }
+}
 
 // Tab state
 const activeTab = ref('endpoints')
@@ -642,6 +709,7 @@ const fetchEndpoints = async () => {
     const response = await getEndpoints()
     endpoints.value = response.data.data
     lastRefreshed.value = new Date()
+    selectedIds.value = []
   } catch (err) {
     if (err.response?.status === 401) {
       handleLogoutLocal()
@@ -1436,5 +1504,61 @@ h1 {
 :global(body.light-mode) :deep(.p-dialog-footer) {
   background-color: #ffffff !important;
   color: #0f172a !important;
+}
+
+:global(body.light-mode) .selection-icon {
+  color: #0f172a !important;
+}
+
+/* Selection Contextual Banner Styles */
+.selection-banner {
+  background-color: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: 4px;
+  padding: 0.75rem 1.5rem;
+  margin-bottom: 1.5rem;
+  font-family: monospace;
+  font-size: 0.85rem;
+  transition: all 0.2s ease;
+}
+
+.banner-content {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.selection-count {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--text-primary);
+}
+
+.selection-icon {
+  color: #049f6c;
+}
+
+.export-btn {
+  background-color: #049f6c !important;
+  border-color: #049f6c !important;
+  color: #ffffff !important;
+}
+
+.export-btn:hover {
+  background-color: #037f56 !important;
+  border-color: #037f56 !important;
+}
+
+/* fade transition */
+.fade-enter-active,
+.fade-leave-active {
+  transition: opacity 0.25s ease, transform 0.25s ease;
+}
+
+.fade-enter-from,
+.fade-leave-to {
+  opacity: 0;
+  transform: translateY(-10px);
 }
 </style>

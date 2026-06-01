@@ -1,5 +1,13 @@
 <template>
   <Card class="endpoint-card" @click="handleClick">
+    <div class="checkbox-container" @click.stop>
+      <input 
+        type="checkbox" 
+        :checked="selected" 
+        @change="handleCheckboxChange" 
+        class="low-profile-checkbox"
+      />
+    </div>
     <template #title>
       <div class="card-header-row">
         <div class="hostname" :title="endpoint.hostname">
@@ -63,10 +71,14 @@ const props = defineProps({
   isAdmin: {
     type: Boolean,
     default: false
+  },
+  selected: {
+    type: Boolean,
+    default: false
   }
 })
 
-const emit = defineEmits(['select', 'edit', 'delete'])
+const emit = defineEmits(['select', 'edit', 'delete', 'toggle-select'])
 
 const handleClick = () => {
   emit('select', props.endpoint.id)
@@ -78,6 +90,10 @@ const handleEdit = () => {
 
 const handleDelete = () => {
   emit('delete', props.endpoint.id)
+}
+
+const handleCheckboxChange = () => {
+  emit('toggle-select', props.endpoint.id)
 }
 
 const stateClass = computed(() => {
@@ -122,6 +138,7 @@ const timeAgo = computed(() => {
 
 <style scoped>
 .endpoint-card {
+  position: relative;
   cursor: pointer;
   height: 100%;
   background-color: var(--card-bg) !important;
@@ -141,6 +158,47 @@ const timeAgo = computed(() => {
   justify-content: space-between;
   align-items: center;
   gap: 0.5rem;
+  padding-left: 20px;
+}
+.checkbox-container {
+  position: absolute;
+  top: 20px;
+  left: 16px;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.low-profile-checkbox {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 14px;
+  height: 14px;
+  border: 1px solid var(--card-border);
+  border-radius: 3px;
+  background-color: transparent;
+  outline: none;
+  cursor: pointer;
+  transition: background-color 0.15s, border-color 0.15s;
+  position: relative;
+}
+.low-profile-checkbox:hover {
+  border-color: var(--text-secondary);
+}
+.low-profile-checkbox:checked {
+  background-color: var(--text-primary);
+  border-color: var(--text-primary);
+}
+.low-profile-checkbox:checked::after {
+  content: '';
+  position: absolute;
+  left: 4px;
+  top: 1px;
+  width: 3px;
+  height: 7px;
+  border: solid var(--card-bg);
+  border-width: 0 1.5px 1.5px 0;
+  transform: rotate(45deg);
 }
 .hostname {
   font-weight: 700;

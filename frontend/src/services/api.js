@@ -56,12 +56,24 @@ export function getIncidents(
   })
 }
 
-export function getEndpointEvents(id, startDate, endDate) {
+export function getEndpointEvents(id, startDate, endDate, page = 1, size = 100) {
     return api.get(`/reports/events/${id}`, {
         params: {
             start_date: startDate,
             end_date: endDate,
+            page,
+            size,
         },
+    })
+}
+
+export function exportBatchTelemetry(endpointIds, startTime, endTime) {
+    return api.post('/telemetry/export/batch', {
+        endpoint_ids: endpointIds,
+        start_time: startTime,
+        end_time: endTime,
+    }, {
+        responseType: 'blob',
     })
 }
 

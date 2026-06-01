@@ -214,7 +214,7 @@
             <span class="panel-desc">Visual timeline showing transitions between UP, UNSTABLE, and DOWN states</span>
           </div>
           <StateTimeline 
-            :events="events" 
+            :events="chartEvents" 
             :gaps="[]" 
             :periodStart="periodStartStr" 
             :periodEnd="periodEndStr" 
@@ -227,7 +227,7 @@
             <h3><i class="pi pi-chart-line header-icon"></i>ICMP Latency & Jitter Trend (RTT)</h3>
             <span class="panel-desc">Line graph representing round-trip-time (ms) averages per cycle</span>
           </div>
-          <RTTTrendPanel :events="events" />
+          <RTTTrendPanel :events="chartEvents" />
         </div>
 
         <!-- Detailed Event Logs Table -->
@@ -237,7 +237,7 @@
               <h3><i class="pi pi-list header-icon"></i>Detailed Transition Audit Logs</h3>
               <span class="panel-desc">Historical record of all telemetry events in the queried period</span>
             </div>
-            <span class="total-badge">{{ events.length }} cycles</span>
+            <span class="total-badge">{{ totalEvents }} cycles</span>
           </div>
 
           <div class="table-responsive">
@@ -285,6 +285,43 @@
               </tbody>
             </table>
           </div>
+
+          <!-- Compact flat monochrome footer utility -->
+          <div class="table-pagination-footer">
+            <div class="pagination-info">
+              Showing {{ pageStart }} - {{ pageEnd }} of {{ totalEvents }} logs
+            </div>
+            
+            <div class="pagination-controls-wrapper">
+              <!-- Sharp navigation arrows -->
+              <div class="pagination-nav-arrows">
+                <button 
+                  class="nav-arrow-btn" 
+                  :disabled="tablePage <= 1 || loadingTable" 
+                  @click="goToPage(tablePage - 1)"
+                >
+                  &lt;
+                </button>
+                <span class="current-page-display">Page {{ tablePage }} of {{ totalPages }}</span>
+                <button 
+                  class="nav-arrow-btn" 
+                  :disabled="tablePage >= totalPages || loadingTable" 
+                  @click="goToPage(tablePage + 1)"
+                >
+                  &gt;
+                </button>
+              </div>
+
+              <!-- Compact row-density selector drop-down -->
+              <div class="density-selector-container">
+                <select v-model="tableSize" @change="onDensityChange" class="density-dropdown" :disabled="loadingTable">
+                  <option :value="50">Show 50</option>
+                  <option :value="100">Show 100</option>
+                  <option :value="250">Show 250</option>
+                </select>
+              </div>
+            </div>
+          </div>
         </div>
 
       </div>
@@ -325,17 +362,24 @@ const user = ref(null)
 const endpoint = ref(null)
 const uptimeReport = ref(null)
 const events = ref([])
+const chartEvents = ref([])
 const loading = ref(true)
 const error = ref(null)
 
-// Date Range filters
-const filterRange = ref('7d')
-const customStartDate = ref(getPastDateTimeStr(7))
-const customEndDate = ref(getPastDateTimeStr(0))
+const tablePage = ref(1)
+const tableSize = ref(100)
+const totalEvents = ref(0)
+const totalPages = ref(1)
+const loadingTable = ref(false)
 
-// Detailed date strings for timeline component
-const periodStartStr = ref('')
-const periodEndStr = ref('')
+const pageStart = computed(() => {
+  if (totalEvents.value === 0) return 0
+  return (tablePage.value - 1) * tableSize.value + 1
+})
+
+const pageEnd = computed(() => {
+  return Math.min(tablePage.value * tableSize.value, totalEvents.value)
+})
 
 function getPastDateStr(daysAgo) {
   const d = new Date()
@@ -354,6 +398,15 @@ function getPastDateTimeStr(daysAgo) {
   return `${year}-${month}-${day}T${hours}:${minutes}`
 }
 
+// Date Range filters
+const filterRange = ref('7d')
+const customStartDate = ref(getPastDateTimeStr(7))
+const customEndDate = ref(getPastDateTimeStr(0))
+
+// Detailed date strings for timeline component
+const periodStartStr = ref('')
+const periodEndStr = ref('')
+
 const sortedEvents = computed(() => {
   return [...events.value].sort((a, b) => new Date(b.start_time) - new Date(a.start_time))
 })
@@ -365,9 +418,51 @@ const setRange = (range) => {
   }
 }
 
+const loadTableEvents = async () => {
+  loadingTable.value = true
+  
+  let start = ''
+  let end = getPastDateStr(0)
+  
+  if (filterRange.value === '24h') {
+    start = getPastDateStr(1)
+  } else if (filterRange.value === '7d') {
+    start = getPastDateStr(7)
+  } else if (filterRange.value === '30d') {
+    start = getPastDateStr(30)
+  } else {
+    start = customStartDate.value
+    end = customEndDate.value
+  }
+  
+  try {
+    const res = await getEndpointEvents(endpointId, start, end, tablePage.value, tableSize.value)
+    events.value = res.data.data
+    totalEvents.value = res.data.meta?.total || 0
+    totalPages.value = res.data.meta?.total_pages || 1
+  } catch (err) {
+    console.error('Failed to reload table events:', err)
+  } finally {
+    loadingTable.value = false
+  }
+}
+
+const goToPage = (page) => {
+  if (page >= 1 && page <= totalPages.value) {
+    tablePage.value = page
+    loadTableEvents()
+  }
+}
+
+const onDensityChange = () => {
+  tablePage.value = 1
+  loadTableEvents()
+}
+
 const loadData = async () => {
   loading.value = true
   error.value = null
+  tablePage.value = 1
   
   let start = ''
   let end = getPastDateStr(0)
@@ -393,15 +488,20 @@ const loadData = async () => {
   }
   
   try {
-    const [endpointRes, uptimeRes, eventsRes] = await Promise.all([
+    const [endpointRes, uptimeRes, eventsRes, tableEventsRes] = await Promise.all([
       getEndpoint(endpointId),
       getUptimeReport(endpointId, start, end),
-      getEndpointEvents(endpointId, start, end)
+      getEndpointEvents(endpointId, start, end, 1, 250), // Fetch up to 250 records for continuous charts
+      getEndpointEvents(endpointId, start, end, 1, tableSize.value) // Fetch paginated events starting from page 1
     ])
     
     endpoint.value = endpointRes.data.data
     uptimeReport.value = uptimeRes.data.data
-    events.value = eventsRes.data.data
+    chartEvents.value = eventsRes.data.data
+    events.value = tableEventsRes.data.data
+    
+    totalEvents.value = tableEventsRes.data.meta?.total || 0
+    totalPages.value = tableEventsRes.data.meta?.total_pages || 1
   } catch (err) {
     console.error('Failed to query endpoint telemetry:', err)
     error.value = err.response?.data?.detail || 'Failed to assemble endpoint timeline. Verify server backend is responsive.'
@@ -1300,5 +1400,83 @@ h2 {
 :global(body.light-mode) :deep(.p-button-text.p-button-danger:hover) {
   background-color: rgba(255, 0, 0, 0.05) !important;
   color: #FF0000 !important;
+}
+
+/* Compact Table Pagination Footer Styles */
+.table-pagination-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--card-border);
+  font-family: monospace;
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+}
+
+.pagination-controls-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+}
+
+.pagination-nav-arrows {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.nav-arrow-btn {
+  background-color: transparent;
+  border: 1px solid var(--card-border);
+  color: var(--text-secondary);
+  cursor: pointer;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 3px;
+  font-size: 0.8rem;
+  font-weight: bold;
+  transition: all 0.15s ease;
+}
+
+.nav-arrow-btn:hover:not(:disabled) {
+  border-color: var(--text-primary);
+  color: var(--text-primary);
+  background-color: rgba(255, 255, 255, 0.05);
+}
+
+.nav-arrow-btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.current-page-display {
+  font-weight: bold;
+}
+
+.density-dropdown {
+  background-color: var(--card-bg);
+  border: 1px solid var(--card-border);
+  color: var(--text-secondary);
+  font-family: monospace;
+  font-size: 0.8rem;
+  padding: 0.2rem 0.5rem;
+  border-radius: 3px;
+  outline: none;
+  cursor: pointer;
+  transition: border-color 0.15s ease;
+}
+
+.density-dropdown:focus, .density-dropdown:hover {
+  border-color: var(--text-secondary);
+}
+
+/* Light mode hover background for arrow buttons */
+:global(body.light-mode) .nav-arrow-btn:hover:not(:disabled) {
+  background-color: rgba(0, 0, 0, 0.05);
 }
 </style>
