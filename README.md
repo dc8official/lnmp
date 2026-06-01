@@ -1,27 +1,69 @@
-# lnmp — Network Telemetry & Monitoring Platform v1(beta)
+# LNMP — Network  Monitoring Platform v1.0(beta)
 
-A high-precision, decoupled network monitoring architecture designed for continuous ICMP telemetry collection, state verification, and historical logging. 
+A high-precision, decoupled network telemetry and monitoring solution designed for continuous endpoint status verification, low-latency ICMP polling, and real-time state visualization.
 
 ## Architectural Overview
-The platform is explicitly decoupled into independent computing layers to ensure continuous telemetry gathering regardless of frontend user activity:
-* **The Monitoring Engine:** A persistent Python background daemon running via systemd, synchronized directly to absolute minute clock boundaries.
-* **The State Machine:** A localized verification engine that enforces a strict 3-cycle confirmation threshold to filter out transient network jitter.
-* **The Telemetry Ledger:** A time-series database architecture leveraging PostgreSQL to record detailed per-minute success metrics and isolated average round-trip times (RTT).
-* **The Service API:** A lightweight FastAPI routing framework that serves UTC-normalized ISO 8601 telemetry timelines.
-* **The Interface UI:** A high-contrast, minimalist monochrome Vue.js dashboard built to optimize scannability and eliminate cognitive visual noise.
+The platform is decoupled into independent layers to guarantee continuous telemetry collection regardless of client-side dashboard activity:
+* **The Monitoring Engine:** A persistent Python daemon managed via systemd that performs periodic, high-density ICMP telemetry scans aligned precisely to absolute minute boundaries.
+* **The Verification State Machine:** A local processing loop that evaluates status transitions and filters out transient network jitter via configurable validation confirmation thresholds.
+* **The Telemetry Database:** A relational schema designed to persist per-minute endpoint events, detailed operational states, health metrics, and round-trip times (RTT) with time-series indexing.
+* **The Service API:** A lightweight, secure FastAPI framework serving normalized telemetry historical logs, incidents reports, and administrative management endpoints.
+* **The Dashboard UI:** A dynamic, high-contrast Vue 3 (Vite) interface styled using CSS custom properties with fully responsive dark/light theme options, real-time RTT visualizations, and sub-hour custom query range filters.
 
-## Core Core Stack
-* **Backend:** Python 3, Asyncio, FastAPI, SQLAlchemy
-* **Database:** PostgreSQL (Time-Series Optimization)
-* **Frontend:** Vue.js, Tailwind CSS
-* **System Layer:** Linux systemd Daemon, Native Raw Sockets (CAP_NET_RAW)
+---
 
-## Getting Started
-1. Clone the repository into your operational environment.
-2. Configure the database credentials and domain bindings inside `/etc/netmon/netmon.env`.
-3. Initialize the database schema migrations.
-4. Enable and start the background service: `systemctl enable --now netmon-engine`.
+## Technical Stack
+* **Backend:** Python 3.10+, FastAPI, SQLAlchemy, Alembic (Migrations)
+* **Database:** PostgreSQL or SQLite
+* **Frontend:** Vue 3, Vite, PrimeVue (Aura Theme Preset), Chart.js
+* **System Layer:** Linux systemd, Native Raw Sockets (`CAP_NET_RAW` capability)
+
+---
+
+## Recommended System Specifications
+
+### Hardware Requirements
+* **CPU:** 1 vCPU (minimum), 2+ Cores (recommended for polling hundreds of nodes concurrently).
+* **Memory:** 1 GB RAM (minimum), 2 GB+ RAM (recommended to accommodate caching, API requests, and DB indexing).
+* **Storage:** 10 GB+ SSD space (highly dependent on logging retention policies and number of tracked hosts).
+
+### Software Requirements
+* **Operating System:** Ubuntu 22.04 LTS or 24.04 LTS (strongly recommended and fully tested).
+* **Runtime:** Python 3.10+ & Node.js 18+ (for building/serving frontend assets).
+* **Database Engine:** PostgreSQL 14+ (recommended for production time-series scalability) or SQLite (for development).
+
+---
+
+## Getting Started (Production Deployment)
+
+For production deployments, the package is designed to run best when configured as root. Ensure you elevate your session before beginning:
+```bash
+sudo -i
+```
+
+### 1. Retrieve the Repository
+Clone the official repository into your system's operational space and enter the downloaded directory:
+```bash
+git clone https://github.com/dc8official/lnmp.git
+cd lnmp
+```
+
+### 2. Automatic System Installation
+Navigate to the `deploy` folder, ensure the installation script has execution permissions, and run it to set up all dependencies, database configurations, frontend visual builds, and background daemons:
+```bash
+cd deploy
+./install.sh
+```
+
+### 3. Uninstalling the Platform
+If you need to completely remove the platform services, database schemas, and associated system daemon configurations, navigate to the `deploy` folder and execute the provided uninstallation script:
+```bash
+cd deploy
+./uninstall.sh
+```
+
+---
 
 ## License & Authorship
-Core Architecture designed and authored by Kenneth Nnorom.
-This project is licensed under the terms of the Apache License 2.0. See the LICENSE file for full legal details.
+Core Architecture designed and authored by **Kenneth Nnorom**.  
+This project is licensed under the terms of the **Apache License 2.0**. See the [LICENSE] file for complete details.
