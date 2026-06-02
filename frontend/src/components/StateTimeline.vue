@@ -66,10 +66,10 @@ onBeforeUnmount(() => {
 })
 
 const STATE_COLORS = computed(() => ({
-  'UP': '#4a6b4a',
-  'UP-UNSTABLE': '#F59E0B',
-  'DOWN-UNSTABLE': '#F59E0B',
-  'DOWN': '#FF0000',
+  'UP': isDark.value ? '#4ade80' : '#16a34a',
+  'UP-UNSTABLE': isDark.value ? '#f59e0b' : '#b45309',
+  'DOWN-UNSTABLE': isDark.value ? '#f59e0b' : '#b45309',
+  'DOWN': isDark.value ? '#f87171' : '#dc2626',
   'UNKNOWN': isDark.value ? '#262626' : '#cbd5e1'
 }))
 

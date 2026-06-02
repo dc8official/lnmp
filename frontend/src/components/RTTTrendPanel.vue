@@ -98,7 +98,7 @@ const chartData = computed(() => {
   const inheritedData = processed.map(ev => ev.is_split_event ? ev.avg_rtt_ms : null)
 
   const measuredColor = isDark.value ? '#FFFFFF' : '#0f172a'
-  const inheritedColor = '#A3A3A3'
+  const inheritedColor = isDark.value ? '#666666' : '#94a3b8'
   const inheritedPointBg = isDark.value ? '#000000' : '#ffffff'
 
   return {

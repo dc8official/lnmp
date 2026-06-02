@@ -115,6 +115,11 @@ button { cursor: pointer; border: none; background: none; }
   --shadow-hover: 0 4px 12px rgba(0, 0, 0, 0.12);
   --radius: 8px;
   
+  /* Semantic Status Variables */
+  --status-up-color: #16a34a;        /* High-contrast green */
+  --status-warn-color: #b45309;      /* Darker amber for light mode legibility */
+  --status-down-color: #dc2626;      /* High-contrast red */
+  
   /* Status Colors (Identical in both themes) */
   --color-up: #16a34a;
   --color-up-bg: rgba(22, 163, 74, 0.1);
@@ -148,6 +153,11 @@ html.dark {
   --accent-hover: #cccccc;
   --shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
   --shadow-hover: 0 4px 12px rgba(0, 0, 0, 0.6);
+  
+  /* Dark Mode Semantic Refinements */
+  --status-up-color: #4ade80;        /* Glowing green */
+  --status-warn-color: #f59e0b;      /* Bright amber */
+  --status-down-color: #f87171;      /* Bright red */
 }
 
 /* ── Base ── */

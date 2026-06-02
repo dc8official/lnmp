@@ -980,14 +980,14 @@ h2 {
   font-family: monospace;
 }
 
-.value.perfect { color: #FFFFFF; }
-.value.good { color: #FFFFFF; }
-.value.warning { color: #F59E0B; }
-.value.critical { color: #FF0000; }
+.value.perfect { color: var(--text-primary); }
+.value.good { color: var(--text-primary); }
+.value.warning { color: var(--status-warn-color); }
+.value.critical { color: var(--status-down-color); }
 
-.value.alert { color: #FF0000; }
-.value.clean { color: #FFFFFF; }
-.value.has-down { color: #FF0000; }
+.value.alert { color: var(--status-down-color); }
+.value.clean { color: var(--text-primary); }
+.value.has-down { color: var(--status-down-color); }
 
 /* Visualizer Container panels */
 .visualizer-container {
@@ -1000,14 +1000,14 @@ h2 {
 
 .panel-header {
   margin-bottom: 1.5rem;
-  border-bottom: 1px solid #262626;
+  border-bottom: 1px solid var(--card-border);
   padding-bottom: 1rem;
 }
 
 .panel-header h3 {
   font-size: 1rem;
   font-weight: 700;
-  color: #FFFFFF;
+  color: var(--text-primary);
   display: flex;
   align-items: center;
   gap: 0.5rem;
@@ -1016,12 +1016,12 @@ h2 {
 }
 
 .header-icon {
-  color: #FFFFFF;
+  color: var(--text-primary);
 }
 
 .panel-desc {
   font-size: 0.8rem;
-  color: #A3A3A3;
+  color: var(--text-secondary);
   display: block;
   margin-top: 0.25rem;
 }
@@ -1034,9 +1034,9 @@ h2 {
 }
 
 .total-badge {
-  background-color: #0A0A0A;
-  border: 1px solid #262626;
-  color: #FFFFFF;
+  background-color: var(--bg-surface-selected);
+  border: 1px solid var(--border-color);
+  color: var(--text-primary);
   font-size: 0.75rem;
   font-weight: 700;
   padding: 0.25rem 0.6rem;
@@ -1057,29 +1057,29 @@ h2 {
 }
 
 .audit-table th {
-  background-color: #0A0A0A;
-  color: #A3A3A3;
+  background-color: var(--bg-app);
+  color: var(--text-secondary);
   font-weight: 700;
   padding: 0.75rem 1rem;
-  border-bottom: 2px solid #262626;
+  border-bottom: 2px solid var(--card-border);
   text-transform: uppercase;
   letter-spacing: 0.05em;
 }
 
 .audit-table td {
   padding: 0.85rem 1rem;
-  border-bottom: 1px solid #262626;
-  color: #FFFFFF;
+  border-bottom: 1px solid var(--card-border);
+  color: var(--text-primary);
 }
 
 .audit-table tr:hover {
-  background-color: #0A0A0A;
+  background-color: var(--bg-surface-hover);
 }
 
 .table-empty {
   text-align: center;
   padding: 3rem 0 !important;
-  color: #A3A3A3;
+  color: var(--text-muted);
   font-size: 0.85rem;
   font-family: monospace;
 }
@@ -1092,9 +1092,9 @@ h2 {
   font-weight: 700;
 }
 
-.text-success { color: #FFFFFF; }
-.text-warning { color: #F59E0B; }
-.text-danger { color: #FF0000; }
+.text-success { color: var(--status-up-color); }
+.text-warning { color: var(--status-warn-color); }
+.text-danger { color: var(--status-down-color); }
 
 .table-badge {
   font-size: 0.75rem;
@@ -1104,11 +1104,11 @@ h2 {
 }
 
 .table-badge.up {
-  color: #FFFFFF;
+  color: var(--status-up-color);
 }
 
 .table-badge.down {
-  color: #FF0000;
+  color: var(--status-down-color);
 }
 
 .table-detail-badge {
@@ -1119,23 +1119,23 @@ h2 {
 }
 
 .table-detail-badge.up {
-  color: #FFFFFF;
+  color: var(--status-up-color);
 }
 
 .table-detail-badge.up-unstable,
 .table-detail-badge.down-unstable {
-  color: #F59E0B;
+  color: var(--status-warn-color);
 }
 
 .table-detail-badge.down {
-  color: #FF0000;
+  color: var(--status-down-color);
 }
 
 /* PrimeVue Button custom scoping overrides */
 :deep(.p-button) {
-  background-color: #000000 !important;
-  border: 1px solid #262626 !important;
-  color: #A3A3A3 !important;
+  background-color: var(--bg-surface) !important;
+  border: 1px solid var(--border-color) !important;
+  color: var(--text-secondary) !important;
   font-family: monospace !important;
   font-size: 0.85rem !important;
   font-weight: 700 !important;
@@ -1145,55 +1145,55 @@ h2 {
   transition: all 0.15s ease;
 }
 :deep(.p-button:hover) {
-  background-color: #0A0A0A !important;
-  border-color: #A3A3A3 !important;
-  color: #FFFFFF !important;
+  background-color: var(--bg-surface-hover) !important;
+  border-color: var(--border-color-strong) !important;
+  color: var(--text-primary) !important;
 }
 /* When button is active (i.e. not outlined) */
 :deep(.p-button:not(.p-button-outlined)) {
-  background-color: #FFFFFF !important;
-  border-color: #FFFFFF !important;
-  color: #000000 !important;
+  background-color: var(--text-primary) !important;
+  border-color: var(--text-primary) !important;
+  color: var(--text-inverse) !important;
 }
 :deep(.p-button:not(.p-button-outlined):hover) {
-  background-color: #A3A3A3 !important;
-  border-color: #A3A3A3 !important;
-  color: #000000 !important;
+  background-color: var(--text-secondary) !important;
+  border-color: var(--text-secondary) !important;
+  color: var(--text-inverse) !important;
 }
 /* Back button specific */
 .back-btn {
-  background-color: #000000 !important;
-  border: 1px solid #262626 !important;
-  color: #FFFFFF !important;
+  background-color: var(--bg-surface) !important;
+  border: 1px solid var(--border-color) !important;
+  color: var(--text-primary) !important;
 }
 /* Danger button (logout, retry) */
 :deep(.p-button-danger) {
-  background-color: #000000 !important;
-  border: 1px solid #FF0000 !important;
-  color: #FF0000 !important;
+  background-color: var(--bg-surface) !important;
+  border: 1px solid var(--status-down-color) !important;
+  color: var(--status-down-color) !important;
 }
 :deep(.p-button-danger:hover) {
-  background-color: rgba(255, 0, 0, 0.08) !important;
-  border-color: #FF0000 !important;
-  color: #FF0000 !important;
+  background-color: var(--bg-surface-hover) !important;
+  border-color: var(--status-down-color) !important;
+  color: var(--status-down-color) !important;
 }
 /* Text button (header menu navigation) */
 :deep(.p-button-text) {
   background: transparent !important;
   border-color: transparent !important;
-  color: #A3A3A3 !important;
+  color: var(--text-secondary) !important;
 }
 :deep(.p-button-text:hover) {
-  background-color: rgba(255,255,255,0.05) !important;
-  color: #FFFFFF !important;
+  background-color: var(--bg-surface-selected) !important;
+  color: var(--text-primary) !important;
 }
 :deep(.p-button-text.p-button-danger:hover) {
-  background-color: rgba(255, 0, 0, 0.08) !important;
-  color: #FF0000 !important;
+  background-color: var(--bg-surface-selected) !important;
+  color: var(--status-down-color) !important;
 }
 
 /* ==========================================================================
-   Light Mode Theme Scoping Overrides
+   Light Mode Theme Scoping Overrides (Remaining wrapper variables)
    ========================================================================== */
 :global(html:not(.dark)) .detail-wrapper {
   background-color: #ffffff;
@@ -1308,98 +1308,6 @@ h2 {
 }
 :global(html:not(.dark)) .metric-body .subtext {
   color: #64748b;
-}
-:global(html:not(.dark)) .value.perfect { color: #334155; }
-:global(html:not(.dark)) .value.good { color: #334155; }
-:global(html:not(.dark)) .value.clean { color: #334155; }
-:global(html:not(.dark)) .panel-header {
-  border-bottom: 1px solid #e2e8f0;
-}
-:global(html:not(.dark)) .panel-header h3 {
-  color: #0f172a;
-}
-:global(html:not(.dark)) .header-icon {
-  color: #0f172a;
-}
-:global(html:not(.dark)) .panel-desc {
-  color: #475569;
-}
-:global(html:not(.dark)) .total-badge {
-  background-color: #f8fafc;
-  border: 1px solid #e2e8f0;
-  color: #475569;
-}
-:global(html:not(.dark)) .audit-table th {
-  background-color: #f8fafc;
-  color: #475569;
-  border-bottom: 2px solid #e2e8f0;
-}
-:global(html:not(.dark)) .audit-table td {
-  color: #334155;
-  border-bottom: 1px solid #e2e8f0;
-}
-:global(html:not(.dark)) .audit-table tr:hover {
-  background-color: #f8fafc;
-}
-:global(html:not(.dark)) .table-empty {
-  color: #64748b;
-}
-:global(html:not(.dark)) .text-success { color: #334155; }
-:global(html:not(.dark)) .table-badge.up {
-  color: #334155;
-}
-:global(html:not(.dark)) .table-detail-badge.up {
-  color: #334155;
-}
-
-/* Light mode PrimeVue overrides */
-:global(html:not(.dark)) :deep(.p-button) {
-  background-color: #ffffff !important;
-  border: 1px solid #cbd5e1 !important;
-  color: #475569 !important;
-}
-:global(html:not(.dark)) :deep(.p-button:hover) {
-  background-color: #f8fafc !important;
-  border-color: #94a3b8 !important;
-  color: #0f172a !important;
-}
-:global(html:not(.dark)) :deep(.p-button:not(.p-button-outlined)) {
-  background-color: #0f172a !important;
-  border-color: #0f172a !important;
-  color: #ffffff !important;
-}
-:global(html:not(.dark)) :deep(.p-button:not(.p-button-outlined):hover) {
-  background-color: #334155 !important;
-  border-color: #334155 !important;
-  color: #ffffff !important;
-}
-:global(html:not(.dark)) .back-btn {
-  background-color: #ffffff !important;
-  border: 1px solid #cbd5e1 !important;
-  color: #334155 !important;
-}
-:global(html:not(.dark)) :deep(.p-button-danger) {
-  background-color: #ffffff !important;
-  border: 1px solid #FF0000 !important;
-  color: #FF0000 !important;
-}
-:global(html:not(.dark)) :deep(.p-button-danger:hover) {
-  background-color: rgba(255, 0, 0, 0.05) !important;
-  border-color: #FF0000 !important;
-  color: #FF0000 !important;
-}
-:global(html:not(.dark)) :deep(.p-button-text) {
-  background: transparent !important;
-  border-color: transparent !important;
-  color: #475569 !important;
-}
-:global(html:not(.dark)) :deep(.p-button-text:hover) {
-  background-color: rgba(0,0,0,0.05) !important;
-  color: #0f172a !important;
-}
-:global(html:not(.dark)) :deep(.p-button-text.p-button-danger:hover) {
-  background-color: rgba(255, 0, 0, 0.05) !important;
-  color: #FF0000 !important;
 }
 
 /* Compact Table Pagination Footer Styles */
