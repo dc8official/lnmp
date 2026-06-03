@@ -18,7 +18,7 @@ port = 8000
 allowed_origins = ["https://monitor.yourdomain.com"]
 
 [security]
-session_timeout_minutes = 10
+session_timeout_minutes = 30
 hsts_enabled = true
 # Secret key loaded from environment variable: NETMON_SECRET_KEY
 

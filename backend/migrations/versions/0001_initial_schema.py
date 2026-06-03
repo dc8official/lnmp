@@ -218,7 +218,7 @@ def upgrade() -> None:
         VALUES
             ('state_confirmation_cycles', '3'),
             ('retention_days', '730'),
-            ('session_timeout_minutes', '10'),
+            ('session_timeout_minutes', '30'),
             ('monitoring_interval_seconds', '60'),
             ('ping_count_per_cycle', '10'),
             ('ping_interval_seconds', '6'),
