@@ -34,6 +34,27 @@ The platform is decoupled into independent layers to guarantee continuous teleme
 
 ---
 
+## System Time Zone Configuration
+
+> [!IMPORTANT]
+> **Server Operating Time Zone:**
+> Before deploying the platform, users **must** verify and configure the operating time zone of the Linux server to match their preferred local time zone. 
+> Since the backend daemon and database record and store all telemetry events relative to the host server's local operating system time zone, ensuring the server clock is correctly localized is crucial to accurately logging, querying, and displaying historical telemetry data.
+>
+> You can check and update your Linux server's timezone using standard tools:
+> ```bash
+> # View current system timezone and clock status
+> timedatectl
+>
+> # List all available timezones
+> timedatectl list-timezones
+>
+> # Set to your preferred timezone (e.g., Africa/Lagos for GMT+1)
+> sudo timedatectl set-timezone Africa/Lagos
+> ```
+
+---
+
 ## Getting Started (Production Deployment)
 
 For production deployments, the package is designed to run best when configured as root. Ensure you elevate your session before beginning:
