@@ -1,7 +1,7 @@
 from __future__ import annotations
 import asyncio
 import logging
-from datetime import datetime, timezone
+from datetime import datetime
 from uuid import UUID
 from sqlalchemy import text
 from app.database import AsyncSessionLocal
@@ -36,7 +36,7 @@ async def monitor_endpoint(
     # immediately fire a single baseline validation ping, write it to database,
     # and sleep until the next top-of-the-minute boundary.
     if state is None:
-        now_utc = datetime.now(timezone.utc)
+        now_utc = datetime.now().astimezone()
         if now_utc.second != 0 or now_utc.microsecond != 0:
             logger.info(
                 "Endpoint %s is brand-new and detected mid-minute at %s. Firing baseline validation ping.",
@@ -71,7 +71,7 @@ async def monitor_endpoint(
                 )
 
             # Sleep until the next top-of-the-minute boundary
-            now_utc = datetime.now(timezone.utc)
+            now_utc = datetime.now().astimezone()
             remaining_seconds = 60.0 - now_utc.second - (now_utc.microsecond / 1_000_000.0)
             logger.info(
                 "Sleeping for %.4f seconds until the next top-of-the-minute boundary.",
@@ -116,7 +116,7 @@ async def monitor_endpoint(
 
         # Absolute Minute Loop Alignment:
         # Dynamically compute the exact remaining seconds required to hit the top of the next absolute minute.
-        now_utc = datetime.now(timezone.utc)
+        now_utc = datetime.now().astimezone()
         remaining_seconds = 60.0 - now_utc.second - (now_utc.microsecond / 1_000_000.0)
         if remaining_seconds <= 0:
             remaining_seconds += 60.0

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Optional
 from uuid import UUID
 
@@ -93,7 +93,7 @@ class StateMachine:
         EndpointState.
         """
         operational_state, detailed_state = classify_ping_result(result)
-        start_time = datetime.now(timezone.utc)
+        start_time = datetime.now().astimezone()
         health_score = result.health_score
 
         row = (
@@ -234,7 +234,7 @@ class StateMachine:
             )
 
         # Step 3: Insert the record for this cycle to the database.
-        execution_time = datetime.now(timezone.utc)
+        execution_time = datetime.now().astimezone()
 
         row = (
             await db.execute(

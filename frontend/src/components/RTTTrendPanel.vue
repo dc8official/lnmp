@@ -76,7 +76,9 @@ const optimalPointRadius = computed(() => {
 
 const formatTime = (isoString) => {
   const d = new Date(isoString)
-  return `${d.getUTCHours().toString().padStart(2, '0')}:${d.getUTCMinutes().toString().padStart(2, '0')} UTC`
+  const hours = d.getHours().toString().padStart(2, '0')
+  const minutes = d.getMinutes().toString().padStart(2, '0')
+  return `${hours}:${minutes}`
 }
 
 const chartData = computed(() => {

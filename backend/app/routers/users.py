@@ -1,6 +1,7 @@
 from __future__ import annotations
 import json
-from datetime import datetime, timezone
+from datetime import datetime
+from app.services.timezone_utils import get_local_timezone
 from typing import Literal, Optional
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException
@@ -196,7 +197,7 @@ async def update_user(
     if not updates:
         return APIResponse.success(data={"message": "No updates provided."})
         
-    updates["updated_at"] = datetime.now(timezone.utc)
+    updates["updated_at"] = datetime.now(get_local_timezone())
     set_clause = ", ".join(f"{k} = :{k}" for k in updates)
     update_query = text(f"UPDATE users SET {set_clause} WHERE id = :user_id")
     

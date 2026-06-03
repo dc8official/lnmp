@@ -1,6 +1,7 @@
 from __future__ import annotations
 import json
-from datetime import datetime, timezone
+from datetime import datetime
+from app.services.timezone_utils import get_local_timezone
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel
 from sqlalchemy import text
@@ -65,7 +66,7 @@ async def login(
 
     clear_failed_attempts(request.username)
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(get_local_timezone())
     update_query = text("""
         UPDATE users
         SET last_login = :now

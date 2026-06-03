@@ -1,8 +1,9 @@
 from __future__ import annotations
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Literal, Optional
 from uuid import UUID
 from pydantic import BaseModel, field_serializer
+from app.services.timezone_utils import get_local_timezone
 
 class EndpointSummary(BaseModel):
     id: UUID
@@ -27,11 +28,12 @@ class EndpointSummary(BaseModel):
     def serialize_last_seen(self, v: Optional[datetime]) -> Optional[str]:
         if v is None:
             return None
+        local_tz = get_local_timezone()
         if v.tzinfo is None:
-            v = v.replace(tzinfo=timezone.utc)
+            v = v.replace(tzinfo=local_tz)
         else:
-            v = v.astimezone(timezone.utc)
-        return v.isoformat().replace("+00:00", "Z")
+            v = v.astimezone(local_tz)
+        return v.isoformat()
 
 class EndpointDetail(EndpointSummary):
     description: Optional[str] = None
@@ -42,8 +44,9 @@ class EndpointDetail(EndpointSummary):
 
     @field_serializer("created_at", "updated_at")
     def serialize_created_updated(self, v: datetime) -> str:
+        local_tz = get_local_timezone()
         if v.tzinfo is None:
-            v = v.replace(tzinfo=timezone.utc)
+            v = v.replace(tzinfo=local_tz)
         else:
-            v = v.astimezone(timezone.utc)
-        return v.isoformat().replace("+00:00", "Z")
+            v = v.astimezone(local_tz)
+        return v.isoformat()

@@ -1,8 +1,9 @@
 from __future__ import annotations
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Literal, Optional
 from uuid import UUID
 from pydantic import BaseModel, field_validator, field_serializer
+from app.services.timezone_utils import get_local_timezone
 
 class EventRecord(BaseModel):
     id: UUID
@@ -32,18 +33,20 @@ class EventRecord(BaseModel):
 
     @field_serializer("start_time")
     def serialize_start_time(self, v: datetime) -> str:
+        local_tz = get_local_timezone()
         if v.tzinfo is None:
-            v = v.replace(tzinfo=timezone.utc)
+            v = v.replace(tzinfo=local_tz)
         else:
-            v = v.astimezone(timezone.utc)
-        return v.isoformat().replace("+00:00", "Z")
+            v = v.astimezone(local_tz)
+        return v.isoformat()
 
     @field_serializer("end_time")
     def serialize_end_time(self, v: Optional[datetime]) -> Optional[str]:
         if v is None:
             return None
+        local_tz = get_local_timezone()
         if v.tzinfo is None:
-            v = v.replace(tzinfo=timezone.utc)
+            v = v.replace(tzinfo=local_tz)
         else:
-            v = v.astimezone(timezone.utc)
-        return v.isoformat().replace("+00:00", "Z")
+            v = v.astimezone(local_tz)
+        return v.isoformat()

@@ -1,7 +1,8 @@
 from __future__ import annotations
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Literal, Optional
 from pydantic import BaseModel, model_validator, field_serializer
+from app.services.timezone_utils import get_local_timezone
 
 class MonitoringStatus(BaseModel):
     service_status: Literal["RUNNING", "DEGRADED", "UNAVAILABLE"]
@@ -25,18 +26,20 @@ class MonitoringStatus(BaseModel):
     def serialize_last_cycle(self, v: Optional[datetime]) -> Optional[str]:
         if v is None:
             return None
+        local_tz = get_local_timezone()
         if v.tzinfo is None:
-            v = v.replace(tzinfo=timezone.utc)
+            v = v.replace(tzinfo=local_tz)
         else:
-            v = v.astimezone(timezone.utc)
-        return v.isoformat().replace("+00:00", "Z")
+            v = v.astimezone(local_tz)
+        return v.isoformat()
 
     @field_serializer("gap_start_time")
     def serialize_gap_start_time(self, v: Optional[datetime]) -> Optional[str]:
         if v is None:
             return None
+        local_tz = get_local_timezone()
         if v.tzinfo is None:
-            v = v.replace(tzinfo=timezone.utc)
+            v = v.replace(tzinfo=local_tz)
         else:
-            v = v.astimezone(timezone.utc)
-        return v.isoformat().replace("+00:00", "Z")
+            v = v.astimezone(local_tz)
+        return v.isoformat()

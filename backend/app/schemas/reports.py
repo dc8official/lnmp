@@ -1,8 +1,9 @@
 from __future__ import annotations
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Literal, Optional
 from uuid import UUID
 from pydantic import BaseModel, field_validator, field_serializer
+from app.services.timezone_utils import get_local_timezone
 
 class UptimeReport(BaseModel):
     endpoint_id: UUID
@@ -28,11 +29,12 @@ class UptimeReport(BaseModel):
 
     @field_serializer("period_start", "period_end")
     def serialize_period(self, v: datetime) -> str:
+        local_tz = get_local_timezone()
         if v.tzinfo is None:
-            v = v.replace(tzinfo=timezone.utc)
+            v = v.replace(tzinfo=local_tz)
         else:
-            v = v.astimezone(timezone.utc)
-        return v.isoformat().replace("+00:00", "Z")
+            v = v.astimezone(local_tz)
+        return v.isoformat()
 
 class IncidentRecord(BaseModel):
     endpoint_id: UUID
@@ -50,18 +52,20 @@ class IncidentRecord(BaseModel):
 
     @field_serializer("incident_start")
     def serialize_incident_start(self, v: datetime) -> str:
+        local_tz = get_local_timezone()
         if v.tzinfo is None:
-            v = v.replace(tzinfo=timezone.utc)
+            v = v.replace(tzinfo=local_tz)
         else:
-            v = v.astimezone(timezone.utc)
-        return v.isoformat().replace("+00:00", "Z")
+            v = v.astimezone(local_tz)
+        return v.isoformat()
 
     @field_serializer("incident_end")
     def serialize_incident_end(self, v: Optional[datetime]) -> Optional[str]:
         if v is None:
             return None
+        local_tz = get_local_timezone()
         if v.tzinfo is None:
-            v = v.replace(tzinfo=timezone.utc)
+            v = v.replace(tzinfo=local_tz)
         else:
-            v = v.astimezone(timezone.utc)
-        return v.isoformat().replace("+00:00", "Z")
+            v = v.astimezone(local_tz)
+        return v.isoformat()

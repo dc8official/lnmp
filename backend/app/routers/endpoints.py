@@ -1,6 +1,6 @@
 from __future__ import annotations
 import json
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta
 from typing import Literal, Optional
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
 from app.routers.auth import get_current_user, require_admin
 from app.schemas import APIResponse, PaginationMeta
+from app.services.timezone_utils import get_local_timezone
 from app.services.uptime_calculator import (
     calculate_uptime_denominator_and_percentage,
     get_unknown_seconds_for_period,
@@ -39,7 +40,8 @@ async def list_endpoints(
     current_user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    now_utc = datetime.now(timezone.utc)
+    local_tz = get_local_timezone()
+    now_utc = datetime.now(local_tz)
     since_utc = now_utc - timedelta(hours=24)
     
     query_str = """
@@ -137,7 +139,8 @@ async def get_endpoint(
     current_user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    now_utc = datetime.now(timezone.utc)
+    local_tz = get_local_timezone()
+    now_utc = datetime.now(local_tz)
     since_utc = now_utc - timedelta(hours=24)
     query = text("""
         SELECT
@@ -363,7 +366,7 @@ async def update_endpoint(
     if request.endpoint_status is not None:
         updates["endpoint_status"] = request.endpoint_status
         
-    updates["updated_at"] = datetime.now(timezone.utc)
+    updates["updated_at"] = datetime.now(get_local_timezone())
     
     if len(updates) == 1:
         return APIResponse.success(data={"message": "No changes provided."})
@@ -413,7 +416,7 @@ async def delete_endpoint(
     if not check_result.fetchone():
         raise HTTPException(status_code=404, detail="Endpoint not found.")
         
-    now = datetime.now(timezone.utc)
+    now = datetime.now(get_local_timezone())
     delete_query = text("""
         UPDATE endpoints
         SET endpoint_status = 'DELETED',

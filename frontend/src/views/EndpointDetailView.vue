@@ -317,7 +317,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, onBeforeUnmount, computed } from 'vue'
 import { useRoute, useRouter, RouterLink } from 'vue-router'
 import { getEndpoint, getUptimeReport, getEndpointEvents, logout } from '../services/api.js'
 import StateTimeline from '../components/StateTimeline.vue'
@@ -349,7 +349,7 @@ const user = ref(null)
 const endpoint = ref(null)
 const uptimeReport = ref(null)
 const events = ref([])
-const chartEvents = ref([])
+const chartEvents = computed(() => [...events.value].sort((a, b) => new Date(a.start_time) - new Date(b.start_time)))
 const loading = ref(true)
 const error = ref(null)
 
@@ -368,27 +368,21 @@ const pageEnd = computed(() => {
   return Math.min(tablePage.value * tableSize.value, totalEvents.value)
 })
 
-function getPastDateStr(daysAgo) {
-  const d = new Date()
-  d.setDate(d.getDate() - daysAgo)
-  return d.toISOString().split('T')[0]
-}
+let pollInterval = null
 
-function getPastDateTimeStr(daysAgo) {
-  const d = new Date()
-  d.setDate(d.getDate() - daysAgo)
-  const year = d.getUTCFullYear()
-  const month = String(d.getUTCMonth() + 1).padStart(2, '0')
-  const day = String(d.getUTCDate()).padStart(2, '0')
-  const hours = String(d.getUTCHours()).padStart(2, '0')
-  const minutes = String(d.getUTCMinutes()).padStart(2, '0')
+function getLocalISOString(d) {
+  const year = d.getFullYear()
+  const month = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  const hours = String(d.getHours()).padStart(2, '0')
+  const minutes = String(d.getMinutes()).padStart(2, '0')
   return `${year}-${month}-${day}T${hours}:${minutes}`
 }
 
 // Date Range filters
 const filterRange = ref('24h')
-const customStartDate = ref(getPastDateTimeStr(7))
-const customEndDate = ref(getPastDateTimeStr(0))
+const customStartDate = ref(getLocalISOString(new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)))
+const customEndDate = ref(getLocalISOString(new Date()))
 
 // Detailed date strings for timeline component
 const periodStartStr = ref('')
@@ -405,26 +399,30 @@ const setRange = (range) => {
   }
 }
 
-const loadTableEvents = async () => {
-  loadingTable.value = true
-  
+function getQueryRange() {
+  const now = new Date()
   let start = ''
-  let end = ''
+  let end = now.toISOString()
   
   if (filterRange.value === '24h') {
-    start = getPastDateTimeStr(1)
-    end = getPastDateTimeStr(0)
+    const past = new Date(now.getTime() - 24 * 60 * 60 * 1000)
+    start = past.toISOString()
+  } else if (filterRange.value === '7d') {
+    const past = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000)
+    start = past.toISOString()
+  } else if (filterRange.value === '30d') {
+    const past = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000)
+    start = past.toISOString()
   } else {
-    end = getPastDateStr(0)
-    if (filterRange.value === '7d') {
-      start = getPastDateStr(7)
-    } else if (filterRange.value === '30d') {
-      start = getPastDateStr(30)
-    } else {
-      start = customStartDate.value
-      end = customEndDate.value
-    }
+    start = new Date(customStartDate.value).toISOString()
+    end = new Date(customEndDate.value).toISOString()
   }
+  return { start, end }
+}
+
+const loadTableEvents = async () => {
+  loadingTable.value = true
+  const { start, end } = getQueryRange()
   
   try {
     const res = await getEndpointEvents(endpointId, start, end, tablePage.value, tableSize.value)
@@ -455,44 +453,19 @@ const loadData = async () => {
   error.value = null
   tablePage.value = 1
   
-  let start = ''
-  let end = ''
-  
-  if (filterRange.value === '24h') {
-    start = getPastDateTimeStr(1)
-    end = getPastDateTimeStr(0)
-  } else {
-    end = getPastDateStr(0)
-    if (filterRange.value === '7d') {
-      start = getPastDateStr(7)
-    } else if (filterRange.value === '30d') {
-      start = getPastDateStr(30)
-    } else {
-      start = customStartDate.value
-      end = customEndDate.value
-    }
-  }
-  
-  // Format period boundary strings for visual components
-  if (filterRange.value === 'custom' || filterRange.value === '24h') {
-    periodStartStr.value = `${start}:00Z`
-    periodEndStr.value = `${end}:00Z`
-  } else {
-    periodStartStr.value = `${start}T00:00:00Z`
-    periodEndStr.value = `${end}T23:59:59Z`
-  }
+  const { start, end } = getQueryRange()
+  periodStartStr.value = start
+  periodEndStr.value = end
   
   try {
-    const [endpointRes, uptimeRes, eventsRes, tableEventsRes] = await Promise.all([
+    const [endpointRes, uptimeRes, tableEventsRes] = await Promise.all([
       getEndpoint(endpointId),
       getUptimeReport(endpointId, start, end),
-      getEndpointEvents(endpointId, start, end, 1, 250), // Fetch up to 250 records for continuous charts
       getEndpointEvents(endpointId, start, end, 1, tableSize.value) // Fetch paginated events starting from page 1
     ])
     
     endpoint.value = endpointRes.data.data
     uptimeReport.value = uptimeRes.data.data
-    chartEvents.value = eventsRes.data.data
     events.value = tableEventsRes.data.data
     
     totalEvents.value = tableEventsRes.data.meta?.total || 0
@@ -574,6 +547,19 @@ onMounted(() => {
     user.value = JSON.parse(storedUser)
   }
   loadData()
+
+  // Establish a 60-second polling interval to fetch fresh telemetry data
+  pollInterval = setInterval(() => {
+    if (!loading.value) {
+      loadData()
+    }
+  }, 60000)
+})
+
+onBeforeUnmount(() => {
+  if (pollInterval) {
+    clearInterval(pollInterval)
+  }
 })
 </script>
 

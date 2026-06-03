@@ -1,6 +1,7 @@
 from __future__ import annotations
 import logging
-from datetime import date, datetime, timezone
+from datetime import date, datetime
+from app.services.timezone_utils import get_local_timezone
 from math import ceil
 from typing import Optional, List
 from uuid import UUID
@@ -26,11 +27,14 @@ from app.services.uptime_calculator import (
 router = APIRouter(prefix="/reports", tags=["reports"])
 
 def parse_datetime_param(val: str, is_end: bool = False) -> datetime:
+    local_tz = get_local_timezone()
     # Try parsing as ISO datetime
     try:
         dt = datetime.fromisoformat(val.replace("Z", "+00:00"))
         if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=timezone.utc)
+            dt = dt.replace(tzinfo=local_tz)
+        else:
+            dt = dt.astimezone(local_tz)
         return dt
     except ValueError:
         pass
@@ -39,9 +43,9 @@ def parse_datetime_param(val: str, is_end: bool = False) -> datetime:
     try:
         d = date.fromisoformat(val)
         if is_end:
-            return datetime(d.year, d.month, d.day, 23, 59, 59, tzinfo=timezone.utc)
+            return datetime(d.year, d.month, d.day, 23, 59, 59, tzinfo=local_tz)
         else:
-            return datetime(d.year, d.month, d.day, 0, 0, 0, tzinfo=timezone.utc)
+            return datetime(d.year, d.month, d.day, 0, 0, 0, tzinfo=local_tz)
     except ValueError:
         raise HTTPException(status_code=400, detail=f"Invalid date/datetime format: {val}")
 
@@ -49,12 +53,13 @@ def _build_period(
     start_date: date,
     end_date: date,
 ) -> tuple[datetime, datetime]:
+    local_tz = get_local_timezone()
     period_start = datetime(start_date.year, start_date.month,
                             start_date.day, 0, 0, 0,
-                            tzinfo=timezone.utc)
+                            tzinfo=local_tz)
     period_end   = datetime(end_date.year, end_date.month,
                             end_date.day, 23, 59, 59,
-                            tzinfo=timezone.utc)
+                            tzinfo=local_tz)
     return period_start, period_end
 
 def _validate_date_range(
@@ -108,13 +113,15 @@ async def get_uptime_report(
     period_start, period_end = start_dt, end_dt
     
     # Cap period_start to the creation time so we don't skew uptime statistics for time before registration
-    # Ensure exists_row.created_at is timezone-aware UTC
+    local_tz = get_local_timezone()
     created_at = exists_row.created_at
     if created_at.tzinfo is None:
-        created_at = created_at.replace(tzinfo=timezone.utc)
+        created_at = created_at.replace(tzinfo=local_tz)
+    else:
+        created_at = created_at.astimezone(local_tz)
     
     effective_start = max(period_start, created_at)
-    now_utc = datetime.now(timezone.utc)
+    now_utc = datetime.now(local_tz)
     effective_end = min(period_end, now_utc)
     total_seconds = max(0, int((effective_end - effective_start).total_seconds()))
 
@@ -283,7 +290,7 @@ async def get_endpoint_events(
     start_date: str = Query(...),
     end_date: str = Query(...),
     page: int = Query(default=1, ge=1),
-    size: int = Query(default=100, ge=1, le=250),
+    size: int = Query(default=100, ge=1, le=1500),
     current_user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -319,7 +326,7 @@ async def get_endpoint_events(
             WHERE endpoint_id = :endpoint_id
               AND start_time >= :period_start
               AND start_time <= :period_end
-            ORDER BY start_time ASC
+            ORDER BY start_time DESC
             LIMIT :limit OFFSET :offset
         """),
         {
