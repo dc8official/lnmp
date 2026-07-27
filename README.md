@@ -1,4 +1,4 @@
-# LNMP — Network  Monitoring Platform v1.0(beta)
+# LNMP — Network  Monitoring Platform v1.5(beta)
 
 A high-precision, decoupled network telemetry and monitoring solution designed for continuous endpoint status verification, low-latency ICMP polling, and real-time state visualization.
 
