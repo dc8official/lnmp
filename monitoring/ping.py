@@ -163,13 +163,30 @@ async def run_ping_cycle(
 
 def classify_ping_result(
     result: PingResult,
+    baseline_mean: Optional[float] = None,
+    baseline_stddev: Optional[float] = None,
+    k: float = 3.0,
 ) -> tuple[str, str]:
+    """
+    Classifies a ping result into operational state ('UP', 'DOWN') and
+    detailed state ('UP', 'UP-UNSTABLE', 'DOWN-UNSTABLE', 'DOWN').
+
+    Uses hybrid adaptive baseline evaluation (Z-score logic):
+    If latency (avg_rtt_ms) exceeds (baseline_mean + k * baseline_stddev),
+    the endpoint latency is marked degraded ('UP-UNSTABLE').
+    """
     if result.total_count == 0:
         return "DOWN", "DOWN"
 
     ratio = result.success_count / result.total_count
 
     if ratio == 1.0:
+        # Dynamic Z-score baseline evaluation
+        if baseline_mean is not None and baseline_stddev is not None and result.avg_rtt_ms is not None:
+            safe_stddev = baseline_stddev if baseline_stddev > 0 else 15.0
+            threshold = baseline_mean + (k * safe_stddev)
+            if result.avg_rtt_ms > threshold:
+                return "UP", "UP-UNSTABLE"
         return "UP", "UP"
     elif ratio >= 0.6:
         return "UP", "UP-UNSTABLE"

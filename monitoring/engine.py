@@ -5,6 +5,7 @@ from datetime import datetime
 from uuid import UUID
 from sqlalchemy import text
 from app.database import AsyncSessionLocal
+from app.services.baseline_service import baseline_cache, start_baseline_refresh_task
 from monitoring.gap_handler import resolve_startup_state
 from monitoring.ping import run_ping_cycle
 from monitoring.state_machine import EndpointState, StateMachine
@@ -52,9 +53,10 @@ async def monitor_endpoint(
                     privileged=True,
                 )
 
+                baseline = baseline_cache.get_baseline(endpoint_id)
                 async with AsyncSessionLocal() as db:
                     new_state = await state_machine.create_initial_event(
-                        endpoint_id, result, db
+                        endpoint_id, result, db, baseline=baseline
                     )
                     await db.commit()
 
@@ -89,16 +91,18 @@ async def monitor_endpoint(
                 privileged=True,
             )
 
+            baseline = baseline_cache.get_baseline(endpoint_id)
+
             async with AsyncSessionLocal() as db:
                 current_state = endpoint_states.get(str(endpoint_id))
 
                 if current_state is None:
                     new_state = await state_machine.create_initial_event(
-                        endpoint_id, result, db
+                        endpoint_id, result, db, baseline=baseline
                     )
                 else:
                     new_state = await state_machine.process_cycle(
-                        current_state, result, db
+                        current_state, result, db, baseline=baseline
                     )
 
                 await db.commit()
@@ -131,7 +135,10 @@ async def main() -> None:
     logger.info("lnmp monitoring engine starting.")
     async with AsyncSessionLocal() as db:
         await resolve_startup_state(db)
+        await baseline_cache.refresh_from_db(db)
         await db.commit()
+
+    await start_baseline_refresh_task(AsyncSessionLocal, interval_seconds=3600)
 
     state_machine = StateMachine(confirmation_threshold=3)
 
