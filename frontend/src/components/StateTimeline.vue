@@ -70,7 +70,7 @@ const STATE_COLORS = computed(() => ({
   'UP-UNSTABLE': isDark.value ? '#f59e0b' : '#b45309',
   'DOWN-UNSTABLE': isDark.value ? '#f59e0b' : '#b45309',
   'DOWN': isDark.value ? '#f87171' : '#dc2626',
-  'UNKNOWN': isDark.value ? '#262626' : '#cbd5e1'
+  'UNKNOWN': isDark.value ? '#4a4a4a' : '#b0c4de'
 }))
 
 const formatDuration = (ms) => {
@@ -171,7 +171,7 @@ const chartData = computed(() => {
     backgroundColor: STATE_COLORS.value[key],
     grouped: false,
     borderWidth: key === 'UNKNOWN' ? 1 : 0,
-    borderColor: key === 'UNKNOWN' ? (isDark.value ? '#262626' : '#cbd5e1') : 'transparent',
+    borderColor: key === 'UNKNOWN' ? (isDark.value ? '#4a4a4a' : '#b0c4de') : 'transparent',
     borderSkipped: false
   }))
 
@@ -182,8 +182,8 @@ const chartData = computed(() => {
 })
 
 const chartOptions = computed(() => {
-  const gridColor = isDark.value ? '#262626' : '#cbd5e1'
-  const textColor = isDark.value ? '#A3A3A3' : '#475569'
+  const gridColor = isDark.value ? '#3a3a3a' : '#9bb5d1'
+  const textColor = isDark.value ? '#D0D0D0' : '#334155'
 
   return {
     indexAxis: 'y',
@@ -196,7 +196,7 @@ const chartOptions = computed(() => {
           color: textColor,
           font: {
             family: 'monospace',
-            size: 11
+            size: 12
           }
         }
       },
@@ -236,6 +236,10 @@ const chartOptions = computed(() => {
         },
         ticks: {
           color: textColor,
+          font: {
+            family: 'monospace',
+            size: 12
+          },
           callback: function(value) {
             return (value * 100) + '%'
           }
@@ -258,7 +262,7 @@ const chartOptions = computed(() => {
   width: 100%;
   padding: 1rem;
   background: #000000;
-  border: 1px solid #262626;
+  border: 1px solid var(--border-color);
   border-radius: 4px;
   box-shadow: none;
   margin-bottom: 1.5rem;
@@ -267,6 +271,5 @@ const chartOptions = computed(() => {
 
 :global(html:not(.dark)) .state-timeline {
   background: #ffffff;
-  border-color: #cbd5e1;
 }
 </style>
