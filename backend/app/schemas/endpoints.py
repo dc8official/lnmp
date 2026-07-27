@@ -38,6 +38,9 @@ class EndpointSummary(BaseModel):
 class EndpointDetail(EndpointSummary):
     description: Optional[str] = None
     monitoring_enabled: bool
+    allow_incident_trace: bool = True
+    allow_topology_discovery: bool = True
+    manual_parent_id: Optional[UUID] = None
     created_by: Optional[UUID] = None
     created_at: datetime
     updated_at: datetime

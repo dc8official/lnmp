@@ -20,6 +20,21 @@ endpoint_states: dict[str, EndpointState] = {}
 states_lock = asyncio.Lock()
 
 
+from app.services.diagnostics import run_throttled_traceroute, save_diagnostic_trace
+
+
+async def trigger_incident_diagnostic_trace(endpoint_id: UUID, ip_address: str):
+    """Fires a background diagnostic traceroute upon detecting a failed ping sub-cycle."""
+    try:
+        trace_data = await run_throttled_traceroute(ip_address)
+        async with AsyncSessionLocal() as db:
+            await save_diagnostic_trace(db, endpoint_id, "FAILED_PING_SUBCYCLE", trace_data)
+            await db.commit()
+            logger.info("Incident diagnostic trace saved for endpoint %s (%s)", endpoint_id, ip_address)
+    except Exception as e:
+        logger.error("Failed to execute incident diagnostic trace for %s: %s", ip_address, e)
+
+
 async def monitor_endpoint(
     endpoint_id: UUID,
     ip_address: str,
@@ -104,6 +119,16 @@ async def monitor_endpoint(
                     new_state = await state_machine.process_cycle(
                         current_state, result, db, baseline=baseline
                     )
+
+                # Down-State Trigger Hook: Fire incident diagnostic trace on first failed ping sub-cycle
+                if result.failed_count > 0:
+                    allow_res = await db.execute(
+                        text("SELECT allow_incident_trace FROM endpoints WHERE id = :id"),
+                        {"id": str(endpoint_id)},
+                    )
+                    row = allow_res.fetchone()
+                    if row and getattr(row, "allow_incident_trace", True):
+                        asyncio.create_task(trigger_incident_diagnostic_trace(endpoint_id, ip_address))
 
                 await db.commit()
 

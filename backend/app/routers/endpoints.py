@@ -23,6 +23,9 @@ class CreateEndpointRequest(BaseModel):
     location: Optional[str] = None
     description: Optional[str] = None
     monitoring_enabled: bool = True
+    allow_incident_trace: bool = True
+    allow_topology_discovery: bool = True
+    manual_parent_id: Optional[UUID] = None
 
 class UpdateEndpointRequest(BaseModel):
     hostname: Optional[str] = None
@@ -30,6 +33,9 @@ class UpdateEndpointRequest(BaseModel):
     location: Optional[str] = None
     description: Optional[str] = None
     monitoring_enabled: Optional[bool] = None
+    allow_incident_trace: Optional[bool] = None
+    allow_topology_discovery: Optional[bool] = None
+    manual_parent_id: Optional[UUID] = None
     endpoint_status: Optional[Literal["ACTIVE", "DISABLED"]] = None
 
 router = APIRouter(prefix="/endpoints", tags=["endpoints"])
