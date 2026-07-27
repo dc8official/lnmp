@@ -30,6 +30,14 @@ export function getEndpoint(id) {
   return api.get(`/endpoints/${id}`)
 }
 
+export function getTopology() {
+  return api.get('/topology')
+}
+
+export function getEndpointTraces(id) {
+  return api.get(`/endpoints/${id}/traces`)
+}
+
 export function getUptimeReport(id, startDate, endDate) {
   return api.get(`/reports/uptime/${id}`, {
     params: {

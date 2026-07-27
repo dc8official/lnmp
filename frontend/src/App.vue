@@ -9,6 +9,8 @@
         </div>
         <nav class="header-nav">
           <RouterLink to="/" class="nav-link">Dashboard</RouterLink>
+          <RouterLink to="/topology" class="nav-link">Topology Map</RouterLink>
+          <RouterLink to="/endpoints" class="nav-link">Endpoints</RouterLink>
         </nav>
         <div class="header-actions">
           <button class="theme-toggle" @click="toggleTheme"

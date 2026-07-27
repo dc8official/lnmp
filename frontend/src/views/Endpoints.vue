@@ -1,0 +1,536 @@
+<template>
+  <div class="endpoints-view">
+    <!-- Header Toolbar -->
+    <div class="view-header">
+      <div>
+        <h1 class="page-title">Monitored Endpoints & Diagnostics</h1>
+        <p class="page-sub">Manage network targets, incident tracing, and topology parent relationships</p>
+      </div>
+      <div class="header-actions">
+        <button class="btn-secondary" @click="fetchEndpoints" :disabled="loading">
+          {{ loading ? 'Refreshing...' : '↻ Refresh List' }}
+        </button>
+        <button class="btn-primary" @click="openCreateModal">
+          + Add Endpoint
+        </button>
+      </div>
+    </div>
+
+    <!-- Error Alert -->
+    <div v-if="error" class="alert-error">
+      {{ error }}
+    </div>
+
+    <!-- Endpoints Table -->
+    <div class="table-card">
+      <div v-if="loading && endpoints.length === 0" class="loading-state">
+        <div class="spinner"></div>
+        <p>Loading endpoints...</p>
+      </div>
+
+      <div v-else-if="endpoints.length === 0" class="empty-state">
+        <p>No endpoints configured. Click "+ Add Endpoint" to create your first monitored node.</p>
+      </div>
+
+      <table v-else class="data-table">
+        <thead>
+          <tr>
+            <th>Hostname / IP</th>
+            <th>Device Type</th>
+            <th>Status</th>
+            <th>Incident Trace</th>
+            <th>Topology Discovery</th>
+            <th>Manual Parent</th>
+            <th class="text-right">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="ep in endpoints" :key="ep.id">
+            <td>
+              <div class="host-info">
+                <router-link :to="`/endpoints/${ep.id}`" class="host-link">
+                  {{ ep.hostname }}
+                </router-link>
+                <span class="ip-sub">{{ ep.ip_address }}</span>
+              </div>
+            </td>
+            <td>
+              <span class="device-tag">{{ ep.device_type }}</span>
+            </td>
+            <td>
+              <span class="status-badge" :class="getStatusClass(ep.current_detailed_state || ep.current_operational_state)">
+                {{ ep.current_detailed_state || ep.current_operational_state || 'ACTIVE' }}
+              </span>
+            </td>
+            <td>
+              <span class="toggle-pill" :class="ep.allow_incident_trace ? 'active' : 'disabled'">
+                {{ ep.allow_incident_trace ? '● Enabled' : '○ Disabled' }}
+              </span>
+            </td>
+            <td>
+              <span class="toggle-pill" :class="ep.allow_topology_discovery ? 'active' : 'disabled'">
+                {{ ep.allow_topology_discovery ? '● Enabled' : '○ Disabled' }}
+              </span>
+            </td>
+            <td>
+              <span class="parent-label">
+                {{ getParentName(ep.manual_parent_id) }}
+              </span>
+            </td>
+            <td class="text-right">
+              <button class="btn-icon" @click="openEditModal(ep)" title="Edit Settings">⚙ Edit</button>
+              <button class="btn-icon danger" @click="confirmDelete(ep)" title="Delete Endpoint">🗑 Delete</button>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Create / Edit Endpoint Modal -->
+    <div class="modal-overlay" v-if="showModal" @click.self="closeModal">
+      <div class="modal-card">
+        <div class="modal-header">
+          <h3>{{ isEditing ? 'Edit Endpoint Configuration' : 'Add New Monitored Endpoint' }}</h3>
+          <button class="btn-close" @click="closeModal">✕</button>
+        </div>
+
+        <form @submit.prevent="saveEndpoint" class="modal-form">
+          <div class="form-grid">
+            <div class="form-group">
+              <label>IP Address *</label>
+              <input v-model="form.ip_address" type="text" placeholder="192.168.1.1" required :disabled="isEditing" />
+            </div>
+
+            <div class="form-group">
+              <label>Hostname *</label>
+              <input v-model="form.hostname" type="text" placeholder="core-router-01" required />
+            </div>
+
+            <div class="form-group">
+              <label>Device Type *</label>
+              <input v-model="form.device_type" type="text" placeholder="ROUTER / SWITCH / SERVER" required />
+            </div>
+
+            <div class="form-group">
+              <label>Location</label>
+              <input v-model="form.location" type="text" placeholder="Data Center 1, Rack B" />
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label>Description</label>
+            <textarea v-model="form.description" rows="2" placeholder="Primary gateway router"></textarea>
+          </div>
+
+          <!-- Upstream Manual Parent Node Selector -->
+          <div class="form-group">
+            <label>Upstream Parent Node (Manual Parent Override)</label>
+            <select v-model="form.manual_parent_id" class="form-select">
+              <option :value="null">-- Auto-Discover via Traceroute --</option>
+              <option
+                v-for="ep in parentCandidates"
+                :key="ep.id"
+                :value="ep.id"
+              >
+                {{ ep.hostname }} ({{ ep.ip_address }})
+              </option>
+            </select>
+            <p class="field-help">Manually overrides automatic topology traceroute parent detection.</p>
+          </div>
+
+          <div class="form-divider">V1.5 Diagnostic Controls</div>
+
+          <!-- V1.5 Toggle Switches -->
+          <div class="toggles-list">
+            <label class="switch-row">
+              <div class="switch-info">
+                <span class="switch-label">Run Diagnostic Trace on Outage</span>
+                <span class="switch-sub">Automatically fires background traceroute upon first failed ping sub-cycle</span>
+              </div>
+              <input type="checkbox" v-model="form.allow_incident_trace" />
+              <span class="slider"></span>
+            </label>
+
+            <label class="switch-row">
+              <div class="switch-info">
+                <span class="switch-label">Enable Discovery Traces</span>
+                <span class="switch-sub">Queues traceroute passes on onboarding and midnight topology cycles</span>
+              </div>
+              <input type="checkbox" v-model="form.allow_topology_discovery" />
+              <span class="slider"></span>
+            </label>
+
+            <label class="switch-row">
+              <div class="switch-info">
+                <span class="switch-label">Enable ICMP Monitoring</span>
+                <span class="switch-sub">Actively pings target every cycle</span>
+              </div>
+              <input type="checkbox" v-model="form.monitoring_enabled" />
+              <span class="slider"></span>
+            </label>
+          </div>
+
+          <div class="modal-actions">
+            <button type="button" class="btn-secondary" @click="closeModal">Cancel</button>
+            <button type="submit" class="btn-primary" :disabled="saving">
+              {{ saving ? 'Saving...' : (isEditing ? 'Save Changes' : 'Create Endpoint') }}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+</template>
+
+<script setup>
+import { ref, computed, onMounted } from 'vue'
+import { getEndpoints, createEndpoint, updateEndpoint, deleteEndpoint } from '../services/api.js'
+
+const endpoints = ref([])
+const loading = ref(true)
+const error = ref(null)
+const saving = ref(false)
+
+const showModal = ref(false)
+const isEditing = ref(false)
+const editingId = ref(null)
+
+const form = ref({
+  ip_address: '',
+  hostname: '',
+  device_type: '',
+  location: '',
+  description: '',
+  monitoring_enabled: true,
+  allow_incident_trace: true,
+  allow_topology_discovery: true,
+  manual_parent_id: null,
+})
+
+const parentCandidates = computed(() => {
+  if (!isEditing.value) return endpoints.value
+  return endpoints.value.filter(ep => ep.id !== editingId.value)
+})
+
+function getStatusClass(status) {
+  switch (status) {
+    case 'UP': return 'status-up'
+    case 'UP-UNSTABLE':
+    case 'DOWN-UNSTABLE': return 'status-unstable'
+    case 'DOWN': return 'status-down'
+    default: return ''
+  }
+}
+
+function getParentName(parentId) {
+  if (!parentId) return 'Auto (Traceroute)'
+  const found = endpoints.value.find(ep => ep.id === parentId)
+  return found ? `${found.hostname} (${found.ip_address})` : parentId
+}
+
+async function fetchEndpoints() {
+  loading.value = true
+  error.value = null
+  try {
+    const res = await getEndpoints()
+    endpoints.value = res.data?.data || res.data || []
+  } catch (err) {
+    console.error('Failed to fetch endpoints:', err)
+    error.value = 'Failed to load endpoints.'
+  } finally {
+    loading.value = false
+  }
+}
+
+function openCreateModal() {
+  isEditing.value = false
+  editingId.value = null
+  form.value = {
+    ip_address: '',
+    hostname: '',
+    device_type: 'ROUTER',
+    location: '',
+    description: '',
+    monitoring_enabled: true,
+    allow_incident_trace: true,
+    allow_topology_discovery: true,
+    manual_parent_id: null,
+  }
+  showModal.value = true
+}
+
+function openEditModal(ep) {
+  isEditing.value = true
+  editingId.value = ep.id
+  form.value = {
+    ip_address: ep.ip_address,
+    hostname: ep.hostname,
+    device_type: ep.device_type,
+    location: ep.location || '',
+    description: ep.description || '',
+    monitoring_enabled: ep.monitoring_enabled !== false,
+    allow_incident_trace: ep.allow_incident_trace !== false,
+    allow_topology_discovery: ep.allow_topology_discovery !== false,
+    manual_parent_id: ep.manual_parent_id || null,
+  }
+  showModal.value = true
+}
+
+function closeModal() {
+  showModal.value = false
+}
+
+async function saveEndpoint() {
+  saving.value = true
+  try {
+    if (isEditing.value) {
+      await updateEndpoint(editingId.value, {
+        hostname: form.value.hostname,
+        device_type: form.value.device_type,
+        location: form.value.location,
+        description: form.value.description,
+        monitoring_enabled: form.value.monitoring_enabled,
+        allow_incident_trace: form.value.allow_incident_trace,
+        allow_topology_discovery: form.value.allow_topology_discovery,
+        manual_parent_id: form.value.manual_parent_id,
+      })
+    } else {
+      await createEndpoint(form.value)
+    }
+    closeModal()
+    await fetchEndpoints()
+  } catch (err) {
+    console.error('Failed to save endpoint:', err)
+    alert('Error saving endpoint settings.')
+  } finally {
+    saving.value = false
+  }
+}
+
+async function confirmDelete(ep) {
+  if (confirm(`Are you sure you want to delete endpoint ${ep.hostname} (${ep.ip_address})?`)) {
+    try {
+      await deleteEndpoint(ep.id)
+      await fetchEndpoints()
+    } catch (err) {
+      console.error('Failed to delete endpoint:', err)
+      alert('Error deleting endpoint.')
+    }
+  }
+}
+
+onMounted(() => {
+  fetchEndpoints()
+})
+</script>
+
+<style scoped>
+.endpoints-view {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.view-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.page-title {
+  font-size: 1.5rem;
+  color: #F9FAFB;
+  margin: 0;
+}
+
+.page-sub {
+  color: #9CA3AF;
+  font-size: 0.9rem;
+  margin: 4px 0 0 0;
+}
+
+.header-actions {
+  display: flex;
+  gap: 12px;
+}
+
+.table-card {
+  background: #111827;
+  border: 1px solid #1F2937;
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+.data-table th, .data-table td {
+  padding: 14px 18px;
+  text-align: left;
+  border-bottom: 1px solid #1F2937;
+}
+
+.data-table th {
+  background: #1F2937;
+  color: #9CA3AF;
+  font-weight: 600;
+}
+
+.host-link {
+  color: #60A5FA;
+  font-weight: 600;
+}
+
+.ip-sub {
+  display: block;
+  font-size: 0.8rem;
+  color: #6B7280;
+}
+
+.toggle-pill {
+  font-size: 0.8rem;
+  padding: 3px 8px;
+  border-radius: 6px;
+}
+
+.toggle-pill.active { background: rgba(16, 185, 129, 0.15); color: #34D399; }
+.toggle-pill.disabled { background: rgba(107, 114, 128, 0.15); color: #9CA3AF; }
+
+.btn-icon {
+  padding: 4px 8px;
+  font-size: 0.8rem;
+  color: #9CA3AF;
+  border: 1px solid #374151;
+  border-radius: 6px;
+  margin-left: 6px;
+}
+
+.btn-icon.danger:hover {
+  color: #F87171;
+  border-color: #EF4444;
+}
+
+/* Modal Styles */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+  backdrop-filter: blur(4px);
+}
+
+.modal-card {
+  background: #111827;
+  border: 1px solid #374151;
+  border-radius: 12px;
+  width: 560px;
+  max-width: 90vw;
+  max-height: 90vh;
+  overflow-y: auto;
+}
+
+.modal-header {
+  padding: 16px 20px;
+  border-bottom: 1px solid #1F2937;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.modal-header h3 {
+  margin: 0;
+  font-size: 1.1rem;
+  color: #F9FAFB;
+}
+
+.modal-form {
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+
+.form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.form-group label {
+  font-size: 0.85rem;
+  color: #D1D5DB;
+  font-weight: 500;
+}
+
+.form-group input, .form-group textarea, .form-select {
+  background: #1F2937;
+  border: 1px solid #374151;
+  border-radius: 6px;
+  padding: 8px 12px;
+  color: #F9FAFB;
+  font-size: 0.9rem;
+}
+
+.field-help {
+  font-size: 0.75rem;
+  color: #6B7280;
+  margin: 2px 0 0 0;
+}
+
+.form-divider {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #3B82F6;
+  border-bottom: 1px solid #1F2937;
+  padding-bottom: 6px;
+  margin-top: 8px;
+}
+
+.toggles-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.switch-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  cursor: pointer;
+}
+
+.switch-info {
+  display: flex;
+  flex-direction: column;
+}
+
+.switch-label {
+  font-size: 0.85rem;
+  color: #F3F4F6;
+  font-weight: 500;
+}
+
+.switch-sub {
+  font-size: 0.75rem;
+  color: #6B7280;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-top: 10px;
+}
+</style>

@@ -40,6 +40,38 @@ class UpdateEndpointRequest(BaseModel):
 
 router = APIRouter(prefix="/endpoints", tags=["endpoints"])
 
+@router.get("/{id}/traces", response_model=APIResponse)
+async def get_endpoint_traces(
+    id: UUID,
+    current_user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    query = text("""
+        SELECT id, endpoint_id, timestamp, trigger_reason, trace_data
+        FROM endpoint_diagnostic_traces
+        WHERE endpoint_id = :id
+        ORDER BY timestamp DESC
+        LIMIT 10
+    """)
+    result = await db.execute(query, {"id": str(id)})
+    rows = result.fetchall()
+    traces = []
+    for r in rows:
+        t_data = r.trace_data
+        if isinstance(t_data, str):
+            try:
+                t_data = json.loads(t_data)
+            except Exception:
+                pass
+        traces.append({
+            "id": str(r.id),
+            "endpoint_id": str(r.endpoint_id),
+            "timestamp": r.timestamp.isoformat() if r.timestamp else None,
+            "trigger_reason": r.trigger_reason,
+            "trace_data": t_data,
+        })
+    return APIResponse.success(data=traces)
+
 @router.get("/", response_model=APIResponse)
 async def list_endpoints(
     status: Optional[str] = Query(default=None),
