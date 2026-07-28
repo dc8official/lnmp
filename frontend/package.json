@@ -20,7 +20,11 @@
     "vue-router": "^4.6.4"
   },
   "devDependencies": {
+    "@rollup/wasm-node": "^4.62.3",
     "@vitejs/plugin-vue": "^5.2.4",
     "vite": "^6.4.3"
+  },
+  "optionalDependencies": {
+    "@rollup/rollup-linux-x64-gnu": "^4.62.3"
   }
 }

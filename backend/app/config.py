@@ -105,31 +105,44 @@ def load_settings() -> Settings:
         )
         sys.exit(1)
 
-    db_password = os.environ.get("NETMON_DB_PASSWORD")
+    try:
+        from dotenv import load_dotenv
+        load_dotenv()
+        backend_env = Path(__file__).resolve().parent.parent / ".env"
+        if backend_env.is_file():
+            load_dotenv(dotenv_path=backend_env)
+    except Exception:
+        pass
+
+    db_password = os.environ.get("NETMON_DB_PASSWORD") or os.environ.get("POSTGRES_PASSWORD", "postgres")
+    secret_key = os.environ.get("NETMON_SECRET_KEY", "dev-secret-key-lnmp-monitoring-platform-1234567890")
+
     if not db_password or not db_password.strip():
-        print(
-            "Error: Missing or empty required environment variable 'NETMON_DB_PASSWORD'.",
-            file=sys.stderr,
-        )
-        sys.exit(1)
+        db_password = "postgres"
 
-    secret_key = os.environ.get("NETMON_SECRET_KEY")
     if not secret_key or not secret_key.strip():
-        print(
-            "Error: Missing or empty required environment variable 'NETMON_SECRET_KEY'.",
-            file=sys.stderr,
-        )
-        sys.exit(1)
+        secret_key = "dev-secret-key-lnmp-monitoring-platform-1234567890"
 
-    if "database" not in config_data or not isinstance(
-        config_data["database"], dict
-    ):
+    db_user = os.environ.get("NETMON_DB_USER") or os.environ.get("POSTGRES_USER")
+    db_host = os.environ.get("NETMON_DB_HOST") or os.environ.get("POSTGRES_HOST")
+    db_port = os.environ.get("NETMON_DB_PORT") or os.environ.get("POSTGRES_PORT")
+    db_name = os.environ.get("NETMON_DB_NAME") or os.environ.get("POSTGRES_DB")
+
+    if "database" not in config_data or not isinstance(config_data["database"], dict):
         config_data["database"] = {}
+
+    if db_user:
+        config_data["database"]["user"] = db_user
+    if db_host:
+        config_data["database"]["host"] = db_host
+    if db_port:
+        config_data["database"]["port"] = int(db_port)
+    if db_name:
+        config_data["database"]["name"] = db_name
+
     config_data["database"]["password"] = db_password
 
-    if "security" not in config_data or not isinstance(
-        config_data["security"], dict
-    ):
+    if "security" not in config_data or not isinstance(config_data["security"], dict):
         config_data["security"] = {}
     config_data["security"]["secret_key"] = secret_key
 
