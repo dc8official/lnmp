@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Optional
+from typing import Optional, Tuple
 from uuid import UUID
 
 from sqlalchemy import text
@@ -86,13 +86,18 @@ class StateMachine:
         endpoint_id: UUID,
         result: PingResult,
         db: AsyncSession,
+        baseline: Optional[Tuple[float, float]] = None,
     ) -> EndpointState:
         """
         Called on the first ping cycle for an endpoint when no existing
         event was found. Creates the first event row and returns the initial
         EndpointState.
         """
-        operational_state, detailed_state = classify_ping_result(result)
+        baseline_mean = baseline[0] if baseline else None
+        baseline_stddev = baseline[1] if baseline else None
+        operational_state, detailed_state = classify_ping_result(
+            result, baseline_mean=baseline_mean, baseline_stddev=baseline_stddev
+        )
         start_time = datetime.now().astimezone()
         health_score = result.health_score
 
@@ -164,6 +169,7 @@ class StateMachine:
         state: EndpointState,
         result: PingResult,
         db: AsyncSession,
+        baseline: Optional[Tuple[float, float]] = None,
     ) -> EndpointState:
         """
         The core method, called on every monitoring cycle for an endpoint
@@ -172,8 +178,12 @@ class StateMachine:
         Applies the N-cycle confirmation logic, updates the database, and
         returns the updated EndpointState.
         """
-        # Step 1: Classify the new result.
-        new_operational_state, new_detailed_state = classify_ping_result(result)
+        # Step 1: Classify the new result with baseline evaluation.
+        baseline_mean = baseline[0] if baseline else None
+        baseline_stddev = baseline[1] if baseline else None
+        new_operational_state, new_detailed_state = classify_ping_result(
+            result, baseline_mean=baseline_mean, baseline_stddev=baseline_stddev
+        )
 
         # Step 2: Determine what to do based on state comparison.
 

@@ -5,6 +5,7 @@ from datetime import datetime
 from uuid import UUID
 from sqlalchemy import text
 from app.database import AsyncSessionLocal
+from app.services.baseline_service import baseline_cache, start_baseline_refresh_task
 from monitoring.gap_handler import resolve_startup_state
 from monitoring.ping import run_ping_cycle
 from monitoring.state_machine import EndpointState, StateMachine
@@ -17,6 +18,21 @@ logger = logging.getLogger("netmon-engine")
 
 endpoint_states: dict[str, EndpointState] = {}
 states_lock = asyncio.Lock()
+
+
+from app.services.diagnostics import run_throttled_traceroute, save_diagnostic_trace
+
+
+async def trigger_incident_diagnostic_trace(endpoint_id: UUID, ip_address: str):
+    """Fires a background diagnostic traceroute upon detecting a failed ping sub-cycle."""
+    try:
+        trace_data = await run_throttled_traceroute(ip_address)
+        async with AsyncSessionLocal() as db:
+            await save_diagnostic_trace(db, endpoint_id, "FAILED_PING_SUBCYCLE", trace_data)
+            await db.commit()
+            logger.info("Incident diagnostic trace saved for endpoint %s (%s)", endpoint_id, ip_address)
+    except Exception as e:
+        logger.error("Failed to execute incident diagnostic trace for %s: %s", ip_address, e)
 
 
 async def monitor_endpoint(
@@ -52,9 +68,10 @@ async def monitor_endpoint(
                     privileged=True,
                 )
 
+                baseline = baseline_cache.get_baseline(endpoint_id)
                 async with AsyncSessionLocal() as db:
                     new_state = await state_machine.create_initial_event(
-                        endpoint_id, result, db
+                        endpoint_id, result, db, baseline=baseline
                     )
                     await db.commit()
 
@@ -89,17 +106,29 @@ async def monitor_endpoint(
                 privileged=True,
             )
 
+            baseline = baseline_cache.get_baseline(endpoint_id)
+
             async with AsyncSessionLocal() as db:
                 current_state = endpoint_states.get(str(endpoint_id))
 
                 if current_state is None:
                     new_state = await state_machine.create_initial_event(
-                        endpoint_id, result, db
+                        endpoint_id, result, db, baseline=baseline
                     )
                 else:
                     new_state = await state_machine.process_cycle(
-                        current_state, result, db
+                        current_state, result, db, baseline=baseline
                     )
+
+                # Down-State Trigger Hook: Fire incident diagnostic trace on first failed ping sub-cycle
+                if result.failed_count > 0:
+                    allow_res = await db.execute(
+                        text("SELECT allow_incident_trace FROM endpoints WHERE id = :id"),
+                        {"id": str(endpoint_id)},
+                    )
+                    row = allow_res.fetchone()
+                    if row and getattr(row, "allow_incident_trace", True):
+                        asyncio.create_task(trigger_incident_diagnostic_trace(endpoint_id, ip_address))
 
                 await db.commit()
 
@@ -131,7 +160,10 @@ async def main() -> None:
     logger.info("lnmp monitoring engine starting.")
     async with AsyncSessionLocal() as db:
         await resolve_startup_state(db)
+        await baseline_cache.refresh_from_db(db)
         await db.commit()
+
+    await start_baseline_refresh_task(AsyncSessionLocal, interval_seconds=3600)
 
     state_machine = StateMachine(confirmation_threshold=3)
 

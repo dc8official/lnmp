@@ -569,55 +569,7 @@ onBeforeUnmount(() => {
   background-color: var(--canvas-bg);
 }
 
-.app-nav {
-  background-color: var(--card-bg);
-  border-bottom: 1px solid var(--card-border);
-  padding: 0.75rem 2rem;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  box-shadow: none;
-}
 
-.brand {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  font-weight: 700;
-  font-size: 1.1rem;
-  color: #FFFFFF;
-}
-
-.brand-icon {
-  color: #FFFFFF;
-}
-
-.user-profile {
-  display: flex;
-  align-items: center;
-  gap: 1rem;
-}
-
-.user-badge {
-  font-size: 0.75rem;
-  padding: 0.25rem 0.75rem;
-  border-radius: 4px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-}
-
-.user-badge.admin {
-  background-color: #0A0A0A;
-  border: 1px solid #262626;
-  color: #FFFFFF;
-}
-
-.user-badge.viewer {
-  background-color: #0A0A0A;
-  border: 1px solid #262626;
-  color: #A3A3A3;
-}
 
 .detail-container {
   padding: 2rem;
@@ -653,8 +605,8 @@ onBeforeUnmount(() => {
 }
 
 .status-badge.disabled {
-  border: 1px solid #262626;
-  color: #A3A3A3;
+  border: 1px solid var(--border-color);
+  color: var(--text-muted);
 }
 
 .monitoring-badge {
@@ -685,7 +637,7 @@ onBeforeUnmount(() => {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  color: #A3A3A3;
+  color: var(--text-muted);
   padding: 8rem 0;
   gap: 1rem;
   font-family: monospace;
@@ -756,21 +708,21 @@ onBeforeUnmount(() => {
   font-size: 1.8rem;
   padding: 0.75rem;
   border-radius: 4px;
-  background-color: #0A0A0A;
-  border: 1px solid #262626;
-  color: #FFFFFF;
+  background-color: var(--bg-surface-selected);
+  border: 1px solid var(--border-color);
+  color: var(--text-primary);
 }
 
 .ip-display {
   font-family: monospace;
-  color: #A3A3A3;
+  color: var(--text-muted);
   font-size: 1rem;
   font-weight: 700;
   margin-top: 0.15rem;
 }
 
 h2 {
-  color: #FFFFFF;
+  color: var(--text-primary);
   font-weight: 700;
   font-size: 1.35rem;
   letter-spacing: -0.01em;
@@ -785,7 +737,7 @@ h2 {
 .meta-label {
   font-size: 0.75rem;
   text-transform: uppercase;
-  color: #A3A3A3;
+  color: var(--text-muted);
   font-weight: 700;
   letter-spacing: 0.05em;
   margin-bottom: 0.25rem;
@@ -794,12 +746,12 @@ h2 {
 .meta-value {
   font-size: 0.95rem;
   font-weight: 700;
-  color: #FFFFFF;
+  color: var(--text-primary);
 }
 
 .meta-value.desc {
   font-weight: 500;
-  color: #A3A3A3;
+  color: var(--text-secondary);
   line-height: 1.5;
 }
 
@@ -810,7 +762,7 @@ h2 {
 @media (min-width: 768px) {
   .full-width {
     grid-column: span 3;
-    border-top: 1px solid #262626;
+    border-top: 1px solid var(--border-color);
     padding-top: 1rem;
   }
 }
@@ -845,7 +797,7 @@ h2 {
 
 .toolbar-title {
   font-weight: 700;
-  color: #FFFFFF;
+  color: var(--text-primary);
   font-size: 0.85rem;
   text-transform: uppercase;
   letter-spacing: 0.05em;
@@ -881,7 +833,7 @@ h2 {
 .date-input-group label {
   font-size: 0.8rem;
   font-weight: 600;
-  color: #A3A3A3;
+  color: var(--text-secondary);
   text-transform: uppercase;
   letter-spacing: 0.05em;
 }
@@ -898,7 +850,7 @@ h2 {
 }
 
 .date-picker-input:focus {
-  border-color: var(--text-secondary);
+  border-color: #049f6c;
 }
 
 /* Metrics Cards Grid */
@@ -937,14 +889,14 @@ h2 {
   align-items: center;
   font-size: 0.75rem;
   font-weight: 700;
-  color: #A3A3A3;
+  color: var(--text-muted);
   text-transform: uppercase;
   letter-spacing: 0.05em;
 }
 
 .metric-header i {
   font-size: 1rem;
-  color: #A3A3A3;
+  color: var(--text-muted);
 }
 
 .metric-body {
@@ -955,13 +907,13 @@ h2 {
 .metric-body .value {
   font-size: 1.5rem;
   font-weight: 700;
-  color: #FFFFFF;
+  color: var(--text-primary);
   font-family: monospace;
 }
 
 .metric-body .subtext {
   font-size: 0.75rem;
-  color: #A3A3A3;
+  color: var(--text-muted);
   margin-top: 0.25rem;
   font-family: monospace;
 }
@@ -1188,22 +1140,7 @@ h2 {
   background-color: #ffffff;
   border-bottom: 1px solid #cbd5e1;
 }
-:global(html:not(.dark)) .brand {
-  color: #0f172a;
-}
-:global(html:not(.dark)) .brand-icon {
-  color: #0f172a;
-}
-:global(html:not(.dark)) .user-badge.admin {
-  background-color: rgba(4, 159, 108, 0.08);
-  color: #049f6c;
-  border: 1px solid rgba(4, 159, 108, 0.15);
-}
-:global(html:not(.dark)) .user-badge.viewer {
-  background-color: #f1f5f9;
-  color: #475569;
-  border: 1px solid #cbd5e1;
-}
+
 :global(html:not(.dark)) .status-badge {
   background-color: #ffffff;
 }
@@ -1252,49 +1189,7 @@ h2 {
   font-weight: 500;
   text-transform: none;
 }
-:global(html:not(.dark)) .main-icon-styled {
-  background-color: #f8fafc;
-  border: 1px solid #cbd5e1;
-  color: #475569;
-}
-:global(html:not(.dark)) .ip-display {
-  color: #475569;
-}
-:global(html:not(.dark)) h2 {
-  color: #0f172a;
-}
-:global(html:not(.dark)) .meta-label {
-  color: #475569;
-}
-:global(html:not(.dark)) .meta-value {
-  color: #0f172a;
-}
-:global(html:not(.dark)) .meta-value.desc {
-  color: #475569;
-}
-:global(html:not(.dark)) .toolbar-title {
-  color: #0f172a;
-}
-:global(html:not(.dark)) .date-picker-input {
-  background-color: #ffffff;
-  border: 1px solid #cbd5e1;
-  color: #0f172a;
-}
-:global(html:not(.dark)) .date-picker-input:focus {
-  border-color: #049f6c;
-}
-:global(html:not(.dark)) .metric-header {
-  color: #475569;
-}
-:global(html:not(.dark)) .metric-header i {
-  color: #64748b;
-}
-:global(html:not(.dark)) .metric-body .value {
-  color: #0f172a;
-}
-:global(html:not(.dark)) .metric-body .subtext {
-  color: #64748b;
-}
+
 
 /* Compact Table Pagination Footer Styles */
 .table-pagination-footer {

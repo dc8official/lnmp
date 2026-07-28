@@ -5,20 +5,29 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 from app.config import settings
-from app.database import check_database_connection
+from app.database import check_database_connection, AsyncSessionLocal
+from app.services.baseline_service import baseline_cache, start_baseline_refresh_task
+from app.services.diagnostics import start_discovery_worker, start_diagnostic_cleanup_task
 from app.schemas import APIResponse
-from app.routers import auth
-from app.routers import endpoints
-from app.routers import reports
+from app.routers import auth, endpoints, reports, topology, users
 from app.routers.reports import telemetry_router
-from app.routers import users
+
 logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await check_database_connection()
-    logger.info("lnmp monitoring platform started.")
+    # Initialize baseline cache and start background tasks
+    async with AsyncSessionLocal() as db:
+        await baseline_cache.refresh_from_db(db)
+    refresh_task = await start_baseline_refresh_task(AsyncSessionLocal, interval_seconds=3600)
+    discovery_task = await start_discovery_worker(AsyncSessionLocal)
+    cleanup_task = await start_diagnostic_cleanup_task(AsyncSessionLocal, interval_seconds=86400)
+    logger.info("lnmp monitoring platform started with Hybrid Adaptive Baseline & Diagnostics.")
     yield
+    refresh_task.cancel()
+    discovery_task.cancel()
+    cleanup_task.cancel()
     logger.info("lnmp monitoring platform shutting down.")
 
 app = FastAPI(
@@ -52,6 +61,7 @@ app.add_middleware(HSTSMiddleware)
 app.include_router(auth.router, prefix="/api/v1")
 app.include_router(endpoints.router, prefix="/api/v1")
 app.include_router(reports.router, prefix="/api/v1")
+app.include_router(topology.router, prefix="/api/v1")
 app.include_router(users.router, prefix="/api/v1")
 app.include_router(telemetry_router)
 

@@ -23,6 +23,9 @@ class CreateEndpointRequest(BaseModel):
     location: Optional[str] = None
     description: Optional[str] = None
     monitoring_enabled: bool = True
+    allow_incident_trace: bool = True
+    allow_topology_discovery: bool = True
+    manual_parent_id: Optional[UUID] = None
 
 class UpdateEndpointRequest(BaseModel):
     hostname: Optional[str] = None
@@ -30,9 +33,44 @@ class UpdateEndpointRequest(BaseModel):
     location: Optional[str] = None
     description: Optional[str] = None
     monitoring_enabled: Optional[bool] = None
+    allow_incident_trace: Optional[bool] = None
+    allow_topology_discovery: Optional[bool] = None
+    manual_parent_id: Optional[UUID] = None
     endpoint_status: Optional[Literal["ACTIVE", "DISABLED"]] = None
 
 router = APIRouter(prefix="/endpoints", tags=["endpoints"])
+
+@router.get("/{id}/traces", response_model=APIResponse)
+async def get_endpoint_traces(
+    id: UUID,
+    current_user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    query = text("""
+        SELECT id, endpoint_id, timestamp, trigger_reason, trace_data
+        FROM endpoint_diagnostic_traces
+        WHERE endpoint_id = :id
+        ORDER BY timestamp DESC
+        LIMIT 10
+    """)
+    result = await db.execute(query, {"id": str(id)})
+    rows = result.fetchall()
+    traces = []
+    for r in rows:
+        t_data = r.trace_data
+        if isinstance(t_data, str):
+            try:
+                t_data = json.loads(t_data)
+            except Exception:
+                pass
+        traces.append({
+            "id": str(r.id),
+            "endpoint_id": str(r.endpoint_id),
+            "timestamp": r.timestamp.isoformat() if r.timestamp else None,
+            "trigger_reason": r.trigger_reason,
+            "trace_data": t_data,
+        })
+    return APIResponse.success(data=traces)
 
 @router.get("/", response_model=APIResponse)
 async def list_endpoints(
@@ -53,6 +91,9 @@ async def list_endpoints(
             e.location,
             e.endpoint_status,
             e.monitoring_enabled,
+            e.allow_incident_trace,
+            e.allow_topology_discovery,
+            e.manual_parent_id,
             e.created_at,
             e.updated_at,
             ev.operational_state  AS current_operational_state,
@@ -115,6 +156,9 @@ async def list_endpoints(
             "location": row.location,
             "endpoint_status": row.endpoint_status,
             "monitoring_enabled": row.monitoring_enabled,
+            "allow_incident_trace": row.allow_incident_trace,
+            "allow_topology_discovery": row.allow_topology_discovery,
+            "manual_parent_id": str(row.manual_parent_id) if row.manual_parent_id else None,
             "created_at": row.created_at,
             "updated_at": row.updated_at,
             "current_operational_state": row.current_operational_state if row.current_operational_state else "DOWN",
@@ -151,6 +195,9 @@ async def get_endpoint(
             e.location,
             e.description,
             e.monitoring_enabled,
+            e.allow_incident_trace,
+            e.allow_topology_discovery,
+            e.manual_parent_id,
             e.endpoint_status,
             e.created_by,
             e.created_at,
@@ -209,6 +256,9 @@ async def get_endpoint(
         "location": row.location,
         "description": row.description,
         "monitoring_enabled": row.monitoring_enabled,
+        "allow_incident_trace": row.allow_incident_trace,
+        "allow_topology_discovery": row.allow_topology_discovery,
+        "manual_parent_id": str(row.manual_parent_id) if row.manual_parent_id else None,
         "endpoint_status": row.endpoint_status,
         "created_by": str(row.created_by) if row.created_by else None,
         "created_at": row.created_at,
@@ -254,6 +304,9 @@ async def create_endpoint(
                 location = :location,
                 description = :description,
                 monitoring_enabled = :monitoring_enabled,
+                allow_incident_trace = :allow_incident_trace,
+                allow_topology_discovery = :allow_topology_discovery,
+                manual_parent_id = :manual_parent_id,
                 endpoint_status = 'ACTIVE',
                 deleted_at = NULL,
                 updated_at = NOW()
@@ -265,6 +318,9 @@ async def create_endpoint(
             "location": request.location,
             "description": request.description,
             "monitoring_enabled": request.monitoring_enabled,
+            "allow_incident_trace": request.allow_incident_trace,
+            "allow_topology_discovery": request.allow_topology_discovery,
+            "manual_parent_id": str(request.manual_parent_id) if request.manual_parent_id else None,
             "endpoint_id": str(deleted_row.id)
         })
         
@@ -295,10 +351,12 @@ async def create_endpoint(
         INSERT INTO endpoints (
             ip_address, hostname, device_type,
             location, description, monitoring_enabled,
+            allow_incident_trace, allow_topology_discovery, manual_parent_id,
             endpoint_status, created_by
         ) VALUES (
             :ip_address, :hostname, :device_type,
             :location, :description, :monitoring_enabled,
+            :allow_incident_trace, :allow_topology_discovery, :manual_parent_id,
             'ACTIVE', :created_by
         ) RETURNING id, created_at, updated_at
     """)
@@ -309,6 +367,9 @@ async def create_endpoint(
         "location": request.location,
         "description": request.description,
         "monitoring_enabled": request.monitoring_enabled,
+        "allow_incident_trace": request.allow_incident_trace,
+        "allow_topology_discovery": request.allow_topology_discovery,
+        "manual_parent_id": str(request.manual_parent_id) if request.manual_parent_id else None,
         "created_by": current_user.get("sub"),
     })
     new_endpoint = insert_result.fetchone()
@@ -363,6 +424,12 @@ async def update_endpoint(
         updates["description"] = request.description
     if request.monitoring_enabled is not None:
         updates["monitoring_enabled"] = request.monitoring_enabled
+    if request.allow_incident_trace is not None:
+        updates["allow_incident_trace"] = request.allow_incident_trace
+    if request.allow_topology_discovery is not None:
+        updates["allow_topology_discovery"] = request.allow_topology_discovery
+    if request.manual_parent_id is not None:
+        updates["manual_parent_id"] = str(request.manual_parent_id) if request.manual_parent_id else None
     if request.endpoint_status is not None:
         updates["endpoint_status"] = request.endpoint_status
         

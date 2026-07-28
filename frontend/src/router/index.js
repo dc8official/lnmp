@@ -7,6 +7,16 @@ const routes = [
     component: () => import('../views/DashboardView.vue'),
   },
   {
+    path: '/topology',
+    name: 'Topology',
+    component: () => import('../components/TopologyMap.vue'),
+  },
+  {
+    path: '/endpoints',
+    name: 'Endpoints',
+    component: () => import('../views/Endpoints.vue'),
+  },
+  {
     path: '/login',
     name: 'Login',
     component: () => import('../views/LoginView.vue'),

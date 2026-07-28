@@ -48,8 +48,8 @@
       </div>
     </div>
 
-    <!-- Admin Console Tabs -->
-    <div class="dashboard-tabs" v-if="isAdmin">
+    <!-- Console Tabs -->
+    <div class="dashboard-tabs">
       <button 
         class="tab-btn" 
         :class="{ active: activeTab === 'endpoints' }" 
@@ -58,6 +58,14 @@
         Monitored Endpoints
       </button>
       <button 
+        class="tab-btn" 
+        :class="{ active: activeTab === 'topology' }" 
+        @click="activeTab = 'topology'"
+      >
+        Topology Map
+      </button>
+      <button 
+        v-if="isAdmin"
         class="tab-btn" 
         :class="{ active: activeTab === 'users' }" 
         @click="activeTab = 'users'"
@@ -116,6 +124,11 @@
           </div>
         </div>
       </transition>
+    </div>
+
+    <!-- Topology Map Content -->
+    <div v-else-if="activeTab === 'topology'">
+      <TopologyMap />
     </div>
 
     <!-- User Accounts Content (Admin Only) -->
@@ -444,6 +457,7 @@ import {
   exportBatchTelemetry
 } from '../services/api.js'
 import EndpointCard from '../components/EndpointCard.vue'
+import TopologyMap from '../components/TopologyMap.vue'
 
 const router = useRouter()
 const isDarkMode = ref(true)

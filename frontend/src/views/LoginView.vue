@@ -142,7 +142,7 @@ h2 {
   letter-spacing: -0.02em;
 }
 .brand-subtitle {
-  color: #A3A3A3;
+  color: #D0D0D0;
   font-size: 0.85rem;
 }
 .login-form {
@@ -161,7 +161,7 @@ h2 {
 label {
   font-size: 0.8rem;
   font-weight: 600;
-  color: #A3A3A3;
+  color: #D0D0D0;
   text-transform: uppercase;
   letter-spacing: 0.05em;
 }
@@ -173,7 +173,7 @@ label {
 .field-icon {
   position: absolute;
   left: 0.75rem;
-  color: #A3A3A3;
+  color: #D0D0D0;
   z-index: 10;
   pointer-events: none;
 }
@@ -195,7 +195,7 @@ label {
   border-radius: 4px !important;
 }
 :deep(.p-inputtext:focus) {
-  border-color: #A3A3A3 !important;
+  border-color: #049f6c !important;
 }
 .submit-button {
   background-color: #FFFFFF !important;
@@ -212,13 +212,13 @@ label {
   transition: background-color 0.2s ease, border-color 0.2s ease;
 }
 .submit-button:hover {
-  background-color: #A3A3A3 !important;
-  border-color: #A3A3A3 !important;
+  background-color: #e5e5e5 !important;
+  border-color: #e5e5e5 !important;
 }
-
+ 
 /* Light Mode Overrides */
 :global(html:not(.dark)) .login-wrapper {
-  background-color: #f1f5f9;
+  background: radial-gradient(circle at 50% 50%, #f8fafc 0%, #e2e8f0 100%);
 }
 :global(html:not(.dark)) .glass-container {
   background-color: #ffffff;
@@ -236,7 +236,7 @@ label {
   color: #475569;
 }
 :global(html:not(.dark)) label {
-  color: #475569;
+  color: #334155;
 }
 :global(html:not(.dark)) .field-icon {
   color: #64748b;

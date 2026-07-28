@@ -9,6 +9,8 @@
         </div>
         <nav class="header-nav">
           <RouterLink to="/" class="nav-link">Dashboard</RouterLink>
+          <RouterLink to="/topology" class="nav-link">Topology Map</RouterLink>
+          <RouterLink to="/endpoints" class="nav-link">Endpoints</RouterLink>
         </nav>
         <div class="header-actions">
           <button class="theme-toggle" @click="toggleTheme"
@@ -103,11 +105,11 @@ button { cursor: pointer; border: none; background: none; }
   --bg-surface: #ffffff;
   --bg-surface-hover: #f9f9f9;
   --bg-surface-selected: #f0f0f0;
-  --border-color: #e0e0e0;
+  --border-color: #d0d0d0;
   --border-color-strong: #c0c0c0;
   --text-primary: #111111;
-  --text-secondary: #555555;
-  --text-muted: #888888;
+  --text-secondary: #444444;
+  --text-muted: #666666;
   --text-inverse: #ffffff;
   --accent: #111111;
   --accent-hover: #333333;
@@ -143,11 +145,11 @@ html.dark {
   --bg-surface: #1a1a1a;
   --bg-surface-hover: #222222;
   --bg-surface-selected: #2a2a2a;
-  --border-color: #2a2a2a;
+  --border-color: #3a3a3a;
   --border-color-strong: #404040;
   --text-primary: #f0f0f0;
-  --text-secondary: #a0a0a0;
-  --text-muted: #666666;
+  --text-secondary: #b5b5b5;
+  --text-muted: #808080;
   --text-inverse: #111111;
   --accent: #f0f0f0;
   --accent-hover: #cccccc;
@@ -158,6 +160,8 @@ html.dark {
   --status-up-color: #4ade80;        /* Glowing green */
   --status-warn-color: #f59e0b;      /* Bright amber */
   --status-down-color: #f87171;      /* Bright red */
+  --color-unknown: #808080;
+  --color-unknown-bg: rgba(128, 128, 128, 0.15);
 }
 
 /* ── Base ── */
@@ -266,7 +270,7 @@ body {
 
 .role-tag {
   font-size: 11px;
-  color: var(--text-muted);
+  color: var(--text-secondary);
   font-weight: 400;
   margin-left: 2px;
 }
