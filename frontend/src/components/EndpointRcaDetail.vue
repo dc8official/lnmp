@@ -365,7 +365,7 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   gap: 20px;
-  color: #F3F4F6;
+  color: var(--text-primary);
   font-family: Inter, system-ui, -apple-system, sans-serif;
 }
 
@@ -386,7 +386,7 @@ onMounted(() => {
 .rca-title {
   font-size: 1.15rem;
   font-weight: 600;
-  color: #F9FAFB;
+  color: var(--text-primary);
   margin: 0;
   display: flex;
   align-items: center;
@@ -430,18 +430,19 @@ onMounted(() => {
 }
 
 .btn-refresh {
-  background: #374151;
-  color: #D1D5DB;
-  border: 1px solid #4B5563;
+  background: var(--bg-surface-selected);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-color);
   padding: 6px 12px;
   border-radius: 6px;
   font-size: 0.85rem;
   cursor: pointer;
+  transition: background 0.2s ease, color 0.2s ease;
 }
 
 .btn-refresh:hover {
-  background: #4B5563;
-  color: #FFFFFF;
+  background: var(--border-color);
+  color: var(--text-primary);
 }
 
 /* Alert Error */
@@ -471,18 +472,18 @@ onMounted(() => {
   gap: 16px;
   padding: 18px;
   border-radius: 10px;
-  background: #1F2937;
-  border: 1px solid #374151;
+  background: var(--bg-surface-selected);
+  border: 1px solid var(--border-color);
 }
 
 .summary-banner.banner-down {
-  background: rgba(127, 29, 29, 0.4);
-  border: 1px solid #EF4444;
+  background: rgba(220, 38, 38, 0.12);
+  border: 1px solid var(--status-down-color);
 }
 
 .summary-banner.banner-resolved {
-  background: rgba(6, 95, 70, 0.4);
-  border: 1px solid #10B981;
+  background: rgba(22, 163, 74, 0.12);
+  border: 1px solid var(--status-up-color);
 }
 
 .banner-icon {
@@ -522,14 +523,14 @@ onMounted(() => {
 
 .incident-time {
   font-size: 0.8rem;
-  color: #9CA3AF;
+  color: var(--text-muted);
 }
 
 .summary-message {
   margin: 0;
   font-size: 1rem;
   font-weight: 500;
-  color: #F9FAFB;
+  color: var(--text-primary);
 }
 
 .summary-meta-pills {
@@ -559,27 +560,27 @@ onMounted(() => {
 
 /* Side-by-side Path Inspector Table */
 .path-inspector-card {
-  background: #111827;
-  border: 1px solid #1F2937;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
   border-radius: 10px;
   overflow: hidden;
 }
 
 .card-header {
   padding: 16px 20px;
-  background: #1F2937;
-  border-bottom: 1px solid #374151;
+  background: var(--bg-surface-selected);
+  border-bottom: 1px solid var(--border-color);
 }
 
 .card-header h4 {
   margin: 0;
   font-size: 1rem;
-  color: #F9FAFB;
+  color: var(--text-primary);
 }
 
 .subtext {
   font-size: 0.8rem;
-  color: #9CA3AF;
+  color: var(--text-muted);
   margin-top: 4px;
   display: block;
 }
@@ -597,12 +598,12 @@ onMounted(() => {
 .path-table th, .path-table td {
   padding: 12px 16px;
   text-align: left;
-  border-bottom: 1px solid #1F2937;
+  border-bottom: 1px solid var(--border-color);
 }
 
 .path-table th {
-  background: #1F2937;
-  color: #9CA3AF;
+  background: var(--bg-surface-selected);
+  color: var(--text-secondary);
   font-weight: 600;
   text-transform: uppercase;
   font-size: 0.75rem;
@@ -610,17 +611,17 @@ onMounted(() => {
 }
 
 .path-table tr.row-failure {
-  background: rgba(239, 68, 68, 0.15);
+  background: rgba(239, 68, 68, 0.1);
 }
 
 .path-table tr.row-divergence {
-  background: rgba(245, 158, 11, 0.1);
+  background: rgba(245, 158, 11, 0.08);
 }
 
 .hop-badge {
   font-weight: 600;
-  color: #9CA3AF;
-  background: #1F2937;
+  color: var(--text-secondary);
+  background: var(--bg-surface-selected);
   padding: 2px 8px;
   border-radius: 4px;
   font-size: 0.8rem;
@@ -677,7 +678,7 @@ onMounted(() => {
 .empty-table, .empty-rca-state {
   text-align: center;
   padding: 30px;
-  color: #9CA3AF;
+  color: var(--text-muted);
 }
 
 .empty-rca-state .empty-icon {
@@ -687,13 +688,13 @@ onMounted(() => {
 
 .empty-rca-state h4 {
   margin: 0;
-  color: #F3F4F6;
+  color: var(--text-primary);
 }
 
 /* Governance Controls */
 .governance-card {
-  background: #111827;
-  border: 1px solid #1F2937;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
   border-radius: 10px;
   overflow: hidden;
 }
@@ -710,7 +711,7 @@ onMounted(() => {
   justify-content: space-between;
   align-items: center;
   padding-bottom: 12px;
-  border-bottom: 1px solid #1F2937;
+  border-bottom: 1px solid var(--border-color);
 }
 
 .governance-toggle-item:last-child {
@@ -727,12 +728,12 @@ onMounted(() => {
 .toggle-title {
   font-size: 0.9rem;
   font-weight: 600;
-  color: #F3F4F6;
+  color: var(--text-primary);
 }
 
 .toggle-description {
   font-size: 0.8rem;
-  color: #9CA3AF;
+  color: var(--text-muted);
   margin: 0;
 }
 
@@ -753,7 +754,7 @@ onMounted(() => {
 }
 
 .toggle-status-text.text-disabled {
-  color: #9CA3AF;
+  color: var(--text-muted);
 }
 
 /* Switch Styles */
@@ -774,7 +775,7 @@ onMounted(() => {
   position: absolute;
   cursor: pointer;
   inset: 0;
-  background-color: #374151;
+  background-color: var(--border-color-strong);
   transition: .3s;
   border-radius: 24px;
 }

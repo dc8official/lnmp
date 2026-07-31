@@ -395,12 +395,12 @@ onMounted(() => {
 
 .page-title {
   font-size: 1.5rem;
-  color: #F9FAFB;
+  color: var(--text-primary);
   margin: 0;
 }
 
 .page-sub {
-  color: #9CA3AF;
+  color: var(--text-muted);
   font-size: 0.9rem;
   margin: 4px 0 0 0;
 }
@@ -411,8 +411,8 @@ onMounted(() => {
 }
 
 .table-card {
-  background: #111827;
-  border: 1px solid #1F2937;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
   border-radius: 12px;
   overflow: hidden;
 }
@@ -426,12 +426,12 @@ onMounted(() => {
 .data-table th, .data-table td {
   padding: 14px 18px;
   text-align: left;
-  border-bottom: 1px solid #1F2937;
+  border-bottom: 1px solid var(--border-color);
 }
 
 .data-table th {
-  background: #1F2937;
-  color: #9CA3AF;
+  background: var(--bg-surface-selected);
+  color: var(--text-secondary);
   font-weight: 600;
 }
 
@@ -459,7 +459,7 @@ onMounted(() => {
 .ip-sub {
   display: block;
   font-size: 0.8rem;
-  color: #6B7280;
+  color: var(--text-muted);
 }
 
 .governance-pills {
@@ -482,11 +482,11 @@ onMounted(() => {
 .btn-icon {
   padding: 5px 10px;
   font-size: 0.8rem;
-  color: #9CA3AF;
-  border: 1px solid #374151;
+  color: var(--text-secondary);
+  border: 1px solid var(--border-color);
   border-radius: 6px;
   margin-left: 6px;
-  background: #1F2937;
+  background: var(--bg-surface-selected);
   cursor: pointer;
 }
 
@@ -518,7 +518,7 @@ onMounted(() => {
 .modal-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.75);
+  background: rgba(0, 0, 0, 0.5);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -527,8 +527,8 @@ onMounted(() => {
 }
 
 .modal-card {
-  background: #111827;
-  border: 1px solid #374151;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
   border-radius: 12px;
   width: 600px;
   max-width: 92vw;
@@ -538,7 +538,7 @@ onMounted(() => {
 
 .modal-header {
   padding: 16px 20px;
-  border-bottom: 1px solid #1F2937;
+  border-bottom: 1px solid var(--border-color);
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -547,13 +547,13 @@ onMounted(() => {
 .modal-header h3 {
   margin: 0;
   font-size: 1.1rem;
-  color: #F9FAFB;
+  color: var(--text-primary);
 }
 
 .btn-close {
   background: transparent;
   border: none;
-  color: #9CA3AF;
+  color: var(--text-secondary);
   font-size: 1.2rem;
   cursor: pointer;
 }
@@ -579,22 +579,22 @@ onMounted(() => {
 
 .form-group label {
   font-size: 0.85rem;
-  color: #D1D5DB;
+  color: var(--text-secondary);
   font-weight: 500;
 }
 
 .form-group input, .form-group textarea, .form-select {
-  background: #1F2937;
-  border: 1px solid #374151;
+  background: var(--bg-app);
+  border: 1px solid var(--border-color);
   border-radius: 6px;
   padding: 8px 12px;
-  color: #F9FAFB;
+  color: var(--text-primary);
   font-size: 0.9rem;
 }
 
 .field-help {
   font-size: 0.75rem;
-  color: #6B7280;
+  color: var(--text-muted);
   margin: 2px 0 0 0;
 }
 
@@ -602,7 +602,7 @@ onMounted(() => {
   font-size: 0.85rem;
   font-weight: 600;
   color: #3B82F6;
-  border-bottom: 1px solid #1F2937;
+  border-bottom: 1px solid var(--border-color);
   padding-bottom: 6px;
   margin-top: 8px;
 }
@@ -627,13 +627,13 @@ onMounted(() => {
 
 .switch-label {
   font-size: 0.85rem;
-  color: #F3F4F6;
+  color: var(--text-primary);
   font-weight: 500;
 }
 
 .switch-sub {
   font-size: 0.75rem;
-  color: #6B7280;
+  color: var(--text-muted);
 }
 
 /* Switch styling */
