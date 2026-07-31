@@ -103,7 +103,6 @@ Navigate to the `deploy` folder, grant execution permissions to the installation
 
 ```bash
 cd deploy
-chmod +x install.sh
 ./install.sh
 
 ```
@@ -114,7 +113,6 @@ To remove platform services, database schemas, and associated background daemon 
 
 ```bash
 cd deploy
-chmod +x uninstall.sh
 ./uninstall.sh
 
 ```
