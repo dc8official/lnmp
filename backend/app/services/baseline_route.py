@@ -69,8 +69,17 @@ async def refresh_baseline_route(
 
     total_hops = len(formatted_hops)
 
-    # Layer 2 Detection: total hops == 1 OR target IP in local subnet/VLAN
-    is_l2 = (total_hops == 1) or is_local_subnet(target_ip)
+    # Layer 2 Detection:
+    # Public globally-routable IPs (e.g. 8.8.8.8) traverse L3 WAN boundaries.
+    # Private/Local IPs with total_hops == 1 or local subnet match reside on L2 segment.
+    try:
+        ip_obj = ipaddress.ip_address(target_ip)
+        if ip_obj.is_global:
+            is_l2 = False
+        else:
+            is_l2 = (total_hops == 1) or is_local_subnet(target_ip)
+    except Exception:
+        is_l2 = False
 
     upsert_route_sql = text("""
         INSERT INTO endpoint_baseline_routes (
