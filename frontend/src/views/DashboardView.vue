@@ -3,19 +3,15 @@
     <!-- Header Toolbar -->
     <div class="dashboard-toolbar">
       <div class="toolbar-left">
-        <h1 class="page-title">{{ activeTab === 'endpoints' ? 'Network Dashboard' : 'User Accounts' }}</h1>
-        <p class="page-sub" v-if="activeTab === 'endpoints' && !loading && !error">
+        <h1 class="page-title">Network Dashboard</h1>
+        <p class="page-sub" v-if="!loading && !error">
           {{ endpoints.length }} monitored endpoint{{ endpoints.length !== 1 ? 's' : '' }}
           <span class="separator">·</span>
           Sync: {{ lastRefreshedLabel }}
         </p>
-        <p class="page-sub" v-else-if="activeTab === 'users' && !usersLoading && !usersError">
-          {{ users.length }} registered user account{{ users.length !== 1 ? 's' : '' }}
-        </p>
       </div>
       <div class="toolbar-right">
         <button 
-          v-if="activeTab === 'endpoints'" 
           class="btn-secondary" 
           @click="fetchEndpoints" 
           :disabled="loading"
@@ -23,27 +19,11 @@
           <span>{{ loading ? 'Refreshing...' : '↻ Refresh' }}</span>
         </button>
         <button 
-          v-if="activeTab === 'endpoints' && isAdmin" 
+          v-if="isAdmin" 
           class="btn-primary" 
           @click="openAddDialog"
         >
           + Add Endpoint
-        </button>
-
-        <button 
-          v-if="activeTab === 'users'" 
-          class="btn-secondary" 
-          @click="fetchUsers" 
-          :disabled="usersLoading"
-        >
-          <span>{{ usersLoading ? 'Refreshing...' : '↻ Refresh' }}</span>
-        </button>
-        <button 
-          v-if="activeTab === 'users' && isAdmin" 
-          class="btn-primary" 
-          @click="openAddUserDialog"
-        >
-          + Add User
         </button>
       </div>
     </div>
@@ -63,14 +43,6 @@
         @click="activeTab = 'topology'"
       >
         Topology Map
-      </button>
-      <button 
-        v-if="isAdmin"
-        class="tab-btn" 
-        :class="{ active: activeTab === 'users' }" 
-        @click="activeTab = 'users'"
-      >
-        User Management
       </button>
     </div>
 
@@ -129,313 +101,6 @@
     <!-- Topology Map Content -->
     <div v-else-if="activeTab === 'topology'">
       <TopologyMap />
-    </div>
-
-    <!-- User Accounts Content (Admin Only) -->
-    <div v-else-if="activeTab === 'users' && isAdmin">
-      <div v-if="usersError" class="alert-error">
-        {{ usersError }}
-      </div>
-
-      <div v-if="usersLoading && users.length === 0" class="empty-state">
-        <div class="spinner"></div>
-        <p>Loading user list...</p>
-      </div>
-
-      <div v-else class="table-card">
-        <div class="table-responsive">
-          <table class="audit-table">
-            <thead>
-              <tr>
-                <th>Username</th>
-                <th>Role</th>
-                <th>Status</th>
-                <th>Credentials State</th>
-                <th>Last Signed In</th>
-                <th class="actions-header">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="usr in users" :key="usr.id" :class="{ 'self-row': usr.id === user?.id }">
-                <td class="username-col">
-                  <strong>{{ usr.username }}</strong>
-                  <span v-if="usr.id === user?.id" class="self-tag">(You)</span>
-                </td>
-                <td>
-                  <span class="role-badge">{{ usr.role }}</span>
-                </td>
-                <td>
-                  <span :class="['badge', usr.is_active ? 'badge-up' : 'badge-down']">
-                    <span :class="['status-dot', usr.is_active ? 'dot-up' : 'dot-down']"></span>
-                    {{ usr.is_active ? 'Active' : 'Disabled' }}
-                  </span>
-                </td>
-                <td>
-                  <span v-if="usr.must_change_password" class="badge badge-up-unstable">
-                    Password Reset Pending
-                  </span>
-                  <span v-else class="badge badge-up">
-                    Secure
-                  </span>
-                </td>
-                <td>
-                  {{ usr.last_login ? new Date(usr.last_login).toLocaleString() : 'Never' }}
-                </td>
-                <td class="actions-col">
-                  <button class="btn-action-warning" @click="openResetPasswordDialog(usr)">
-                    Reset Pass
-                  </button>
-                  <button 
-                    v-if="usr.id !== user?.id"
-                    :class="usr.is_active ? 'btn-action-danger' : 'btn-action-success'"
-                    @click="toggleUserActive(usr)"
-                  >
-                    {{ usr.is_active ? 'Disable' : 'Enable' }}
-                  </button>
-                  <button 
-                    v-if="usr.id !== user?.id" 
-                    class="btn-action-danger" 
-                    @click="confirmDeleteUser(usr)"
-                  >
-                    Delete
-                  </button>
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </div>
-
-    <!-- ── Unified Redesign Modals ── -->
-
-    <!-- Add / Edit Endpoint Modal -->
-    <div v-if="displayDialog" class="modal-overlay" @click.self="displayDialog = false">
-      <div class="modal">
-        <div class="modal-header">
-          <h2 class="modal-title">{{ isEditing ? 'Modify Endpoint' : 'Register Endpoint' }}</h2>
-          <button class="modal-close" @click="displayDialog = false">×</button>
-        </div>
-        <form @submit.prevent="saveEndpoint">
-          <div class="modal-body">
-            <div class="form-group">
-              <label class="form-label">Hostname *</label>
-              <input 
-                class="form-input" 
-                v-model="form.hostname" 
-                placeholder="e.g. core-router.local" 
-                required 
-              />
-            </div>
-            <div class="form-group">
-              <label class="form-label">IP Address *</label>
-              <input 
-                class="form-input" 
-                v-model="form.ip_address" 
-                placeholder="e.g. 192.168.1.1" 
-                required 
-                :disabled="isEditing" 
-              />
-            </div>
-            <div class="form-group">
-              <label class="form-label">Device Type *</label>
-              <select class="form-input" v-model="form.device_type" required>
-                <option v-for="type in deviceTypes" :key="type" :value="type">
-                  {{ type }}
-                </option>
-              </select>
-            </div>
-            <div class="form-group">
-              <label class="form-label">Location (optional)</label>
-              <input 
-                class="form-input" 
-                v-model="form.location" 
-                placeholder="e.g. Datacenter rack A5" 
-              />
-            </div>
-            <div class="form-group">
-              <label class="form-label">Description (optional)</label>
-              <textarea 
-                class="form-input form-textarea" 
-                v-model="form.description" 
-                rows="3" 
-                placeholder="Additional endpoint metadata"
-              ></textarea>
-            </div>
-            <div class="form-group checkbox-form-group">
-              <input 
-                type="checkbox" 
-                id="monitoring_enabled" 
-                v-model="form.monitoring_enabled" 
-              />
-              <label for="monitoring_enabled">Enable automated uptime checks</label>
-            </div>
-          </div>
-          <div class="modal-footer">
-            <button type="button" class="btn-secondary" @click="displayDialog = false">Cancel</button>
-            <button type="submit" class="btn-primary" :disabled="formSaving">
-              {{ formSaving ? 'Saving...' : 'Save Endpoint' }}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
-
-    <!-- Delete Confirmation Modal -->
-    <div v-if="displayDeleteDialog" class="modal-overlay" @click.self="displayDeleteDialog = false">
-      <div class="modal">
-        <div class="modal-header">
-          <h2 class="modal-title">Confirm Deletion</h2>
-          <button class="modal-close" @click="displayDeleteDialog = false">×</button>
-        </div>
-        <div class="modal-body text-center">
-          <p class="modal-alert-text">Are you sure you want to delete this endpoint?</p>
-          <p class="warning-subtext">This action will stop active monitoring and is completely irreversible.</p>
-        </div>
-        <div class="modal-footer">
-          <button type="button" class="btn-secondary" @click="displayDeleteDialog = false">Cancel</button>
-          <button type="button" class="btn-danger" :disabled="formSaving" @click="executeDeleteEndpoint">
-            {{ formSaving ? 'Deleting...' : 'Delete Host' }}
-          </button>
-        </div>
-      </div>
-    </div>
-
-    <!-- Forced Password Change Modal (Initial Setup) -->
-    <div v-if="displayChangePasswordDialog" class="modal-overlay">
-      <div class="modal">
-        <div class="modal-header">
-          <h2 class="modal-title">Initial Setup — Password Reset Required</h2>
-        </div>
-        <form @submit.prevent="executeChangePassword">
-          <div class="modal-body">
-            <div class="alert-info">
-              For security reasons, you are required to change your default password on your initial sign-in.
-            </div>
-            
-            <div v-if="changePasswordError" class="alert-error">
-              {{ changePasswordError }}
-            </div>
-
-            <div class="form-group">
-              <label class="form-label">Current Password *</label>
-              <input 
-                type="password"
-                class="form-input" 
-                v-model="changePasswordForm.old_password" 
-                placeholder="Enter current password" 
-                required 
-                :disabled="changePasswordLoading"
-              />
-            </div>
-            <div class="form-group">
-              <label class="form-label">New Password *</label>
-              <input 
-                type="password"
-                class="form-input" 
-                v-model="changePasswordForm.new_password" 
-                placeholder="Enter new password (min 8 chars)" 
-                required 
-                :disabled="changePasswordLoading"
-              />
-            </div>
-            <div class="form-group">
-              <label class="form-label">Confirm New Password *</label>
-              <input 
-                type="password"
-                class="form-input" 
-                v-model="changePasswordForm.confirm_password" 
-                placeholder="Confirm new password" 
-                required 
-                :disabled="changePasswordLoading"
-              />
-            </div>
-          </div>
-          <div class="modal-footer">
-            <button type="submit" class="btn-primary full-width-btn" :disabled="changePasswordLoading">
-              {{ changePasswordLoading ? 'Updating...' : 'Update Password & Sign In' }}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
-
-    <!-- Add User Modal (Admin Only) -->
-    <div v-if="displayAddUserDialog" class="modal-overlay" @click.self="displayAddUserDialog = false">
-      <div class="modal">
-        <div class="modal-header">
-          <h2 class="modal-title">Register New User Account</h2>
-          <button class="modal-close" @click="displayAddUserDialog = false">×</button>
-        </div>
-        <form @submit.prevent="saveUser">
-          <div class="modal-body">
-            <div class="form-group">
-              <label class="form-label">Username *</label>
-              <input 
-                class="form-input" 
-                v-model="userForm.username" 
-                placeholder="Enter username (min 3 chars)" 
-                required 
-              />
-            </div>
-            <div class="form-group">
-              <label class="form-label">Password</label>
-              <input 
-                type="password"
-                class="form-input" 
-                v-model="userForm.password" 
-                placeholder="Defaults to 'password123' if blank" 
-              />
-              <small class="form-help">New users must change this temporary password on initial sign-in.</small>
-            </div>
-            <div class="form-group">
-              <label class="form-label">Privilege Role *</label>
-              <select class="form-input" v-model="userForm.role" required>
-                <option value="VIEWER">VIEWER</option>
-                <option value="ADMIN">ADMIN</option>
-              </select>
-            </div>
-          </div>
-          <div class="modal-footer">
-            <button type="button" class="btn-secondary" @click="displayAddUserDialog = false">Cancel</button>
-            <button type="submit" class="btn-primary" :disabled="userFormSaving">
-              {{ userFormSaving ? 'Registering...' : 'Register User' }}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
-
-    <!-- Reset User Password Modal (Admin Only) -->
-    <div v-if="displayResetUserPasswordDialog" class="modal-overlay" @click.self="displayResetUserPasswordDialog = false">
-      <div class="modal">
-        <div class="modal-header">
-          <h2 class="modal-title">Reset Password — {{ targetUsername }}</h2>
-          <button class="modal-close" @click="displayResetUserPasswordDialog = false">×</button>
-        </div>
-        <form @submit.prevent="executeResetUserPassword">
-          <div class="modal-body">
-            <div class="alert-info warning-alert">
-              This will immediately invalidate the current password for <strong>{{ targetUsername }}</strong>. They will be forced to set a new password on their next sign-in.
-            </div>
-            <div class="form-group">
-              <label class="form-label">New Temporary Password</label>
-              <input 
-                type="password"
-                class="form-input" 
-                v-model="resetPasswordForm.password" 
-                placeholder="Defaults to 'password123' if blank" 
-              />
-            </div>
-          </div>
-          <div class="modal-footer">
-            <button type="button" class="btn-secondary" @click="displayResetUserPasswordDialog = false">Cancel</button>
-            <button type="submit" class="btn-primary" :disabled="userFormSaving">
-              {{ userFormSaving ? 'Resetting...' : 'Reset Password' }}
-            </button>
-          </div>
-        </form>
-      </div>
     </div>
   </div>
 </template>
@@ -513,34 +178,12 @@ const exportSelectedCSV = async () => {
 // Tab state
 const activeTab = ref('endpoints')
 
-// User management states
-const users = ref([])
-const usersLoading = ref(false)
-const usersError = ref(null)
-const displayAddUserDialog = ref(false)
-const displayResetUserPasswordDialog = ref(false)
-const userFormSaving = ref(false)
-const targetUserId = ref(null)
-const targetUsername = ref('')
-const userForm = ref({ username: '', password: '', role: 'VIEWER' })
-const resetPasswordForm = ref({ password: '' })
-
 // Form states
 const displayDialog = ref(false)
 const displayDeleteDialog = ref(false)
 const formSaving = ref(false)
 const isEditing = ref(false)
 const targetEndpointId = ref(null)
-
-// Change password states
-const displayChangePasswordDialog = ref(false)
-const changePasswordLoading = ref(false)
-const changePasswordError = ref(null)
-const changePasswordForm = ref({
-  old_password: '',
-  new_password: '',
-  confirm_password: ''
-})
 
 const deviceTypes = ['Server', 'Router', 'Switch', 'Access Point', 'Firewall', 'Printer', 'Other']
 
@@ -554,93 +197,6 @@ const form = ref({
 })
 
 const isAdmin = computed(() => user.value?.role === 'ADMIN')
-
-const fetchUsers = async () => {
-  if (!isAdmin.value) return
-  usersLoading.value = true
-  usersError.value = null
-  try {
-    const response = await getUsers()
-    users.value = response.data.data || []
-  } catch (err) {
-    usersError.value = err.response?.data?.error?.message || 'Failed to fetch users list.'
-  } finally {
-    usersLoading.value = false
-  }
-}
-
-const openAddUserDialog = () => {
-  userForm.value = { username: '', password: '', role: 'VIEWER' }
-  displayAddUserDialog.value = true
-}
-
-const saveUser = async () => {
-  if (userForm.value.username.trim().length < 3) {
-    alert('Username must be at least 3 characters long.')
-    return
-  }
-  userFormSaving.value = true
-  try {
-    await createUser({
-      username: userForm.value.username,
-      password: userForm.value.password ? userForm.value.password : null,
-      role: userForm.value.role
-    })
-    displayAddUserDialog.value = false
-    await fetchUsers()
-    alert('User account created successfully!')
-  } catch (err) {
-    alert(err.response?.data?.detail || 'Failed to create user.')
-  } finally {
-    userFormSaving.value = false
-  }
-}
-
-const openResetPasswordDialog = (usr) => {
-  targetUserId.value = usr.id
-  targetUsername.value = usr.username
-  resetPasswordForm.value = { password: '' }
-  displayResetUserPasswordDialog.value = true
-}
-
-const executeResetUserPassword = async () => {
-  userFormSaving.value = true
-  try {
-    await resetUserPassword(targetUserId.value, {
-      password: resetPasswordForm.value.password ? resetPasswordForm.value.password : null
-    })
-    displayResetUserPasswordDialog.value = false
-    alert(`Password reset successfully for user '${targetUsername.value}'!`)
-    await fetchUsers()
-  } catch (err) {
-    alert(err.response?.data?.detail || 'Failed to reset user password.')
-  } finally {
-    userFormSaving.value = false
-  }
-}
-
-const toggleUserActive = async (usr) => {
-  try {
-    await updateUser(usr.id, {
-      is_active: !usr.is_active
-    })
-    await fetchUsers()
-  } catch (err) {
-    alert(err.response?.data?.detail || 'Failed to update user status.')
-  }
-}
-
-const confirmDeleteUser = async (usr) => {
-  if (confirm(`Are you sure you want to deactivate and remove user '${usr.username}'?`)) {
-    try {
-      await deleteUser(usr.id)
-      await fetchUsers()
-      alert(`User '${usr.username}' deactivated successfully.`)
-    } catch (err) {
-      alert(err.response?.data?.detail || 'Failed to deactivate user.')
-    }
-  }
-}
 
 const fetchEndpoints = async () => {
   if (user.value?.must_change_password) {

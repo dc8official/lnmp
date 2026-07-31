@@ -1,13 +1,14 @@
 <template>
   <div class="user-management-view">
+    <!-- Header Toolbar -->
     <div class="view-header">
       <div>
-        <h1 class="page-title">User Account Management</h1>
-        <p class="page-sub">Manage platform operator & administrator accounts and permissions</p>
+        <h1 class="page-title">User Account & Credential Governance</h1>
+        <p class="page-sub">Manage platform operator accounts, security credentials, and access control roles</p>
       </div>
       <div class="header-actions">
         <button class="btn-secondary" @click="fetchUsers" :disabled="loading">
-          {{ loading ? 'Refreshing...' : '↻ Refresh List' }}
+          {{ loading ? 'Refreshing...' : '↻ Refresh Accounts' }}
         </button>
         <button class="btn-primary" @click="openAddDialog">
           + Add User Account
@@ -17,59 +18,106 @@
 
     <!-- Error Alert -->
     <div v-if="error" class="alert-error">
-      {{ error }}
+      <span>⚠️ {{ error }}</span>
+      <button class="btn-retry" @click="fetchUsers">Retry</button>
     </div>
 
-    <!-- Users Table -->
+    <!-- Users Table Card -->
     <div class="table-card">
       <div v-if="loading && users.length === 0" class="loading-state">
         <div class="spinner"></div>
-        <p>Loading user accounts...</p>
+        <p>Synchronizing platform user accounts...</p>
       </div>
 
       <div v-else-if="users.length === 0" class="empty-state">
-        <p>No user accounts found.</p>
+        <p>No registered user accounts found.</p>
       </div>
 
-      <table v-else class="data-table">
-        <thead>
-          <tr>
-            <th>Username</th>
-            <th>Role</th>
-            <th>Created At</th>
-            <th class="text-right">Actions</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="u in users" :key="u.id">
-            <td>
-              <div class="user-info">
-                <span class="user-name">{{ u.username }}</span>
-                <span v-if="u.username === currentUser" class="you-tag">(You)</span>
-              </div>
-            </td>
-            <td>
-              <span class="role-badge" :class="u.role.toLowerCase()">
-                {{ u.role }}
-              </span>
-            </td>
-            <td>
-              <span class="date-sub">{{ formatDate(u.created_at) }}</span>
-            </td>
-            <td class="text-right">
-              <button class="btn-icon" @click="openResetPasswordDialog(u)" title="Reset Password">🔑 Reset Password</button>
-              <button class="btn-icon danger" @click="confirmDelete(u)" :disabled="u.username === currentUser" title="Delete User">🗑 Delete</button>
-            </td>
-          </tr>
-        </tbody>
-      </table>
+      <div v-else class="table-responsive">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Username</th>
+              <th>Role</th>
+              <th>Account Status</th>
+              <th>Credential State</th>
+              <th>Last Active Sign-in</th>
+              <th>Created At</th>
+              <th class="text-right">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="u in users" :key="u.id" :class="{ 'self-row': u.username === currentUser }">
+              <td>
+                <div class="user-info">
+                  <span class="user-name">{{ u.username }}</span>
+                  <span v-if="u.username === currentUser" class="you-tag">(You)</span>
+                </div>
+              </td>
+              <td>
+                <span class="role-badge" :class="u.role.toLowerCase()">
+                  {{ u.role }}
+                </span>
+              </td>
+              <td>
+                <span class="status-badge" :class="u.is_active ? 'active' : 'disabled'">
+                  <span class="status-dot" :class="u.is_active ? 'dot-active' : 'dot-disabled'"></span>
+                  {{ u.is_active ? 'Active' : 'Disabled' }}
+                </span>
+              </td>
+              <td>
+                <span v-if="u.must_change_password" class="cred-badge pending">
+                  ⚡ Reset Pending
+                </span>
+                <span v-else class="cred-badge secure">
+                  ✓ Secure
+                </span>
+              </td>
+              <td>
+                <span class="date-sub">{{ formatDate(u.last_login) }}</span>
+              </td>
+              <td>
+                <span class="date-sub">{{ formatDate(u.created_at) }}</span>
+              </td>
+              <td class="text-right">
+                <div class="action-buttons">
+                  <button 
+                    class="btn-icon warning" 
+                    @click="openResetPasswordDialog(u)" 
+                    title="Reset Password"
+                  >
+                    🔑 Reset Pass
+                  </button>
+                  <button 
+                    v-if="u.username !== currentUser"
+                    class="btn-icon" 
+                    :class="u.is_active ? 'toggle-disable' : 'toggle-enable'"
+                    @click="toggleUserActive(u)" 
+                    :title="u.is_active ? 'Disable Account' : 'Enable Account'"
+                  >
+                    {{ u.is_active ? '🚫 Disable' : '✅ Enable' }}
+                  </button>
+                  <button 
+                    v-if="u.username !== currentUser"
+                    class="btn-icon danger" 
+                    @click="confirmDelete(u)" 
+                    title="Delete User"
+                  >
+                    🗑 Delete
+                  </button>
+                </div>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
     </div>
 
     <!-- Add User Modal -->
     <div class="modal-overlay" v-if="showAddModal" @click.self="showAddModal = false">
       <div class="modal-card">
         <div class="modal-header">
-          <h3>Create New User Account</h3>
+          <h3>Register New User Account</h3>
           <button class="btn-close" @click="showAddModal = false">✕</button>
         </div>
 
@@ -80,22 +128,23 @@
           </div>
 
           <div class="form-group">
-            <label>Password *</label>
-            <input v-model="form.password" type="password" placeholder="••••••••" required />
+            <label>Temporary Password</label>
+            <input v-model="form.password" type="password" placeholder="Defaults to 'password123' if blank" />
+            <small class="form-help">User will be prompted to change temporary password on initial sign-in.</small>
           </div>
 
           <div class="form-group">
             <label>Account Role *</label>
             <select v-model="form.role" class="form-select">
               <option value="VIEWER">VIEWER (Read-Only Operator)</option>
-              <option value="ADMIN">ADMIN (Full Control)</option>
+              <option value="ADMIN">ADMIN (Full Administrative Control)</option>
             </select>
           </div>
 
           <div class="modal-actions">
             <button type="button" class="btn-secondary" @click="showAddModal = false">Cancel</button>
             <button type="submit" class="btn-primary" :disabled="saving">
-              {{ saving ? 'Creating...' : 'Create User' }}
+              {{ saving ? 'Creating...' : 'Register User' }}
             </button>
           </div>
         </form>
@@ -106,20 +155,24 @@
     <div class="modal-overlay" v-if="showResetModal" @click.self="showResetModal = false">
       <div class="modal-card">
         <div class="modal-header">
-          <h3>Reset Password for {{ targetUsername }}</h3>
+          <h3>Reset Password — {{ targetUsername }}</h3>
           <button class="btn-close" @click="showResetModal = false">✕</button>
         </div>
 
         <form @submit.prevent="saveResetPassword" class="modal-form">
+          <div class="alert-info warning-alert">
+            This will immediately invalidate the current password for <strong>{{ targetUsername }}</strong>. They will be required to set a new password on their next login.
+          </div>
+
           <div class="form-group">
-            <label>New Password *</label>
-            <input v-model="resetForm.password" type="password" placeholder="••••••••" required />
+            <label>New Temporary Password</label>
+            <input v-model="resetForm.password" type="password" placeholder="Defaults to 'password123' if blank" />
           </div>
 
           <div class="modal-actions">
             <button type="button" class="btn-secondary" @click="showResetModal = false">Cancel</button>
             <button type="submit" class="btn-primary" :disabled="saving">
-              {{ saving ? 'Saving...' : 'Reset Password' }}
+              {{ saving ? 'Resetting...' : 'Reset Password' }}
             </button>
           </div>
         </form>
@@ -130,7 +183,7 @@
 
 <script setup>
 import { ref, onMounted } from 'vue'
-import { getUsers, createUser, resetUserPassword, deleteUser } from '../services/api.js'
+import { getUsers, createUser, updateUser, resetUserPassword, deleteUser } from '../services/api.js'
 
 const users = ref([])
 const loading = ref(true)
@@ -154,7 +207,7 @@ const resetForm = ref({
 })
 
 function formatDate(isoStr) {
-  if (!isoStr) return '-'
+  if (!isoStr) return 'Never'
   return new Date(isoStr).toLocaleString()
 }
 
@@ -178,12 +231,20 @@ function openAddDialog() {
 }
 
 async function saveUser() {
+  if (form.value.username.trim().length < 3) {
+    alert('Username must be at least 3 characters long.')
+    return
+  }
   saving.value = true
   try {
-    await createUser(form.value)
+    await createUser({
+      username: form.value.username,
+      password: form.value.password || null,
+      role: form.value.role
+    })
     showAddModal.value = false
     await fetchUsers()
-    alert('User account created successfully.')
+    alert(`User account '${form.value.username}' created successfully.`)
   } catch (err) {
     console.error('Failed to create user:', err)
     alert(err.response?.data?.detail || 'Failed to create user.')
@@ -202,8 +263,9 @@ function openResetPasswordDialog(u) {
 async function saveResetPassword() {
   saving.value = true
   try {
-    await resetUserPassword(targetUserId.value, { password: resetForm.value.password })
+    await resetUserPassword(targetUserId.value, { password: resetForm.value.password || null })
     showResetModal.value = false
+    await fetchUsers()
     alert(`Password reset successfully for ${targetUsername.value}.`)
   } catch (err) {
     console.error('Failed to reset password:', err)
@@ -213,14 +275,28 @@ async function saveResetPassword() {
   }
 }
 
+async function toggleUserActive(u) {
+  const newStatus = !u.is_active
+  const actionName = newStatus ? 'enable' : 'disable'
+  if (confirm(`Are you sure you want to ${actionName} account '${u.username}'?`)) {
+    try {
+      await updateUser(u.id, { is_active: newStatus })
+      await fetchUsers()
+    } catch (err) {
+      console.error('Failed to toggle user status:', err)
+      alert(err.response?.data?.detail || 'Failed to update account status.')
+    }
+  }
+}
+
 async function confirmDelete(u) {
-  if (confirm(`Are you sure you want to delete user account ${u.username}?`)) {
+  if (confirm(`Are you sure you want to delete user account '${u.username}'?`)) {
     try {
       await deleteUser(u.id)
       await fetchUsers()
     } catch (err) {
       console.error('Failed to delete user:', err)
-      alert('Failed to delete user account.')
+      alert(err.response?.data?.detail || 'Failed to delete user account.')
     }
   }
 }
@@ -247,6 +323,8 @@ onMounted(() => {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
 }
 
 .page-title {
@@ -266,11 +344,61 @@ onMounted(() => {
   gap: 12px;
 }
 
+.btn-secondary {
+  background: var(--bg-surface-selected);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-color);
+  padding: 8px 14px;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.btn-primary {
+  background: #2563EB;
+  color: #FFFFFF;
+  border: none;
+  padding: 8px 16px;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.btn-primary:hover {
+  background: #1D4ED8;
+}
+
+.alert-error {
+  background: rgba(239, 68, 68, 0.15);
+  border: 1px solid #EF4444;
+  color: #F87171;
+  padding: 12px 16px;
+  border-radius: 8px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.btn-retry {
+  background: #EF4444;
+  color: #FFFFFF;
+  border: none;
+  padding: 4px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
 .table-card {
   background: var(--bg-surface);
   border: 1px solid var(--border-color);
   border-radius: 12px;
   overflow: hidden;
+}
+
+.table-responsive {
+  overflow-x: auto;
 }
 
 .data-table {
@@ -291,6 +419,10 @@ onMounted(() => {
   font-weight: 600;
 }
 
+.data-table tr.self-row {
+  background: rgba(59, 130, 246, 0.05);
+}
+
 .user-info {
   display: flex;
   align-items: center;
@@ -304,7 +436,8 @@ onMounted(() => {
 
 .you-tag {
   font-size: 0.75rem;
-  color: var(--text-muted);
+  color: #60A5FA;
+  font-weight: 600;
 }
 
 .role-badge {
@@ -312,7 +445,6 @@ onMounted(() => {
   padding: 3px 8px;
   border-radius: 6px;
   font-weight: 700;
-
 }
 
 .role-badge.admin {
@@ -327,9 +459,63 @@ onMounted(() => {
   border: 1px solid rgba(59, 130, 246, 0.3);
 }
 
+.status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 6px;
+}
+
+.status-badge.active {
+  background: rgba(22, 163, 74, 0.15);
+  color: var(--status-up-color);
+}
+
+.status-badge.disabled {
+  background: rgba(220, 38, 38, 0.15);
+  color: var(--status-down-color);
+}
+
+.status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+
+.dot-active { background: var(--status-up-color); }
+.dot-disabled { background: var(--status-down-color); }
+
+.cred-badge {
+  font-size: 0.78rem;
+  padding: 3px 8px;
+  border-radius: 6px;
+  font-weight: 600;
+}
+
+.cred-badge.pending {
+  background: rgba(245, 158, 11, 0.15);
+  color: var(--status-warn-color);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+}
+
+.cred-badge.secure {
+  background: rgba(22, 163, 74, 0.15);
+  color: var(--status-up-color);
+  border: 1px solid rgba(22, 163, 74, 0.3);
+}
+
 .date-sub {
   color: var(--text-muted);
   font-size: 0.85rem;
+}
+
+.action-buttons {
+  display: flex;
+  gap: 6px;
+  justify-content: flex-end;
 }
 
 .btn-icon {
@@ -338,9 +524,19 @@ onMounted(() => {
   color: var(--text-secondary);
   border: 1px solid var(--border-color);
   border-radius: 6px;
-  margin-left: 6px;
   background: var(--bg-surface-selected);
   cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.btn-icon:hover {
+  background: var(--border-color);
+  color: var(--text-primary);
+}
+
+.btn-icon.warning:hover {
+  color: #F59E0B;
+  border-color: #F59E0B;
 }
 
 .btn-icon.danger:hover {
@@ -348,7 +544,17 @@ onMounted(() => {
   border-color: #EF4444;
 }
 
-/* Modal Styles */
+.btn-icon.toggle-disable:hover {
+  color: #F87171;
+  border-color: #EF4444;
+}
+
+.btn-icon.toggle-enable:hover {
+  color: #34D399;
+  border-color: #10B981;
+}
+
+/* Modal Overlay & Card */
 .modal-overlay {
   position: fixed;
   inset: 0;
@@ -399,6 +605,15 @@ onMounted(() => {
   gap: 16px;
 }
 
+.alert-info {
+  background: rgba(59, 130, 246, 0.15);
+  border: 1px solid rgba(59, 130, 246, 0.3);
+  color: #60A5FA;
+  padding: 10px 14px;
+  border-radius: 6px;
+  font-size: 0.85rem;
+}
+
 .form-group {
   display: flex;
   flex-direction: column;
@@ -420,10 +635,35 @@ onMounted(() => {
   font-size: 0.9rem;
 }
 
+.form-help {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
 .modal-actions {
   display: flex;
   justify-content: flex-end;
   gap: 12px;
   margin-top: 10px;
+}
+
+.loading-state, .empty-state {
+  padding: 40px;
+  text-align: center;
+  color: var(--text-muted);
+}
+
+.spinner {
+  width: 28px;
+  height: 28px;
+  border: 3px solid var(--border-color);
+  border-top-color: #2563EB;
+  border-radius: 50%;
+  animation: spin 1s infinite linear;
+  margin: 0 auto 12px auto;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
 }
 </style>

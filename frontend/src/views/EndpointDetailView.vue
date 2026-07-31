@@ -396,6 +396,14 @@
 
             <div class="setting-switch-item">
               <div class="switch-info">
+                <span class="switch-title">Include in Topology Map</span>
+                <span class="switch-desc">Display endpoint and its transit hops on the interactive network DAG graph</span>
+              </div>
+              <input type="checkbox" v-model="editForm.allow_topology_discovery" class="check-box" />
+            </div>
+
+            <div class="setting-switch-item">
+              <div class="switch-info">
                 <span class="switch-title">Active ICMP Monitoring</span>
                 <span class="switch-desc">Enable background uptime & latency polling cycles</span>
               </div>

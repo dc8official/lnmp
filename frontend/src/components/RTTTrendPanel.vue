@@ -100,7 +100,7 @@ const chartData = computed(() => {
   const inheritedData = processed.map(ev => ev.is_split_event ? ev.avg_rtt_ms : null)
 
   const measuredColor = isDark.value ? '#FFFFFF' : '#0f172a'
-  const inheritedColor = isDark.value ? '#666666' : '#94a3b8'
+  const inheritedColor = isDark.value ? '#888888' : '#475569'
   const inheritedPointBg = isDark.value ? '#000000' : '#ffffff'
 
   return {
@@ -133,8 +133,8 @@ const chartData = computed(() => {
 })
 
 const chartOptions = computed(() => {
-  const gridColor = isDark.value ? '#3a3a3a' : '#9bb5d1'
-  const textColor = isDark.value ? '#D0D0D0' : '#334155'
+  const gridColor = isDark.value ? '#3a3a3a' : '#cbd5e1'
+  const textColor = isDark.value ? '#D0D0D0' : '#0f172a'
 
   return {
     responsive: true,

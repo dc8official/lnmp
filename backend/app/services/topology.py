@@ -94,6 +94,7 @@ class TopologyGraphManager:
                     LIMIT 1
                 ) ev ON TRUE
                 WHERE e.endpoint_status != 'DELETED'
+                  AND e.allow_topology_discovery = TRUE
             """)
             ep_result = await _safe_execute(db, endpoints_query)
             ep_rows = ep_result.fetchall()

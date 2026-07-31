@@ -67,10 +67,10 @@ onBeforeUnmount(() => {
 
 const STATE_COLORS = computed(() => ({
   'UP': isDark.value ? '#4ade80' : '#16a34a',
-  'UP-UNSTABLE': isDark.value ? '#f59e0b' : '#b45309',
-  'DOWN-UNSTABLE': isDark.value ? '#f59e0b' : '#b45309',
+  'UP-UNSTABLE': isDark.value ? '#f59e0b' : '#d97706',
+  'DOWN-UNSTABLE': isDark.value ? '#f59e0b' : '#d97706',
   'DOWN': isDark.value ? '#f87171' : '#dc2626',
-  'UNKNOWN': isDark.value ? '#4a4a4a' : '#b0c4de'
+  'UNKNOWN': isDark.value ? '#4a4a4a' : '#64748b'
 }))
 
 const formatDuration = (ms) => {
@@ -171,7 +171,7 @@ const chartData = computed(() => {
     backgroundColor: STATE_COLORS.value[key],
     grouped: false,
     borderWidth: key === 'UNKNOWN' ? 1 : 0,
-    borderColor: key === 'UNKNOWN' ? (isDark.value ? '#4a4a4a' : '#b0c4de') : 'transparent',
+    borderColor: key === 'UNKNOWN' ? (isDark.value ? '#4a4a4a' : '#475569') : 'transparent',
     borderSkipped: false
   }))
 
@@ -182,8 +182,8 @@ const chartData = computed(() => {
 })
 
 const chartOptions = computed(() => {
-  const gridColor = isDark.value ? '#3a3a3a' : '#9bb5d1'
-  const textColor = isDark.value ? '#D0D0D0' : '#334155'
+  const gridColor = isDark.value ? '#3a3a3a' : '#e2e8f0'
+  const textColor = isDark.value ? '#D0D0D0' : '#0f172a'
 
   return {
     indexAxis: 'y',
