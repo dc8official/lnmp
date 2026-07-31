@@ -3,8 +3,8 @@
     <!-- Header Toolbar -->
     <div class="view-header">
       <div>
-        <h1 class="page-title">Monitored Endpoints & Diagnostics</h1>
-        <p class="page-sub">Manage network targets, incident tracing, and topology parent relationships</p>
+        <h1 class="page-title">Monitored Endpoints & Governance</h1>
+        <p class="page-sub">Manage network targets, differential RCA engine, and route discovery governance</p>
       </div>
       <div class="header-actions">
         <button class="btn-secondary" @click="fetchEndpoints" :disabled="loading">
@@ -38,8 +38,7 @@
             <th>Hostname / IP</th>
             <th>Device Type</th>
             <th>Status</th>
-            <th>Incident Trace</th>
-            <th>Topology Discovery</th>
+            <th>RCA & Discovery Governance</th>
             <th>Manual Parent</th>
             <th class="text-right">Actions</th>
           </tr>
@@ -48,9 +47,12 @@
           <tr v-for="ep in endpoints" :key="ep.id">
             <td>
               <div class="host-info">
-                <router-link :to="`/endpoints/${ep.id}`" class="host-link">
-                  {{ ep.hostname }}
-                </router-link>
+                <div class="host-line">
+                  <router-link :to="`/endpoints/${ep.id}`" class="host-link">
+                    {{ ep.hostname }}
+                  </router-link>
+                  <span v-if="ep.is_l2_segment" class="l2-pill" title="Local Layer 2 Segment Target">L2</span>
+                </div>
                 <span class="ip-sub">{{ ep.ip_address }}</span>
               </div>
             </td>
@@ -63,14 +65,14 @@
               </span>
             </td>
             <td>
-              <span class="toggle-pill" :class="ep.allow_incident_trace ? 'active' : 'disabled'">
-                {{ ep.allow_incident_trace ? '● Enabled' : '○ Disabled' }}
-              </span>
-            </td>
-            <td>
-              <span class="toggle-pill" :class="ep.allow_topology_discovery ? 'active' : 'disabled'">
-                {{ ep.allow_topology_discovery ? '● Enabled' : '○ Disabled' }}
-              </span>
+              <div class="governance-pills">
+                <span class="toggle-pill" :class="ep.enable_rca !== false ? 'active' : 'disabled'" title="Comparative Differential RCA">
+                  {{ ep.enable_rca !== false ? '● RCA Active' : '○ RCA Off' }}
+                </span>
+                <span class="toggle-pill" :class="ep.enable_scheduled_discovery !== false ? 'active-blue' : 'disabled'" title="Midnight Scheduled Route Discovery">
+                  {{ ep.enable_scheduled_discovery !== false ? '● Midnight Discovery' : '○ Manual Discovery' }}
+                </span>
+              </div>
             </td>
             <td>
               <span class="parent-label">
@@ -78,6 +80,15 @@
               </span>
             </td>
             <td class="text-right">
+              <button 
+                class="btn-icon action-discovery" 
+                @click="triggerDiscovery(ep)" 
+                :disabled="discoveringIds.has(ep.id)"
+                title="Run Route Discovery and Refresh Baseline"
+              >
+                <span v-if="discoveringIds.has(ep.id)" class="spinner-sm"></span>
+                <span v-else>📡 Discovery</span>
+              </button>
               <button class="btn-icon" @click="openEditModal(ep)" title="Edit Settings">⚙ Edit</button>
               <button class="btn-icon danger" @click="confirmDelete(ep)" title="Delete Endpoint">🗑 Delete</button>
             </td>
@@ -138,25 +149,43 @@
             <p class="field-help">Manually overrides automatic topology traceroute parent detection.</p>
           </div>
 
-          <div class="form-divider">V1.5 Diagnostic Controls</div>
+          <div class="form-divider">V1.5 Endpoint Governance & RCA Controls</div>
 
           <!-- V1.5 Toggle Switches -->
           <div class="toggles-list">
             <label class="switch-row">
               <div class="switch-info">
-                <span class="switch-label">Run Diagnostic Trace on Outage</span>
-                <span class="switch-sub">Automatically fires background traceroute upon first failed ping sub-cycle</span>
+                <span class="switch-label">Enable Root Cause Analysis (RCA)</span>
+                <span class="switch-sub">Fires comparative differential route engine upon DOWN outage transition</span>
               </div>
-              <input type="checkbox" v-model="form.allow_incident_trace" />
+              <input type="checkbox" v-model="form.enable_rca" />
               <span class="slider"></span>
             </label>
 
             <label class="switch-row">
               <div class="switch-info">
-                <span class="switch-label">Enable Discovery Traces</span>
-                <span class="switch-sub">Queues traceroute passes on onboarding and midnight topology cycles</span>
+                <span class="switch-label">Midnight Scheduled Discovery</span>
+                <span class="switch-sub">Queues sequential traceroute passes at 00:00 midnight to refresh route baseline</span>
               </div>
-              <input type="checkbox" v-model="form.allow_topology_discovery" />
+              <input type="checkbox" v-model="form.enable_scheduled_discovery" />
+              <span class="slider"></span>
+            </label>
+
+            <label class="switch-row">
+              <div class="switch-info">
+                <span class="switch-label">Layer 2 Segment Target</span>
+                <span class="switch-sub">Flags target as directly connected in local subnet/VLAN without transit hops</span>
+              </div>
+              <input type="checkbox" v-model="form.is_l2_segment" />
+              <span class="slider"></span>
+            </label>
+
+            <label class="switch-row">
+              <div class="switch-info">
+                <span class="switch-label">Run Diagnostic Trace on Outage</span>
+                <span class="switch-sub">Automatically fires background traceroute upon failed ping sub-cycle</span>
+              </div>
+              <input type="checkbox" v-model="form.allow_incident_trace" />
               <span class="slider"></span>
             </label>
 
@@ -184,12 +213,13 @@
 
 <script setup>
 import { ref, computed, onMounted } from 'vue'
-import { getEndpoints, createEndpoint, updateEndpoint, deleteEndpoint } from '../services/api.js'
+import { getEndpoints, createEndpoint, updateEndpoint, deleteEndpoint, refreshEndpointBaseline } from '../services/api.js'
 
 const endpoints = ref([])
 const loading = ref(true)
 const error = ref(null)
 const saving = ref(false)
+const discoveringIds = ref(new Set())
 
 const showModal = ref(false)
 const isEditing = ref(false)
@@ -204,6 +234,9 @@ const form = ref({
   monitoring_enabled: true,
   allow_incident_trace: true,
   allow_topology_discovery: true,
+  enable_rca: true,
+  enable_scheduled_discovery: true,
+  is_l2_segment: false,
   manual_parent_id: null,
 })
 
@@ -254,6 +287,9 @@ function openCreateModal() {
     monitoring_enabled: true,
     allow_incident_trace: true,
     allow_topology_discovery: true,
+    enable_rca: true,
+    enable_scheduled_discovery: true,
+    is_l2_segment: false,
     manual_parent_id: null,
   }
   showModal.value = true
@@ -271,6 +307,9 @@ function openEditModal(ep) {
     monitoring_enabled: ep.monitoring_enabled !== false,
     allow_incident_trace: ep.allow_incident_trace !== false,
     allow_topology_discovery: ep.allow_topology_discovery !== false,
+    enable_rca: ep.enable_rca !== false,
+    enable_scheduled_discovery: ep.enable_scheduled_discovery !== false,
+    is_l2_segment: ep.is_l2_segment === true,
     manual_parent_id: ep.manual_parent_id || null,
   }
   showModal.value = true
@@ -292,6 +331,9 @@ async function saveEndpoint() {
         monitoring_enabled: form.value.monitoring_enabled,
         allow_incident_trace: form.value.allow_incident_trace,
         allow_topology_discovery: form.value.allow_topology_discovery,
+        enable_rca: form.value.enable_rca,
+        enable_scheduled_discovery: form.value.enable_scheduled_discovery,
+        is_l2_segment: form.value.is_l2_segment,
         manual_parent_id: form.value.manual_parent_id,
       })
     } else {
@@ -304,6 +346,20 @@ async function saveEndpoint() {
     alert('Error saving endpoint settings.')
   } finally {
     saving.value = false
+  }
+}
+
+async function triggerDiscovery(ep) {
+  discoveringIds.value.add(ep.id)
+  try {
+    await refreshEndpointBaseline(ep.id)
+    await fetchEndpoints()
+    alert(`Route discovery completed for ${ep.hostname} (${ep.ip_address}).`)
+  } catch (err) {
+    console.error('Route discovery failed:', err)
+    alert(`Route discovery failed for ${ep.hostname}.`)
+  } finally {
+    discoveringIds.value.delete(ep.id)
   }
 }
 
@@ -379,9 +435,25 @@ onMounted(() => {
   font-weight: 600;
 }
 
+.host-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .host-link {
   color: #60A5FA;
   font-weight: 600;
+}
+
+.l2-pill {
+  background: rgba(59, 130, 246, 0.2);
+  color: #60A5FA;
+  font-size: 0.7rem;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 4px;
+  border: 1px solid rgba(59, 130, 246, 0.3);
 }
 
 .ip-sub {
@@ -390,22 +462,41 @@ onMounted(() => {
   color: #6B7280;
 }
 
+.governance-pills {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
 .toggle-pill {
-  font-size: 0.8rem;
-  padding: 3px 8px;
+  font-size: 0.78rem;
+  padding: 2px 8px;
   border-radius: 6px;
+  width: fit-content;
 }
 
 .toggle-pill.active { background: rgba(16, 185, 129, 0.15); color: #34D399; }
+.toggle-pill.active-blue { background: rgba(59, 130, 246, 0.15); color: #60A5FA; }
 .toggle-pill.disabled { background: rgba(107, 114, 128, 0.15); color: #9CA3AF; }
 
 .btn-icon {
-  padding: 4px 8px;
+  padding: 5px 10px;
   font-size: 0.8rem;
   color: #9CA3AF;
   border: 1px solid #374151;
   border-radius: 6px;
   margin-left: 6px;
+  background: #1F2937;
+  cursor: pointer;
+}
+
+.btn-icon.action-discovery {
+  color: #60A5FA;
+  border-color: rgba(59, 130, 246, 0.4);
+}
+
+.btn-icon.action-discovery:hover {
+  background: rgba(59, 130, 246, 0.15);
 }
 
 .btn-icon.danger:hover {
@@ -413,11 +504,21 @@ onMounted(() => {
   border-color: #EF4444;
 }
 
+.spinner-sm {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border: 2px solid rgba(255,255,255,0.2);
+  border-top-color: #60A5FA;
+  border-radius: 50%;
+  animation: spin 0.8s infinite linear;
+}
+
 /* Modal Styles */
 .modal-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.7);
+  background: rgba(0, 0, 0, 0.75);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -429,8 +530,8 @@ onMounted(() => {
   background: #111827;
   border: 1px solid #374151;
   border-radius: 12px;
-  width: 560px;
-  max-width: 90vw;
+  width: 600px;
+  max-width: 92vw;
   max-height: 90vh;
   overflow-y: auto;
 }
@@ -447,6 +548,14 @@ onMounted(() => {
   margin: 0;
   font-size: 1.1rem;
   color: #F9FAFB;
+}
+
+.btn-close {
+  background: transparent;
+  border: none;
+  color: #9CA3AF;
+  font-size: 1.2rem;
+  cursor: pointer;
 }
 
 .modal-form {
@@ -527,10 +636,21 @@ onMounted(() => {
   color: #6B7280;
 }
 
+/* Switch styling */
+.switch-row input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  accent-color: #2563EB;
+}
+
 .modal-actions {
   display: flex;
   justify-content: flex-end;
   gap: 12px;
   margin-top: 10px;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
 }
 </style>

@@ -12,21 +12,28 @@ from app.schemas import APIResponse
 from app.routers import auth, endpoints, reports, topology, users
 from app.routers.reports import telemetry_router
 
+from app.services.baseline_route import start_midnight_discovery_worker
+
+from app.services.topology import topology_manager
+
 logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await check_database_connection()
-    # Initialize baseline cache and start background tasks
+    # Initialize baseline cache and topology DAG manager
     async with AsyncSessionLocal() as db:
         await baseline_cache.refresh_from_db(db)
+        await topology_manager.full_rebuild(db)
     refresh_task = await start_baseline_refresh_task(AsyncSessionLocal, interval_seconds=3600)
     discovery_task = await start_discovery_worker(AsyncSessionLocal)
+    midnight_task = await start_midnight_discovery_worker(AsyncSessionLocal)
     cleanup_task = await start_diagnostic_cleanup_task(AsyncSessionLocal, interval_seconds=86400)
     logger.info("lnmp monitoring platform started with Hybrid Adaptive Baseline & Diagnostics.")
     yield
     refresh_task.cancel()
     discovery_task.cancel()
+    midnight_task.cancel()
     cleanup_task.cancel()
     logger.info("lnmp monitoring platform shutting down.")
 

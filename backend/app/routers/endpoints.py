@@ -25,6 +25,9 @@ class CreateEndpointRequest(BaseModel):
     monitoring_enabled: bool = True
     allow_incident_trace: bool = True
     allow_topology_discovery: bool = True
+    enable_rca: bool = True
+    enable_scheduled_discovery: bool = True
+    is_l2_segment: bool = False
     manual_parent_id: Optional[UUID] = None
 
 class UpdateEndpointRequest(BaseModel):
@@ -35,6 +38,9 @@ class UpdateEndpointRequest(BaseModel):
     monitoring_enabled: Optional[bool] = None
     allow_incident_trace: Optional[bool] = None
     allow_topology_discovery: Optional[bool] = None
+    enable_rca: Optional[bool] = None
+    enable_scheduled_discovery: Optional[bool] = None
+    is_l2_segment: Optional[bool] = None
     manual_parent_id: Optional[UUID] = None
     endpoint_status: Optional[Literal["ACTIVE", "DISABLED"]] = None
 
@@ -72,6 +78,65 @@ async def get_endpoint_traces(
         })
     return APIResponse.success(data=traces)
 
+@router.get("/{id}/rca", response_model=APIResponse)
+async def get_endpoint_rca(
+    id: UUID,
+    current_user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    query = text("""
+        SELECT
+            id,
+            endpoint_id,
+            incident_timestamp,
+            status_at_execution,
+            failed_hop_number,
+            failed_hop_ip,
+            last_known_good_hop_ip,
+            rca_summary,
+            baseline_snapshot,
+            failure_trace_snapshot,
+            is_resolved
+        FROM endpoint_rca_incidents
+        WHERE endpoint_id = :id
+        ORDER BY incident_timestamp DESC
+        LIMIT 1
+    """)
+    result = await db.execute(query, {"id": str(id)})
+    row = result.fetchone()
+
+    if not row:
+        return APIResponse.success(data=None)
+
+    b_snap = row.baseline_snapshot
+    if isinstance(b_snap, str):
+        try:
+            b_snap = json.loads(b_snap)
+        except Exception:
+            pass
+
+    f_snap = row.failure_trace_snapshot
+    if isinstance(f_snap, str):
+        try:
+            f_snap = json.loads(f_snap)
+        except Exception:
+            pass
+
+    incident_data = {
+        "id": str(row.id),
+        "endpoint_id": str(row.endpoint_id),
+        "incident_timestamp": row.incident_timestamp.isoformat() if row.incident_timestamp else None,
+        "status_at_execution": row.status_at_execution,
+        "failed_hop_number": row.failed_hop_number,
+        "failed_hop_ip": row.failed_hop_ip,
+        "last_known_good_hop_ip": row.last_known_good_hop_ip,
+        "rca_summary": row.rca_summary,
+        "baseline_snapshot": b_snap,
+        "failure_trace_snapshot": f_snap,
+        "is_resolved": row.is_resolved,
+    }
+    return APIResponse.success(data=incident_data)
+
 @router.get("/", response_model=APIResponse)
 async def list_endpoints(
     status: Optional[str] = Query(default=None),
@@ -93,6 +158,9 @@ async def list_endpoints(
             e.monitoring_enabled,
             e.allow_incident_trace,
             e.allow_topology_discovery,
+            e.enable_rca,
+            e.enable_scheduled_discovery,
+            e.is_l2_segment,
             e.manual_parent_id,
             e.created_at,
             e.updated_at,
@@ -158,6 +226,9 @@ async def list_endpoints(
             "monitoring_enabled": row.monitoring_enabled,
             "allow_incident_trace": row.allow_incident_trace,
             "allow_topology_discovery": row.allow_topology_discovery,
+            "enable_rca": row.enable_rca,
+            "enable_scheduled_discovery": row.enable_scheduled_discovery,
+            "is_l2_segment": row.is_l2_segment,
             "manual_parent_id": str(row.manual_parent_id) if row.manual_parent_id else None,
             "created_at": row.created_at,
             "updated_at": row.updated_at,
@@ -197,6 +268,9 @@ async def get_endpoint(
             e.monitoring_enabled,
             e.allow_incident_trace,
             e.allow_topology_discovery,
+            e.enable_rca,
+            e.enable_scheduled_discovery,
+            e.is_l2_segment,
             e.manual_parent_id,
             e.endpoint_status,
             e.created_by,
@@ -258,6 +332,9 @@ async def get_endpoint(
         "monitoring_enabled": row.monitoring_enabled,
         "allow_incident_trace": row.allow_incident_trace,
         "allow_topology_discovery": row.allow_topology_discovery,
+        "enable_rca": row.enable_rca,
+        "enable_scheduled_discovery": row.enable_scheduled_discovery,
+        "is_l2_segment": row.is_l2_segment,
         "manual_parent_id": str(row.manual_parent_id) if row.manual_parent_id else None,
         "endpoint_status": row.endpoint_status,
         "created_by": str(row.created_by) if row.created_by else None,
@@ -287,7 +364,6 @@ async def create_endpoint(
     if check_result.fetchone():
         raise HTTPException(status_code=409, detail="An endpoint with this IP address already exists.")
         
-    # Check if a soft-deleted endpoint with the same IP already exists to restore it
     deleted_query = text("""
         SELECT id FROM endpoints
         WHERE ip_address = :ip_address
@@ -306,6 +382,9 @@ async def create_endpoint(
                 monitoring_enabled = :monitoring_enabled,
                 allow_incident_trace = :allow_incident_trace,
                 allow_topology_discovery = :allow_topology_discovery,
+                enable_rca = :enable_rca,
+                enable_scheduled_discovery = :enable_scheduled_discovery,
+                is_l2_segment = :is_l2_segment,
                 manual_parent_id = :manual_parent_id,
                 endpoint_status = 'ACTIVE',
                 deleted_at = NULL,
@@ -320,6 +399,9 @@ async def create_endpoint(
             "monitoring_enabled": request.monitoring_enabled,
             "allow_incident_trace": request.allow_incident_trace,
             "allow_topology_discovery": request.allow_topology_discovery,
+            "enable_rca": request.enable_rca,
+            "enable_scheduled_discovery": request.enable_scheduled_discovery,
+            "is_l2_segment": request.is_l2_segment,
             "manual_parent_id": str(request.manual_parent_id) if request.manual_parent_id else None,
             "endpoint_id": str(deleted_row.id)
         })
@@ -351,13 +433,15 @@ async def create_endpoint(
         INSERT INTO endpoints (
             ip_address, hostname, device_type,
             location, description, monitoring_enabled,
-            allow_incident_trace, allow_topology_discovery, manual_parent_id,
-            endpoint_status, created_by
+            allow_incident_trace, allow_topology_discovery,
+            enable_rca, enable_scheduled_discovery, is_l2_segment,
+            manual_parent_id, endpoint_status, created_by
         ) VALUES (
             :ip_address, :hostname, :device_type,
             :location, :description, :monitoring_enabled,
-            :allow_incident_trace, :allow_topology_discovery, :manual_parent_id,
-            'ACTIVE', :created_by
+            :allow_incident_trace, :allow_topology_discovery,
+            :enable_rca, :enable_scheduled_discovery, :is_l2_segment,
+            :manual_parent_id, 'ACTIVE', :created_by
         ) RETURNING id, created_at, updated_at
     """)
     insert_result = await db.execute(insert_query, {
@@ -369,6 +453,9 @@ async def create_endpoint(
         "monitoring_enabled": request.monitoring_enabled,
         "allow_incident_trace": request.allow_incident_trace,
         "allow_topology_discovery": request.allow_topology_discovery,
+        "enable_rca": request.enable_rca,
+        "enable_scheduled_discovery": request.enable_scheduled_discovery,
+        "is_l2_segment": request.is_l2_segment,
         "manual_parent_id": str(request.manual_parent_id) if request.manual_parent_id else None,
         "created_by": current_user.get("sub"),
     })
@@ -428,6 +515,12 @@ async def update_endpoint(
         updates["allow_incident_trace"] = request.allow_incident_trace
     if request.allow_topology_discovery is not None:
         updates["allow_topology_discovery"] = request.allow_topology_discovery
+    if request.enable_rca is not None:
+        updates["enable_rca"] = request.enable_rca
+    if request.enable_scheduled_discovery is not None:
+        updates["enable_scheduled_discovery"] = request.enable_scheduled_discovery
+    if request.is_l2_segment is not None:
+        updates["is_l2_segment"] = request.is_l2_segment
     if request.manual_parent_id is not None:
         updates["manual_parent_id"] = str(request.manual_parent_id) if request.manual_parent_id else None
     if request.endpoint_status is not None:
@@ -513,3 +606,27 @@ async def delete_endpoint(
     await db.commit()
     
     return APIResponse.success(data={"message": "Endpoint deleted."})
+
+@router.post("/{endpoint_id}/refresh-baseline", response_model=APIResponse)
+async def trigger_refresh_baseline(
+    endpoint_id: UUID,
+    current_user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    from app.services.baseline_route import refresh_baseline_route
+
+    check_query = text("""
+        SELECT host(ip_address) AS ip_address FROM endpoints
+        WHERE id = :endpoint_id
+          AND endpoint_status != 'DELETED'
+    """)
+    check_result = await db.execute(check_query, {"endpoint_id": str(endpoint_id)})
+    row = check_result.fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Endpoint not found.")
+
+    res = await refresh_baseline_route(endpoint_id, str(row.ip_address), db=db)
+    await db.commit()
+    return APIResponse.success(
+        data={"message": "Route discovery completed and baseline refreshed.", "route": res}
+    )

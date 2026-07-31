@@ -194,6 +194,11 @@
 
         </div>
 
+        <!-- Comparative Root Cause Analysis (RCA) Component -->
+        <div class="visualizer-container">
+          <EndpointRcaDetail :endpointId="endpointId" :endpoint="endpoint" />
+        </div>
+
         <!-- State Timeline Component -->
         <div class="visualizer-container">
           <div class="panel-header">
@@ -322,6 +327,7 @@ import { useRoute, useRouter, RouterLink } from 'vue-router'
 import { getEndpoint, getUptimeReport, getEndpointEvents, logout } from '../services/api.js'
 import StateTimeline from '../components/StateTimeline.vue'
 import RTTTrendPanel from '../components/RTTTrendPanel.vue'
+import EndpointRcaDetail from '../components/EndpointRcaDetail.vue'
 
 import Card from 'primevue/card'
 import Button from 'primevue/button'

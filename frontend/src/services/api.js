@@ -38,6 +38,14 @@ export function getEndpointTraces(id) {
   return api.get(`/endpoints/${id}/traces`)
 }
 
+export function getEndpointRca(id) {
+  return api.get(`/endpoints/${id}/rca`)
+}
+
+export function refreshEndpointBaseline(id) {
+  return api.post(`/endpoints/${id}/refresh-baseline`)
+}
+
 export function getUptimeReport(id, startDate, endDate) {
   return api.get(`/reports/uptime/${id}`, {
     params: {
