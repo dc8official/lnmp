@@ -22,50 +22,52 @@ discovery_queue: asyncio.Queue[tuple[UUID, str]] = asyncio.Queue()
 
 async def run_traceroute(target_ip: str) -> Dict[str, Any]:
     """
-    Executes an asynchronous network traceroute to target_ip.
+    Executes asynchronous route discovery using standard non-privileged `tracepath` utility.
     Parses stdout into a structured list of hops:
         [{"hop": 1, "ip": "192.168.1.1", "rtt_ms": 1.25}, ...]
 
-    Unresponsive hops ('* * *') are handled gracefully as:
+    Unresponsive / timed out hops are handled gracefully as:
         {"hop": N, "ip": None, "rtt_ms": None}
     """
     hops: List[Dict[str, Any]] = []
     timestamp = datetime.now(timezone.utc).isoformat()
 
     try:
+        # Standard non-privileged tracepath execution
         proc = await asyncio.create_subprocess_exec(
-            "traceroute",
+            "tracepath",
             "-n",
             "-m",
             "30",
-            "-w",
-            "2",
             target_ip,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
-        stdout, stderr = await proc.communicate()
+        stdout, _ = await proc.communicate()
         stdout_str = stdout.decode("utf-8", errors="ignore")
 
+        seen_hops = set()
         for line in stdout_str.splitlines():
             line = line.strip()
             if not line or line.startswith("traceroute"):
                 continue
 
-            # Hop pattern: match leading hop number
-            hop_match = re.match(r"^(\d+)\s+(.*)$", line)
+            # Match hop number for tracepath ('1:') or traceroute ('1 ')
+            hop_match = re.match(r"^\s*(\d+)[:\s]\s*(.*)$", line)
             if not hop_match:
                 continue
 
             hop_num = int(hop_match.group(1))
+            if hop_num in seen_hops:
+                continue
+            seen_hops.add(hop_num)
+
             remainder = hop_match.group(2).strip()
 
-            # Check if hop is unresponsive ('* * *' or '*')
-            if remainder.startswith("*") or remainder == "* * *":
+            if "no reply" in remainder.lower() or remainder.startswith("*") or remainder == "* * *":
                 hops.append({"hop": hop_num, "ip": None, "rtt_ms": None})
                 continue
 
-            # Match IP address and RTT ms
             ip_match = re.search(r"(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})", remainder)
             rtt_match = re.search(r"([\d\.]+)\s*ms", remainder)
 
@@ -80,7 +82,7 @@ async def run_traceroute(target_ip: str) -> Dict[str, Any]:
 
     except Exception as e:
         logger.warning(
-            "Native traceroute execution failed for target %s: %s: %s. Using fallback trace.",
+            "Standard tracepath execution failed for target %s: %s: %s. Using fallback trace.",
             target_ip,
             type(e).__name__,
             e,
