@@ -219,7 +219,7 @@ async function fetchUsers() {
     users.value = res.data?.data || res.data || []
   } catch (err) {
     console.error('Failed to fetch users:', err)
-    error.value = 'Failed to load user accounts.'
+    error.value = err.response?.data?.detail || err.response?.data?.error?.message || 'Failed to load user accounts. Administrative access required.'
   } finally {
     loading.value = false
   }

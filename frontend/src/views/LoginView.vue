@@ -66,6 +66,7 @@
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { login } from '../services/api.js'
+import { setUserState } from '../services/auth.js'
 import Card from 'primevue/card'
 import InputText from 'primevue/inputtext'
 import Password from 'primevue/password'
@@ -83,12 +84,11 @@ const handleLogin = async () => {
   error.value = null
   try {
     const response = await login(username.value, password.value)
-    // Save user info (username and role) locally
-    localStorage.setItem('user', JSON.stringify({
+    setUserState({
       username: response.data.username,
       role: response.data.role,
       must_change_password: response.data.must_change_password
-    }))
+    })
     router.push('/')
   } catch (err) {
     error.value = err.response?.data?.detail || 'Invalid username or password. Please try again.'

@@ -28,22 +28,83 @@
     <main class="app-main">
       <RouterView />
     </main>
+
+    <!-- Forced Password Change Modal (Initial Setup / Admin Reset) -->
+    <div v-if="mustChangePassword" class="modal-overlay">
+      <div class="modal-card">
+        <div class="modal-header">
+          <h3>Initial Setup — Password Reset Required</h3>
+        </div>
+        <form @submit.prevent="executeChangePassword" class="modal-form">
+          <div class="alert-info warning-alert">
+            For security reasons, you are required to change your default or temporary password before continuing.
+          </div>
+          
+          <div v-if="changePasswordError" class="alert-error">
+            {{ changePasswordError }}
+          </div>
+
+          <div class="form-group">
+            <label>Current Password *</label>
+            <input 
+              type="password"
+              v-model="changePasswordForm.old_password" 
+              placeholder="Enter current password" 
+              required 
+              :disabled="changePasswordLoading"
+            />
+          </div>
+          <div class="form-group">
+            <label>New Password *</label>
+            <input 
+              type="password"
+              v-model="changePasswordForm.new_password" 
+              placeholder="Enter new password (min 8 chars)" 
+              required 
+              :disabled="changePasswordLoading"
+            />
+          </div>
+          <div class="form-group">
+            <label>Confirm New Password *</label>
+            <input 
+              type="password"
+              v-model="changePasswordForm.confirm_password" 
+              placeholder="Confirm new password" 
+              required 
+              :disabled="changePasswordLoading"
+            />
+          </div>
+          <div class="modal-actions">
+            <button type="submit" class="btn-primary full-width-btn" :disabled="changePasswordLoading">
+              {{ changePasswordLoading ? 'Updating...' : 'Update Password & Sign In' }}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
   </div>
 </template>
 
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { useRouter, useRoute, RouterLink, RouterView } from 'vue-router'
-import { logout } from './services/api.js'
+import { logout, changePassword } from './services/api.js'
+import { currentUser, isAdmin, mustChangePassword, loadUserFromStorage, setUserState, clearUserState } from './services/auth.js'
 
 const router = useRouter()
 const route = useRoute()
 const isDark = ref(false)
-const currentUser = ref(null)
-const isAdmin = ref(false)
 
 const noNavRoutes = ['/login', '/change-password']
 const showNav = computed(() => !noNavRoutes.includes(route.path))
+
+const changePasswordLoading = ref(false)
+const changePasswordError = ref(null)
+const changePasswordForm = ref({
+  old_password: '',
+  new_password: '',
+  confirm_password: ''
+})
 
 onMounted(() => {
   const saved = localStorage.getItem('theme') || 'dark'
@@ -55,18 +116,7 @@ onMounted(() => {
     document.documentElement.classList.remove('dark')
   }
   
-  const storedUser = localStorage.getItem('user')
-  if (storedUser) {
-    try {
-      const parsed = JSON.parse(storedUser)
-      currentUser.value = parsed.username
-      if (parsed.role === 'ADMIN') {
-        isAdmin.value = true
-      }
-    } catch (e) {
-      console.error('Failed to parse user state:', e)
-    }
-  }
+  loadUserFromStorage()
 })
 
 function toggleTheme() {
@@ -80,13 +130,46 @@ function toggleTheme() {
   }
 }
 
+async function executeChangePassword() {
+  if (changePasswordForm.value.new_password.length < 8) {
+    changePasswordError.value = 'New password must be at least 8 characters long.'
+    return
+  }
+  if (changePasswordForm.value.new_password !== changePasswordForm.value.confirm_password) {
+    changePasswordError.value = 'New password and confirmation do not match.'
+    return
+  }
+
+  changePasswordLoading.value = true
+  changePasswordError.value = null
+  try {
+    await changePassword({
+      old_password: changePasswordForm.value.old_password,
+      new_password: changePasswordForm.value.new_password
+    })
+    
+    const existing = loadUserFromStorage() || {}
+    setUserState({
+      ...existing,
+      must_change_password: false
+    })
+
+    alert('Password updated successfully! You now have full access to the platform.')
+  } catch (err) {
+    console.error('Failed to change password:', err)
+    changePasswordError.value = err.response?.data?.detail || 'Failed to update password. Verify current password.'
+  } finally {
+    changePasswordLoading.value = false
+  }
+}
+
 async function handleLogout() {
   try { 
     await logout() 
   } catch (err) {
     console.error('Logout error:', err)
   }
-  localStorage.removeItem('user')
+  clearUserState()
   router.push('/login')
 }
 </script>
