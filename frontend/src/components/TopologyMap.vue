@@ -363,8 +363,8 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   height: calc(100vh - 120px);
-  background: var(--bg-card, #111827);
-  border: 1px solid var(--border-color, #1F2937);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
   border-radius: 12px;
   overflow: hidden;
   position: relative;
@@ -375,8 +375,8 @@ onUnmounted(() => {
   justify-content: space-between;
   align-items: center;
   padding: 16px 20px;
-  background: rgba(17, 24, 39, 0.85);
-  border-bottom: 1px solid var(--border-color, #1F2937);
+  background: var(--bg-surface-selected);
+  border-bottom: 1px solid var(--border-color);
   backdrop-filter: blur(8px);
   z-index: 10;
 }
@@ -384,7 +384,7 @@ onUnmounted(() => {
 .topology-title {
   font-size: 1.2rem;
   font-weight: 600;
-  color: #F9FAFB;
+  color: var(--text-primary);
   margin: 0;
   display: flex;
   align-items: center;
@@ -416,9 +416,9 @@ onUnmounted(() => {
 }
 
 .btn-secondary {
-  background: #1F2937;
-  color: #D1D5DB;
-  border: 1px solid #374151;
+  background: var(--bg-surface-selected);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-color);
   padding: 6px 12px;
   border-radius: 6px;
   font-size: 0.85rem;
@@ -427,8 +427,8 @@ onUnmounted(() => {
 }
 
 .btn-secondary:hover {
-  background: #374151;
-  color: #FFFFFF;
+  background: var(--border-color);
+  color: var(--text-primary);
 }
 
 .canvas-wrapper {
@@ -446,32 +446,33 @@ onUnmounted(() => {
 .loading-overlay, .error-overlay {
   position: absolute;
   inset: 0;
-  background: rgba(17, 24, 39, 0.85);
+  background: var(--bg-surface);
+  opacity: 0.95;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   z-index: 20;
-  color: #F9FAFB;
+  color: var(--text-primary);
 }
 
 .map-legend {
   position: absolute;
   bottom: 20px;
   left: 20px;
-  background: rgba(17, 24, 39, 0.9);
-  border: 1px solid #374151;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
   padding: 12px 16px;
   border-radius: 8px;
   z-index: 10;
   font-size: 0.85rem;
-  color: #D1D5DB;
+  color: var(--text-secondary);
 }
 
 .legend-title {
   font-weight: 600;
   margin-bottom: 8px;
-  color: #F9FAFB;
+  color: var(--text-primary);
 }
 
 .legend-items {
@@ -521,9 +522,9 @@ onUnmounted(() => {
   width: 520px;
   max-width: 90vw;
   height: 100%;
-  background: #111827;
-  border-left: 1px solid #1F2937;
-  box-shadow: -6px 0 24px rgba(0, 0, 0, 0.6);
+  background: var(--bg-surface);
+  border-left: 1px solid var(--border-color);
+  box-shadow: -6px 0 24px rgba(0, 0, 0, 0.15);
   z-index: 30;
   transform: translateX(100%);
   transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
@@ -537,29 +538,29 @@ onUnmounted(() => {
 
 .drawer-header {
   padding: 20px;
-  border-bottom: 1px solid #1F2937;
+  border-bottom: 1px solid var(--border-color);
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
-  background: #1F2937;
+  background: var(--bg-surface-selected);
 }
 
 .drawer-title {
   margin: 0;
   font-size: 1.1rem;
-  color: #F9FAFB;
+  color: var(--text-primary);
 }
 
 .drawer-sub {
   margin: 4px 0 0 0;
   font-size: 0.85rem;
-  color: #9CA3AF;
+  color: var(--text-muted);
 }
 
 .btn-close {
   background: transparent;
   border: none;
-  color: #9CA3AF;
+  color: var(--text-secondary);
   font-size: 1.2rem;
   padding: 4px;
   cursor: pointer;
@@ -572,7 +573,8 @@ onUnmounted(() => {
 }
 
 .meta-card {
-  background: #1F2937;
+  background: var(--bg-surface-selected);
+  border: 1px solid var(--border-color);
   border-radius: 8px;
   padding: 14px;
   margin-bottom: 20px;
@@ -588,8 +590,8 @@ onUnmounted(() => {
   font-size: 0.9rem;
 }
 
-.meta-label { color: #9CA3AF; }
-.meta-value { color: #F3F4F6; font-weight: 500; }
+.meta-label { color: var(--text-muted); }
+.meta-value { color: var(--text-primary); font-weight: 500; }
 .meta-value.text-blue { color: #60A5FA; }
 
 .status-pill {
@@ -608,7 +610,7 @@ onUnmounted(() => {
 .spinner {
   width: 32px;
   height: 32px;
-  border: 3px solid rgba(255,255,255,0.1);
+  border: 3px solid var(--border-color);
   border-top-color: #3B82F6;
   border-radius: 50%;
   animation: spin 1s infinite linear;
