@@ -236,6 +236,27 @@ class TestV15BackendCore(unittest.TestCase):
         self.assertIn(("transit:192.168.1.1", "transit:10.254.0.1"), edges)
         self.assertIn(("transit:10.254.0.1", str(ep2_id)), edges)
 
+    def test_topology_graph_manager_singleton_and_mutation_hooks(self) -> None:
+        from app.services.topology import TopologyGraphManager
+        manager = TopologyGraphManager.get_instance()
+        self.assertIs(manager, TopologyGraphManager.get_instance())
+
+        # Test incremental node status update
+        manager._nodes["test-node-1"] = {"id": "test-node-1", "state": "UP", "status": "UP", "type": "monitored"}
+        manager.update_node_status("test-node-1", "DOWN")
+        cached_graph = manager.get_cached_graph()
+        test_node = next((n for n in cached_graph["nodes"] if n["id"] == "test-node-1"), None)
+        self.assertIsNotNone(test_node)
+        self.assertEqual(test_node["state"], "DOWN")
+
+        # Test incremental endpoint path update
+        ep_id = uuid4()
+        manager.update_endpoint_path(ep_id, [{"hop": 1, "ip": "172.16.0.1"}, {"hop": 2, "ip": "172.16.0.2"}])
+        cached_graph_updated = manager.get_cached_graph()
+        nodes_map = {n["id"]: n for n in cached_graph_updated["nodes"]}
+        self.assertIn("transit:172.16.0.1", nodes_map)
+        self.assertIn("transit:172.16.0.2", nodes_map)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -22,22 +22,26 @@ class TestHybridAdaptiveBaseline(unittest.TestCase):
         self.now = datetime.now(timezone.utc)
 
     def test_default_fallback_for_uncached_endpoint(self) -> None:
-        mean, stddev = self.cache.get_baseline(self.endpoint_id, self.now)
+        mean, stddev, count = self.cache.get_baseline(self.endpoint_id, self.now)
         self.assertEqual(mean, DEFAULT_MEAN_MS)
         self.assertEqual(stddev, DEFAULT_STDDEV_MS)
+        self.assertEqual(count, 0)
 
     def test_grace_period_fallback_for_new_endpoint(self) -> None:
         # Endpoint onboarded 2 days ago (< 7 days)
         onboarded_time = self.now - timedelta(days=2)
         self.cache._onboarded_dates[self.endpoint_id] = onboarded_time
 
-        # Populate cache with custom baseline
-        dow = (self.now.weekday() + 1) % 7
+        # Populate cache 1D array of 168 entries
+        arr = [None] * 168
+        dow = self.now.weekday()
         hour = self.now.hour
-        self.cache._cache[self.endpoint_id] = {(dow, hour): (20.0, 5.0)}
+        idx = (dow * 24) + hour
+        arr[idx] = (20.0, 5.0, 100)
+        self.cache._cache[self.endpoint_id] = arr
 
         # Should still return default baseline due to 7-day grace period rule
-        mean, stddev = self.cache.get_baseline(self.endpoint_id, self.now)
+        mean, stddev, count = self.cache.get_baseline(self.endpoint_id, self.now)
         self.assertEqual(mean, DEFAULT_MEAN_MS)
         self.assertEqual(stddev, DEFAULT_STDDEV_MS)
 
@@ -46,14 +50,33 @@ class TestHybridAdaptiveBaseline(unittest.TestCase):
         onboarded_time = self.now - timedelta(days=10)
         self.cache._onboarded_dates[self.endpoint_id] = onboarded_time
 
-        dow = (self.now.weekday() + 1) % 7
+        arr = [None] * 168
+        dow = self.now.weekday()
         hour = self.now.hour
-        expected_mean, expected_stddev = 25.5, 4.2
-        self.cache._cache[self.endpoint_id] = {(dow, hour): (expected_mean, expected_stddev)}
+        idx = (dow * 24) + hour
+        expected_mean, expected_stddev, expected_count = 25.5, 4.2, 250
+        arr[idx] = (expected_mean, expected_stddev, expected_count)
+        self.cache._cache[self.endpoint_id] = arr
 
-        mean, stddev = self.cache.get_baseline(self.endpoint_id, self.now)
+        mean, stddev, count = self.cache.get_baseline(self.endpoint_id, self.now)
         self.assertEqual(mean, expected_mean)
         self.assertEqual(stddev, expected_stddev)
+        self.assertEqual(count, expected_count)
+
+    def test_1d_array_index_calculation_helper(self) -> None:
+        onboarded_time = self.now - timedelta(days=10)
+        self.cache._onboarded_dates[self.endpoint_id] = onboarded_time
+
+        arr = [None] * 168
+        # Day of week 3 (Thursday), hour 14 -> index = 3 * 24 + 14 = 86
+        idx = (3 * 24) + 14
+        arr[idx] = (33.0, 7.0, 500)
+        self.cache._cache[self.endpoint_id] = arr
+
+        mean, stddev, count = self.cache.get_baseline(self.endpoint_id, 3, 14)
+        self.assertEqual(mean, 33.0)
+        self.assertEqual(stddev, 7.0)
+        self.assertEqual(count, 500)
 
     def test_z_score_calculation(self) -> None:
         # mean = 50, stddev = 10, reading = 80 -> z = (80 - 50) / 10 = 3.0
