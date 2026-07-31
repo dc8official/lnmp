@@ -231,6 +231,31 @@ class StateMachine:
                     new_detailed_state,
                 )
 
+                # V1.5 State Transition Hooks: Differential RCA and Recovery
+                if state.confirmed_operational_state != new_operational_state:
+                    import asyncio
+                    from app.services.rca_engine import run_differential_rca, handle_endpoint_recovery
+
+                    if new_operational_state == "DOWN":
+                        # Fetch enable_rca configuration
+                        rca_check = await db.execute(
+                            text("SELECT enable_rca FROM endpoints WHERE id = :id"),
+                            {"id": str(state.endpoint_id)},
+                        )
+                        rca_row = rca_check.fetchone()
+                        if rca_row and getattr(rca_row, "enable_rca", True):
+                            asyncio.create_task(run_differential_rca(state.endpoint_id))
+                    elif new_operational_state == "UP":
+                        ep_check = await db.execute(
+                            text("SELECT host(ip_address) AS ip_address FROM endpoints WHERE id = :id"),
+                            {"id": str(state.endpoint_id)},
+                        )
+                        ep_row = ep_check.fetchone()
+                        if ep_row and ep_row.ip_address:
+                            asyncio.create_task(
+                                handle_endpoint_recovery(state.endpoint_id, str(ep_row.ip_address))
+                            )
+
         # Sub-case B2: No transition was pending, or the pending state has
         # changed to a third state. Reset the pending tracker.
         else:
