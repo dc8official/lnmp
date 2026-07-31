@@ -12,9 +12,9 @@ const routes = [
     component: () => import('../components/TopologyMap.vue'),
   },
   {
-    path: '/endpoints',
-    name: 'Endpoints',
-    component: () => import('../views/Endpoints.vue'),
+    path: '/users',
+    name: 'UserManagement',
+    component: () => import('../views/UserManagementView.vue'),
   },
   {
     path: '/login',

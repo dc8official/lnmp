@@ -18,6 +18,15 @@
         
         <div v-if="endpoint" class="device-actions">
           <Button 
+            v-if="isAdmin"
+            icon="pi pi-cog" 
+            label="Settings" 
+            @click="openSettingsModal" 
+            severity="secondary"
+            size="small"
+            class="settings-btn"
+          />
+          <Button 
             icon="pi pi-refresh" 
             label="Refresh" 
             @click="loadData" 
@@ -318,13 +327,104 @@
 
       </div>
     </div>
+
+    <!-- Admin Endpoint Settings Modal -->
+    <div class="modal-overlay" v-if="showSettingsModal" @click.self="showSettingsModal = false">
+      <div class="modal-card">
+        <div class="modal-header">
+          <h3>⚙️ Endpoint Governance & Settings</h3>
+          <button class="btn-close" @click="showSettingsModal = false">✕</button>
+        </div>
+
+        <form @submit.prevent="saveEndpointSettings" class="modal-form">
+          <div class="form-row">
+            <div class="form-group">
+              <label>Hostname *</label>
+              <input v-model="editForm.hostname" type="text" required />
+            </div>
+            <div class="form-group">
+              <label>IP Address</label>
+              <input v-model="editForm.ip_address" type="text" disabled />
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label>Device Type</label>
+              <select v-model="editForm.device_type" class="form-select">
+                <option v-for="d in ['Server', 'Router', 'Switch', 'Access Point', 'Firewall', 'Printer', 'Other']" :key="d" :value="d">{{ d }}</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>Physical Location</label>
+              <input v-model="editForm.location" type="text" placeholder="Data Center 1 - Rack 4" />
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label>Description</label>
+            <textarea v-model="editForm.description" rows="2" placeholder="Primary gateway router" class="form-textarea"></textarea>
+          </div>
+
+          <!-- Governance Controls Section -->
+          <div class="governance-box">
+            <h4 class="box-title">Governance & Diagnostics Controls</h4>
+
+            <div class="setting-switch-item">
+              <div class="switch-info">
+                <span class="switch-title">Enable Root Cause Analysis (RCA)</span>
+                <span class="switch-desc">Triggers differential route traceroute snapshot comparison on failure</span>
+              </div>
+              <input type="checkbox" v-model="editForm.enable_rca" class="check-box" />
+            </div>
+
+            <div class="setting-switch-item">
+              <div class="switch-info">
+                <span class="switch-title">Midnight Scheduled Discovery</span>
+                <span class="switch-desc">Includes endpoint in sequential 00:00 baseline update passes</span>
+              </div>
+              <input type="checkbox" v-model="editForm.enable_scheduled_discovery" class="check-box" />
+            </div>
+
+            <div class="setting-switch-item">
+              <div class="switch-info">
+                <span class="switch-title">Layer 2 Segment Target</span>
+                <span class="switch-desc">Direct local VLAN broadcast segment without L3 router hops</span>
+              </div>
+              <input type="checkbox" v-model="editForm.is_l2_segment" class="check-box" />
+            </div>
+
+            <div class="setting-switch-item">
+              <div class="switch-info">
+                <span class="switch-title">Active ICMP Monitoring</span>
+                <span class="switch-desc">Enable background uptime & latency polling cycles</span>
+              </div>
+              <input type="checkbox" v-model="editForm.monitoring_enabled" class="check-box" />
+            </div>
+          </div>
+
+          <div class="modal-footer-bar">
+            <button type="button" class="btn-discovery" @click="triggerDiscovery" :disabled="discovering">
+              <span v-if="discovering">Discovering...</span>
+              <span v-else>📡 Run Route Discovery</span>
+            </button>
+            <div class="footer-buttons">
+              <button type="button" class="btn-secondary" @click="showSettingsModal = false">Cancel</button>
+              <button type="submit" class="btn-primary" :disabled="savingSettings">
+                {{ savingSettings ? 'Saving...' : 'Save Settings' }}
+              </button>
+            </div>
+          </div>
+        </form>
+      </div>
+    </div>
   </div>
 </template>
 
 <script setup>
 import { ref, onMounted, onBeforeUnmount, computed } from 'vue'
 import { useRoute, useRouter, RouterLink } from 'vue-router'
-import { getEndpoint, getUptimeReport, getEndpointEvents, logout } from '../services/api.js'
+import { getEndpoint, getUptimeReport, getEndpointEvents, updateEndpoint, refreshEndpointBaseline, logout } from '../services/api.js'
 import StateTimeline from '../components/StateTimeline.vue'
 import RTTTrendPanel from '../components/RTTTrendPanel.vue'
 import EndpointRcaDetail from '../components/EndpointRcaDetail.vue'
@@ -349,9 +449,74 @@ const toggleTheme = () => {
   }
 }
 
-
-
 const user = ref(null)
+const isAdmin = computed(() => user.value?.role === 'ADMIN')
+
+const showSettingsModal = ref(false)
+const savingSettings = ref(false)
+const discovering = ref(false)
+const editForm = ref({
+  hostname: '',
+  ip_address: '',
+  device_type: 'Router',
+  location: '',
+  description: '',
+  monitoring_enabled: true,
+  allow_incident_trace: true,
+  allow_topology_discovery: true,
+  enable_rca: true,
+  enable_scheduled_discovery: true,
+  is_l2_segment: false,
+  manual_parent_id: null
+})
+
+function openSettingsModal() {
+  if (!endpoint.value) return
+  editForm.value = {
+    hostname: endpoint.value.hostname || '',
+    ip_address: endpoint.value.ip_address || '',
+    device_type: endpoint.value.device_type || 'Router',
+    location: endpoint.value.location || '',
+    description: endpoint.value.description || '',
+    monitoring_enabled: endpoint.value.monitoring_enabled ?? true,
+    allow_incident_trace: endpoint.value.allow_incident_trace ?? true,
+    allow_topology_discovery: endpoint.value.allow_topology_discovery ?? true,
+    enable_rca: endpoint.value.enable_rca ?? true,
+    enable_scheduled_discovery: endpoint.value.enable_scheduled_discovery ?? true,
+    is_l2_segment: endpoint.value.is_l2_segment ?? false,
+    manual_parent_id: endpoint.value.manual_parent_id || null
+  }
+  showSettingsModal.value = true
+}
+
+async function saveEndpointSettings() {
+  savingSettings.value = true
+  try {
+    await updateEndpoint(endpointId, editForm.value)
+    showSettingsModal.value = false
+    await loadData()
+    alert('Endpoint settings updated successfully.')
+  } catch (err) {
+    console.error('Failed to update endpoint settings:', err)
+    alert(err.response?.data?.detail || 'Failed to update settings.')
+  } finally {
+    savingSettings.value = false
+  }
+}
+
+async function triggerDiscovery() {
+  discovering.value = true
+  try {
+    await refreshEndpointBaseline(endpointId)
+    alert('Route discovery executed successfully. Baseline updated.')
+    await loadData()
+  } catch (err) {
+    console.error('Route discovery failed:', err)
+    alert(err.response?.data?.detail || 'Route discovery failed.')
+  } finally {
+    discovering.value = false
+  }
+}
 const endpoint = ref(null)
 const uptimeReport = ref(null)
 const events = ref([])
@@ -1273,5 +1438,163 @@ h2 {
 /* Light mode hover background for arrow buttons */
 :global(html:not(.dark)) .nav-arrow-btn:hover:not(:disabled) {
   background-color: rgba(0, 0, 0, 0.05);
+}
+
+/* Modal Overlay & Governance Dialog Styles */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+  backdrop-filter: blur(4px);
+}
+
+.modal-card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  width: 600px;
+  max-width: 92vw;
+  max-height: 90vh;
+  overflow-y: auto;
+}
+
+.modal-header {
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border-color);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.modal-header h3 {
+  margin: 0;
+  font-size: 1.1rem;
+  color: var(--text-primary);
+}
+
+.btn-close {
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 1.2rem;
+  cursor: pointer;
+}
+
+.modal-form {
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.form-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+.form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.form-group label {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.form-group input, .form-select, .form-textarea {
+  background: var(--bg-app);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  padding: 8px 12px;
+  color: var(--text-primary);
+  font-size: 0.9rem;
+}
+
+.form-textarea {
+  resize: vertical;
+}
+
+.governance-box {
+  background: var(--bg-surface-selected);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.box-title {
+  margin: 0;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #3B82F6;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.setting-switch-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
+.switch-info {
+  display: flex;
+  flex-direction: column;
+}
+
+.switch-title {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.switch-desc {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.check-box {
+  width: 18px;
+  height: 18px;
+  cursor: pointer;
+}
+
+.modal-footer-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 10px;
+  gap: 12px;
+}
+
+.footer-buttons {
+  display: flex;
+  gap: 10px;
+}
+
+.btn-discovery {
+  background: rgba(59, 130, 246, 0.15);
+  color: #60A5FA;
+  border: 1px solid rgba(59, 130, 246, 0.3);
+  padding: 8px 14px;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.btn-discovery:hover {
+  background: rgba(59, 130, 246, 0.25);
 }
 </style>

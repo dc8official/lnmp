@@ -11,15 +11,6 @@
         </span>
       </div>
       <div class="header-actions">
-        <button 
-          class="btn-discovery" 
-          @click="runRouteDiscovery" 
-          :disabled="discovering"
-          title="Manually execute traceroute and refresh last-known-good baseline route"
-        >
-          <span v-if="discovering" class="spinner-inline"></span>
-          <span v-else>📡 Run Route Discovery</span>
-        </button>
         <button class="btn-refresh" @click="loadData" :disabled="loading">
           {{ loading ? 'Updating...' : '↻ Refresh RCA' }}
         </button>
@@ -144,72 +135,14 @@
     <div v-else class="empty-rca-state">
       <div class="empty-icon">🛡️</div>
       <h4>No RCA Incidents Recorded</h4>
-      <p>This endpoint has no recorded outage RCA incidents. Run route discovery to establish a last-known-good baseline.</p>
-    </div>
-
-    <!-- Endpoint Governance Controls Section -->
-    <div class="governance-card">
-      <div class="card-header">
-        <h4>⚙️ Endpoint Governance Controls</h4>
-        <span class="subtext">Configure automated RCA differential engine and scheduled midnight discovery cycles</span>
-      </div>
-
-      <div class="toggles-grid">
-        <!-- Toggle 1: Enable RCA -->
-        <div class="governance-toggle-item">
-          <div class="toggle-info">
-            <label class="toggle-title">Enable Root Cause Analysis (RCA)</label>
-            <p class="toggle-description">
-              Automatically triggers differential route analysis and divergence mapping when this endpoint transitions to DOWN.
-            </p>
-          </div>
-          <div class="toggle-control">
-            <label class="switch">
-              <input 
-                type="checkbox" 
-                v-model="governance.enable_rca" 
-                @change="updateGovernance"
-                :disabled="savingGovernance"
-              />
-              <span class="slider round"></span>
-            </label>
-            <span class="toggle-status-text" :class="governance.enable_rca ? 'text-active' : 'text-disabled'">
-              {{ governance.enable_rca ? 'ACTIVE' : 'OFF' }}
-            </span>
-          </div>
-        </div>
-
-        <!-- Toggle 2: Midnight Scheduled Discovery -->
-        <div class="governance-toggle-item">
-          <div class="toggle-info">
-            <label class="toggle-title">Midnight Scheduled Discovery</label>
-            <p class="toggle-description">
-              Includes this endpoint in sequential 00:00 midnight traceroute discovery worker passes to update baseline routes.
-            </p>
-          </div>
-          <div class="toggle-control">
-            <label class="switch">
-              <input 
-                type="checkbox" 
-                v-model="governance.enable_scheduled_discovery" 
-                @change="updateGovernance"
-                :disabled="savingGovernance"
-              />
-              <span class="slider round"></span>
-            </label>
-            <span class="toggle-status-text" :class="governance.enable_scheduled_discovery ? 'text-active' : 'text-disabled'">
-              {{ governance.enable_scheduled_discovery ? 'ACTIVE' : 'OFF' }}
-            </span>
-          </div>
-        </div>
-      </div>
+      <p>This endpoint has no recorded outage RCA incidents.</p>
     </div>
   </div>
 </template>
 
 <script setup>
 import { ref, computed, onMounted, watch } from 'vue'
-import { getEndpointRca, getEndpoint, updateEndpoint, refreshEndpointBaseline } from '../services/api.js'
+import { getEndpointRca, getEndpoint } from '../services/api.js'
 
 const props = defineProps({
   endpointId: {
@@ -224,19 +157,9 @@ const props = defineProps({
 
 const loading = ref(true)
 const error = ref(null)
-const discovering = ref(false)
-const savingGovernance = ref(false)
-
 const rcaData = ref(null)
 const endpointData = ref(props.endpoint)
 
-const governance = ref({
-  enable_rca: true,
-  enable_scheduled_discovery: true,
-  is_l2_segment: false
-})
-
-// Helper date formatter
 function formatDate(isoStr) {
   if (!isoStr) return 'N/A'
   return new Date(isoStr).toLocaleString()
@@ -248,7 +171,6 @@ function getBannerClass(rca) {
   return 'banner-down'
 }
 
-// Side-by-side comparative hop merger
 const combinedHops = computed(() => {
   if (!rcaData.value) return []
 
@@ -267,7 +189,6 @@ const combinedHops = computed(() => {
 
     const isFailureHop = (failedHopNum === i) || (failedHopIp && fHop && fHop.ip === failedHopIp)
     
-    // Check divergence between baseline and failure snapshot at hop i
     let isDivergent = false
     if (bHop && fHop) {
       if (bHop.ip !== fHop.ip) {
@@ -306,48 +227,12 @@ async function loadData() {
     rcaData.value = rcaRes.data?.data || null
     if (epRes.data?.data) {
       endpointData.value = epRes.data.data
-      governance.value.enable_rca = epRes.data.data.enable_rca !== false
-      governance.value.enable_scheduled_discovery = epRes.data.data.enable_scheduled_discovery !== false
-      governance.value.is_l2_segment = epRes.data.data.is_l2_segment === true
     }
   } catch (err) {
     console.error('Failed to load RCA data:', err)
     error.value = 'Failed to load RCA incident telemetry.'
   } finally {
     loading.value = false
-  }
-}
-
-async function runRouteDiscovery() {
-  if (!props.endpointId) return
-  discovering.value = true
-  try {
-    await refreshEndpointBaseline(props.endpointId)
-    await loadData()
-    alert('Route discovery initiated! Baseline route has been refreshed.')
-  } catch (err) {
-    console.error('Route discovery failed:', err)
-    alert('Failed to trigger route discovery.')
-  } finally {
-    discovering.value = false
-  }
-}
-
-async function updateGovernance() {
-  if (!props.endpointId) return
-  savingGovernance.value = true
-  try {
-    await updateEndpoint(props.endpointId, {
-      enable_rca: governance.value.enable_rca,
-      enable_scheduled_discovery: governance.value.enable_scheduled_discovery
-    })
-  } catch (err) {
-    console.error('Failed to update governance settings:', err)
-    alert('Failed to save governance settings.')
-    // Revert state on failure
-    await loadData()
-  } finally {
-    savingGovernance.value = false
   }
 }
 
@@ -406,27 +291,6 @@ onMounted(() => {
 .header-actions {
   display: flex;
   gap: 10px;
-}
-
-.btn-discovery {
-  background: #2563EB;
-  color: #FFFFFF;
-  border: none;
-  padding: 6px 14px;
-  border-radius: 6px;
-  font-size: 0.85rem;
-  font-weight: 600;
-  cursor: pointer;
-  transition: background 0.2s ease;
-}
-
-.btn-discovery:hover {
-  background: #1D4ED8;
-}
-
-.btn-discovery:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
 }
 
 .btn-refresh {
@@ -672,7 +536,7 @@ onMounted(() => {
 }
 
 .diff-badge.neutral {
-  color: #6B7280;
+  color: var(--text-muted);
 }
 
 .empty-table, .empty-rca-state {
@@ -691,129 +555,10 @@ onMounted(() => {
   color: var(--text-primary);
 }
 
-/* Governance Controls */
-.governance-card {
-  background: var(--bg-surface);
-  border: 1px solid var(--border-color);
-  border-radius: 10px;
-  overflow: hidden;
-}
-
-.toggles-grid {
-  padding: 16px 20px;
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
-
-.governance-toggle-item {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding-bottom: 12px;
-  border-bottom: 1px solid var(--border-color);
-}
-
-.governance-toggle-item:last-child {
-  border-bottom: none;
-  padding-bottom: 0;
-}
-
-.toggle-info {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.toggle-title {
-  font-size: 0.9rem;
-  font-weight: 600;
-  color: var(--text-primary);
-}
-
-.toggle-description {
-  font-size: 0.8rem;
-  color: var(--text-muted);
-  margin: 0;
-}
-
-.toggle-control {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.toggle-status-text {
-  font-size: 0.8rem;
-  font-weight: 700;
-  min-width: 45px;
-}
-
-.toggle-status-text.text-active {
-  color: #34D399;
-}
-
-.toggle-status-text.text-disabled {
-  color: var(--text-muted);
-}
-
-/* Switch Styles */
-.switch {
-  position: relative;
-  display: inline-block;
-  width: 44px;
-  height: 24px;
-}
-
-.switch input {
-  opacity: 0;
-  width: 0;
-  height: 0;
-}
-
-.slider {
-  position: absolute;
-  cursor: pointer;
-  inset: 0;
-  background-color: var(--border-color-strong);
-  transition: .3s;
-  border-radius: 24px;
-}
-
-.slider:before {
-  position: absolute;
-  content: "";
-  height: 18px;
-  width: 18px;
-  left: 3px;
-  bottom: 3px;
-  background-color: white;
-  transition: .3s;
-  border-radius: 50%;
-}
-
-input:checked + .slider {
-  background-color: #2563EB;
-}
-
-input:checked + .slider:before {
-  transform: translateX(20px);
-}
-
-.spinner-inline {
-  display: inline-block;
-  width: 12px;
-  height: 12px;
-  border: 2px solid rgba(255,255,255,0.3);
-  border-top-color: #FFFFFF;
-  border-radius: 50%;
-  animation: spin 0.8s infinite linear;
-}
-
 .spinner {
   width: 28px;
   height: 28px;
-  border: 3px solid rgba(255,255,255,0.1);
+  border: 3px solid var(--border-color);
   border-top-color: #2563EB;
   border-radius: 50%;
   animation: spin 1s infinite linear;

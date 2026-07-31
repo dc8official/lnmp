@@ -480,6 +480,20 @@ async def create_endpoint(
     
     await db.commit()
     
+    # Auto-run baseline route discovery & rebuild topology DAG in memory
+    from app.services.baseline_route import refresh_baseline_route
+    from app.services.topology import topology_manager
+    try:
+        await refresh_baseline_route(new_endpoint.id, request.ip_address, db=db)
+        await db.commit()
+    except Exception as e:
+        pass
+
+    try:
+        await topology_manager.full_rebuild(db)
+    except Exception as e:
+        pass
+
     return APIResponse.success(
         data={"id": str(new_endpoint.id), "message": "Endpoint created."},
     )
@@ -491,6 +505,8 @@ async def update_endpoint(
     current_user: dict = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
+    from app.services.topology import topology_manager
+
     check_query = text("""
         SELECT id FROM endpoints
         WHERE id = :endpoint_id
@@ -558,6 +574,11 @@ async def update_endpoint(
     })
     
     await db.commit()
+
+    try:
+        await topology_manager.full_rebuild(db)
+    except Exception:
+        pass
     
     return APIResponse.success(data={"message": "Endpoint updated."})
 
@@ -567,6 +588,8 @@ async def delete_endpoint(
     current_user: dict = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
+    from app.services.topology import topology_manager
+
     check_query = text("""
         SELECT id FROM endpoints
         WHERE id = :endpoint_id
@@ -604,6 +627,11 @@ async def delete_endpoint(
     })
     
     await db.commit()
+
+    try:
+        await topology_manager.full_rebuild(db)
+    except Exception:
+        pass
     
     return APIResponse.success(data={"message": "Endpoint deleted."})
 
@@ -614,6 +642,7 @@ async def trigger_refresh_baseline(
     db: AsyncSession = Depends(get_db),
 ):
     from app.services.baseline_route import refresh_baseline_route
+    from app.services.topology import topology_manager
 
     check_query = text("""
         SELECT host(ip_address) AS ip_address FROM endpoints
@@ -627,6 +656,12 @@ async def trigger_refresh_baseline(
 
     res = await refresh_baseline_route(endpoint_id, str(row.ip_address), db=db)
     await db.commit()
+
+    try:
+        await topology_manager.full_rebuild(db)
+    except Exception:
+        pass
+
     return APIResponse.success(
         data={"message": "Route discovery completed and baseline refreshed.", "route": res}
     )
