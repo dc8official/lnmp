@@ -606,3 +606,27 @@ async def delete_endpoint(
     await db.commit()
     
     return APIResponse.success(data={"message": "Endpoint deleted."})
+
+@router.post("/{endpoint_id}/refresh-baseline", response_model=APIResponse)
+async def trigger_refresh_baseline(
+    endpoint_id: UUID,
+    current_user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    from app.services.baseline_route import refresh_baseline_route
+
+    check_query = text("""
+        SELECT host(ip_address) AS ip_address FROM endpoints
+        WHERE id = :endpoint_id
+          AND endpoint_status != 'DELETED'
+    """)
+    check_result = await db.execute(check_query, {"endpoint_id": str(endpoint_id)})
+    row = check_result.fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Endpoint not found.")
+
+    res = await refresh_baseline_route(endpoint_id, str(row.ip_address), db=db)
+    await db.commit()
+    return APIResponse.success(
+        data={"message": "Route discovery completed and baseline refreshed.", "route": res}
+    )

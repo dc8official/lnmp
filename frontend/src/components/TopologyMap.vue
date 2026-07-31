@@ -7,10 +7,13 @@
           <span class="icon">🕸</span> Live Network Topology Map
         </h2>
         <span class="status-badge" :class="stabilized ? 'badge-stabilized' : 'badge-stabilizing'">
-          {{ stabilized ? '● Layout Fixed (Physics Off)' : '◌ Stabilizing Layout...' }}
+          {{ stabilized ? '● Layout Fixed (Physics Off)' : '◌ Stabilizing Hierarchical Layout...' }}
         </span>
       </div>
       <div class="toolbar-right">
+        <button class="btn-secondary" @click="resetView" title="Center and zoom map to fit all nodes">
+          🔍 Reset View
+        </button>
         <button class="btn-secondary" @click="fetchTopology" :disabled="loading">
           {{ loading ? 'Updating...' : '↻ Refresh Topology' }}
         </button>
@@ -24,7 +27,7 @@
       <!-- Loading / Error Overlays -->
       <div v-if="loading && !networkInitialized" class="loading-overlay">
         <div class="spinner"></div>
-        <p>Loading topology map...</p>
+        <p>Loading multi-endpoint merged topology map...</p>
       </div>
       <div v-if="error" class="error-overlay">
         <p class="error-msg">⚠️ {{ error }}</p>
@@ -35,11 +38,14 @@
       <div class="map-legend">
         <div class="legend-title">Topology Legend</div>
         <div class="legend-items">
+          <div class="legend-item"><span class="node-icon square state-root"></span> LNMP Engine (Root)</div>
           <div class="legend-item"><span class="node-icon circle state-up"></span> Monitored UP</div>
           <div class="legend-item"><span class="node-icon circle state-unstable"></span> Monitored UNSTABLE</div>
           <div class="legend-item"><span class="node-icon circle state-down"></span> Monitored DOWN</div>
           <div class="legend-item"><span class="node-icon hexagon state-transit"></span> Transit Router</div>
+          <div class="legend-item"><span class="node-icon hexagon state-failure-point"></span> Failure Point (RCA)</div>
           <div class="legend-item"><span class="node-icon hexagon state-inferred-down"></span> Transit INFERRED DOWN</div>
+          <div class="legend-item"><span class="l2-pill">L2</span> Layer 2 Segment</div>
         </div>
       </div>
 
@@ -54,19 +60,23 @@
         </div>
 
         <div class="drawer-body" v-if="selectedNode">
-          <!-- Node Meta Details -->
+          <!-- Node Meta Details Card -->
           <div class="meta-card">
             <div class="meta-row">
-              <span class="meta-label">Node Type:</span>
-              <span class="meta-value badge" :class="selectedNode.node_type">
-                {{ selectedNode.node_type === 'monitored' ? 'Monitored Target' : 'Transit Router' }}
+              <span class="meta-label">Node Category:</span>
+              <span class="meta-value badge" :class="selectedNode.node_type || selectedNode.type">
+                {{ formatNodeType(selectedNode.node_type || selectedNode.type) }}
               </span>
             </div>
             <div class="meta-row">
               <span class="meta-label">Operational Status:</span>
-              <span class="status-pill" :class="getStatusClass(selectedNode.status)">
-                {{ selectedNode.status }}
+              <span class="status-pill" :class="getStatusClass(selectedNode.status || selectedNode.state)">
+                {{ selectedNode.status || selectedNode.state }}
               </span>
+            </div>
+            <div class="meta-row" v-if="selectedNode.is_l2_segment || selectedNode.device_type === 'L2_SEGMENT'">
+              <span class="meta-label">Segment Type:</span>
+              <span class="meta-value text-blue">Layer 2 Broadcast Segment</span>
             </div>
             <div class="meta-row" v-if="selectedNode.device_type">
               <span class="meta-label">Device Type:</span>
@@ -74,48 +84,18 @@
             </div>
           </div>
 
-          <!-- Diagnostic Traceroute Section -->
-          <div class="traces-section">
+          <!-- Embedded RCA Diagnostics Component for Monitored Nodes with Endpoint ID -->
+          <div v-if="selectedNode.endpoint_id" class="drawer-rca-section">
+            <EndpointRcaDetail :endpointId="selectedNode.endpoint_id" />
+          </div>
+
+          <!-- Diagnostic Traceroute for Transit or unlinked Nodes -->
+          <div v-else class="traces-section">
             <h4 class="section-title">
-              <span>🩺 Diagnostic Traceroute</span>
-              <button class="btn-xs" @click="fetchTraces(selectedNode.endpoint_id)" v-if="selectedNode.endpoint_id">
-                Refresh Trace
-              </button>
+              <span>🩺 Transit Node Diagnostics</span>
             </h4>
-
-            <div v-if="tracesLoading" class="trace-loading">
-              <div class="spinner-sm"></div>
-              <span>Fetching diagnostic trace snapshot...</span>
-            </div>
-
-            <div v-else-if="latestHops.length === 0" class="empty-trace">
-              <p>No diagnostic traceroutes available for this node.</p>
-            </div>
-
-            <div v-else class="trace-table-container">
-              <table class="trace-table">
-                <thead>
-                  <tr>
-                    <th>Hop</th>
-                    <th>IP Address</th>
-                    <th>RTT (ms)</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr v-for="hop in latestHops" :key="hop.hop" :class="{ 'unresponsive': !hop.ip }">
-                    <td class="hop-num">{{ hop.hop }}</td>
-                    <td class="hop-ip">
-                      {{ hop.ip || '* * * (Unresponsive)' }}
-                    </td>
-                    <td class="hop-rtt">
-                      <span v-if="hop.rtt_ms !== null && hop.rtt_ms !== undefined" class="rtt-tag">
-                        {{ hop.rtt_ms.toFixed(2) }} ms
-                      </span>
-                      <span v-else class="rtt-muted">—</span>
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
+            <div class="empty-trace">
+              <p>Transit router node automatically inferred from traceroute discovery paths.</p>
             </div>
           </div>
         </div>
@@ -128,7 +108,8 @@
 import { ref, onMounted, onUnmounted, nextTick } from 'vue'
 import { Network } from 'vis-network'
 import { DataSet } from 'vis-data'
-import { getTopology, getEndpointTraces } from '../services/api.js'
+import { getTopology } from '../services/api.js'
+import EndpointRcaDetail from './EndpointRcaDetail.vue'
 
 const container = ref(null)
 const loading = ref(true)
@@ -137,17 +118,36 @@ const networkInitialized = ref(false)
 const stabilized = ref(false)
 
 const selectedNode = ref(null)
-const tracesLoading = ref(false)
-const latestHops = ref([])
 
 let network = null
 let nodesDataSet = null
 let edgesDataSet = null
 let refreshInterval = null
 
-// Color scheme mapping based on operational state
+function formatNodeType(type) {
+  if (type === 'root') return 'LNMP Engine (Root)'
+  if (type === 'monitored') return 'Monitored Target'
+  return 'Transit Router'
+}
+
+// Visual Node Styling & Categorization
 function getNodeColors(status, nodeType) {
+  if (nodeType === 'root') {
+    return {
+      background: '#1D4ED8',
+      border: '#3B82F6',
+      highlight: { background: '#2563EB', border: '#60A5FA' }
+    }
+  }
+
   if (nodeType === 'transit') {
+    if (status === 'FAILURE_POINT') {
+      return {
+        background: '#991B1B',
+        border: '#F97316',
+        highlight: { background: '#7F1D1D', border: '#FB923C' }
+      }
+    }
     if (status === 'INFERRED_DOWN') {
       return {
         background: '#7F1D1D',
@@ -198,6 +198,7 @@ function getStatusClass(status) {
     case 'UP-UNSTABLE':
     case 'DOWN-UNSTABLE': return 'status-unstable'
     case 'DOWN': return 'status-down'
+    case 'FAILURE_POINT': return 'status-failure-point'
     case 'INFERRED_DOWN': return 'status-inferred-down'
     default: return ''
   }
@@ -205,16 +206,37 @@ function getStatusClass(status) {
 
 function formatVisData(nodesData, edgesData) {
   const visNodes = nodesData.map(node => {
-    const colors = getNodeColors(node.status, node.node_type)
-    const isTransit = node.node_type === 'transit'
+    const nodeType = node.node_type || node.type
+    const nodeStatus = node.status || node.state
+    const colors = getNodeColors(nodeStatus, nodeType)
+    const isL2 = node.is_l2_segment || node.device_type === 'L2_SEGMENT'
+
+    let shape = 'dot'
+    let size = 24
+
+    if (nodeType === 'root') {
+      shape = 'square'
+      size = 28
+    } else if (nodeType === 'transit') {
+      shape = 'hexagon'
+      size = 18
+    }
+
+    let labelText = `${node.label}\n(${node.ip_address || ''})`
+    if (isL2) {
+      labelText += '\n[L2 Segment]'
+    }
+    if (nodeStatus === 'FAILURE_POINT') {
+      labelText += '\n⚠️ FAILURE POINT'
+    }
+
     return {
       id: node.id,
-      label: `${node.label}\n(${node.ip_address})`,
-      shape: isTransit ? 'hexagon' : 'dot',
-      size: isTransit ? 18 : 24,
+      label: labelText.trim(),
+      shape: shape,
+      size: size,
       color: colors,
       font: { color: '#F3F4F6', size: 12, face: 'Inter, sans-serif' },
-      // Attach raw node data for click inspector
       rawNode: node
     }
   })
@@ -251,18 +273,27 @@ async function fetchTopology() {
       const options = {
         nodes: { borderWidth: 2 },
         edges: { width: 2 },
+        layout: {
+          hierarchical: {
+            enabled: true,
+            direction: 'UD',
+            sortMethod: 'directed',
+            nodeSpacing: 150,
+            levelSeparation: 120
+          }
+        },
         physics: {
           enabled: true,
-          solver: 'forceAtlas2Based',
-          forceAtlas2Based: {
-            gravitationalConstant: -40,
-            centralGravity: 0.01,
-            springLength: 120,
-            springConstant: 0.08
+          hierarchicalRepulsion: {
+            centralGravity: 0.0,
+            springLength: 100,
+            springConstant: 0.01,
+            nodeDistance: 120,
+            damping: 0.09
           },
           stabilization: {
             enabled: true,
-            iterations: 150
+            iterations: 200
           }
         },
         interaction: {
@@ -274,9 +305,10 @@ async function fetchTopology() {
 
       network = new Network(container.value, { nodes: nodesDataSet, edges: edgesDataSet }, options)
 
-      // Layout Stabilization Event: Disable physics so polling doesn't shake layout
+      // Listen to stabilizationIterationsDone and immediately execute physics: false
+      // to freeze node positions and prevent canvas shaking during live polling updates.
       network.on('stabilizationIterationsDone', () => {
-        network.setOptions({ physics: false })
+        network.setOptions({ physics: { enabled: false } })
         stabilized.value = true
       })
 
@@ -286,14 +318,14 @@ async function fetchTopology() {
           const nodeId = params.nodes[0]
           const clickedNodeData = nodesDataSet.get(nodeId)
           if (clickedNodeData && clickedNodeData.rawNode) {
-            onNodeClick(clickedNodeData.rawNode)
+            selectedNode.value = clickedNodeData.rawNode
           }
         }
       })
 
       networkInitialized.value = true
     } else {
-      // Dynamic update without position reset
+      // Dynamic update without moving node positions
       nodesDataSet.update(visNodes)
       edgesDataSet.update(visEdges)
     }
@@ -306,32 +338,9 @@ async function fetchTopology() {
   }
 }
 
-async function onNodeClick(node) {
-  selectedNode.value = node
-  latestHops.value = []
-
-  if (node.endpoint_id) {
-    await fetchTraces(node.endpoint_id)
-  }
-}
-
-async function fetchTraces(endpointId) {
-  if (!endpointId) return
-  tracesLoading.value = true
-  try {
-    const res = await getEndpointTraces(endpointId)
-    const traceList = res.data?.data || []
-    if (traceList.length > 0 && traceList[0].trace_data) {
-      const traceData = traceList[0].trace_data
-      latestHops.value = traceData.hops || []
-    } else {
-      latestHops.value = []
-    }
-  } catch (err) {
-    console.error('Failed to fetch endpoint traces:', err)
-    latestHops.value = []
-  } finally {
-    tracesLoading.value = false
+function resetView() {
+  if (network) {
+    network.fit({ animation: true })
   }
 }
 
@@ -366,7 +375,7 @@ onUnmounted(() => {
   justify-content: space-between;
   align-items: center;
   padding: 16px 20px;
-  background: rgba(17, 24, 39, 0.8);
+  background: rgba(17, 24, 39, 0.85);
   border-bottom: 1px solid var(--border-color, #1F2937);
   backdrop-filter: blur(8px);
   z-index: 10;
@@ -399,6 +408,27 @@ onUnmounted(() => {
   background: rgba(245, 158, 11, 0.15);
   color: #FBBF24;
   border: 1px solid rgba(245, 158, 11, 0.3);
+}
+
+.toolbar-right {
+  display: flex;
+  gap: 10px;
+}
+
+.btn-secondary {
+  background: #1F2937;
+  color: #D1D5DB;
+  border: 1px solid #374151;
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.btn-secondary:hover {
+  background: #374151;
+  color: #FFFFFF;
 }
 
 .canvas-wrapper {
@@ -462,25 +492,38 @@ onUnmounted(() => {
   display: inline-block;
 }
 
+.node-icon.square { border-radius: 2px; }
 .node-icon.circle { border-radius: 50%; }
 .node-icon.hexagon { clip-path: polygon(25% 0%, 75% 0%, 100% 50%, 75% 100%, 25% 100%, 0% 50%); }
 
+.state-root { background: #3B82F6; }
 .state-up { background: #10B981; }
 .state-unstable { background: #F59E0B; }
 .state-down { background: #EF4444; }
 .state-transit { background: #6B7280; }
-.state-inferred-down { background: #991B1B; }
+.state-failure-point { background: #F97316; border: 1px solid #EF4444; }
+.state-inferred-down { background: #7F1D1D; }
+
+.l2-pill {
+  background: rgba(59, 130, 246, 0.2);
+  color: #60A5FA;
+  font-size: 0.7rem;
+  font-weight: 700;
+  padding: 1px 5px;
+  border-radius: 4px;
+}
 
 /* Inspector Side Drawer */
 .inspector-drawer {
   position: absolute;
   top: 0;
   right: 0;
-  width: 400px;
+  width: 520px;
+  max-width: 90vw;
   height: 100%;
   background: #111827;
   border-left: 1px solid #1F2937;
-  box-shadow: -4px 0 20px rgba(0, 0, 0, 0.5);
+  box-shadow: -6px 0 24px rgba(0, 0, 0, 0.6);
   z-index: 30;
   transform: translateX(100%);
   transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
@@ -514,9 +557,12 @@ onUnmounted(() => {
 }
 
 .btn-close {
+  background: transparent;
+  border: none;
   color: #9CA3AF;
   font-size: 1.2rem;
   padding: 4px;
+  cursor: pointer;
 }
 
 .drawer-body {
@@ -544,6 +590,7 @@ onUnmounted(() => {
 
 .meta-label { color: #9CA3AF; }
 .meta-value { color: #F3F4F6; font-weight: 500; }
+.meta-value.text-blue { color: #60A5FA; }
 
 .status-pill {
   padding: 2px 8px;
@@ -555,50 +602,8 @@ onUnmounted(() => {
 .status-up { background: rgba(16, 185, 129, 0.2); color: #34D399; }
 .status-unstable { background: rgba(245, 158, 11, 0.2); color: #FBBF24; }
 .status-down { background: rgba(239, 68, 68, 0.2); color: #F87171; }
+.status-failure-point { background: #EF4444; color: #FFFFFF; }
 .status-inferred-down { background: rgba(153, 27, 27, 0.4); color: #FCA5A5; border: 1px solid #EF4444; }
-
-.section-title {
-  font-size: 1rem;
-  color: #F9FAFB;
-  margin-bottom: 12px;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-.trace-table-container {
-  border: 1px solid #374151;
-  border-radius: 8px;
-  overflow: hidden;
-}
-
-.trace-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 0.85rem;
-}
-
-.trace-table th, .trace-table td {
-  padding: 8px 12px;
-  text-align: left;
-  border-bottom: 1px solid #1F2937;
-}
-
-.trace-table th {
-  background: #1F2937;
-  color: #9CA3AF;
-  font-weight: 600;
-}
-
-.trace-table tr.unresponsive td {
-  color: #6B7280;
-  font-style: italic;
-}
-
-.rtt-tag {
-  color: #60A5FA;
-  font-weight: 500;
-}
 
 .spinner {
   width: 32px;
