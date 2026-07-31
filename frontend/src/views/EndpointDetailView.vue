@@ -1594,7 +1594,7 @@ h2 {
 .btn-discovery {
   background: rgba(59, 130, 246, 0.15);
   color: #60A5FA;
-  border: 1px solid rgba(59, 130, 246, 0.3);
+  border: 1px solid rgba(59, 130, 246, 0.4);
   padding: 8px 14px;
   border-radius: 6px;
   font-size: 0.85rem;
@@ -1604,5 +1604,16 @@ h2 {
 
 .btn-discovery:hover {
   background: rgba(59, 130, 246, 0.25);
+}
+
+:global(html:not(.dark)) .btn-discovery {
+  background: #EFF6FF;
+  color: #1D4ED8;
+  border-color: #93C5FD;
+}
+
+:global(html:not(.dark)) .btn-discovery:hover {
+  background: #DBEAFE;
+  color: #1E40AF;
 }
 </style>

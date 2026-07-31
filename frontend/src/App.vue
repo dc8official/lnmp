@@ -343,4 +343,55 @@ body {
 .dot-down-unstable { background: var(--color-down-unstable); }
 .dot-down { background: var(--color-down); }
 .dot-unknown { background: var(--color-unknown); }
+
+/* ── Global High Contrast Button System ── */
+button {
+  font-family: inherit;
+  cursor: pointer;
+  border-radius: var(--radius);
+  font-size: 14px;
+  font-weight: 600;
+  transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.btn-primary {
+  background-color: #2563EB !important;
+  color: #FFFFFF !important;
+  border: 1px solid #1D4ED8 !important;
+  padding: 8px 16px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+}
+
+.btn-primary:hover:not(:disabled) {
+  background-color: #1D4ED8 !important;
+  border-color: #1E40AF !important;
+}
+
+.btn-primary:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.btn-secondary {
+  background-color: var(--bg-surface-selected) !important;
+  color: var(--text-primary) !important;
+  border: 1px solid var(--border-color-strong) !important;
+  padding: 8px 16px;
+}
+
+.btn-secondary:hover:not(:disabled) {
+  background-color: var(--border-color) !important;
+  color: var(--text-primary) !important;
+}
+
+.btn-danger {
+  background-color: #DC2626 !important;
+  color: #FFFFFF !important;
+  border: 1px solid #B91C1C !important;
+  padding: 8px 16px;
+}
+
+.btn-danger:hover:not(:disabled) {
+  background-color: #B91C1C !important;
+}
 </style>
