@@ -155,15 +155,6 @@
               placeholder="Additional endpoint metadata"
             ></textarea>
           </div>
-          <div class="form-group checkbox-form-group">
-            <label class="checkbox-label">
-              <input 
-                type="checkbox" 
-                v-model="form.monitoring_enabled" 
-              />
-              <span>Enable automated uptime checks</span>
-            </label>
-          </div>
           <div class="modal-actions">
             <button type="button" class="btn-secondary" @click="displayDialog = false">Cancel</button>
             <button type="submit" class="btn-primary" :disabled="formSaving">

@@ -39,6 +39,7 @@ class TopologyGraphManager:
         self._transit_children: Dict[str, Set[str]] = {}
         self._monitored_by_id: Dict[str, Dict[str, Any]] = {}
         self._monitored_by_ip: Dict[str, str] = {}
+        self._disabled_topology_ep_ids: Set[str] = set()
         self._baseline_routes: Dict[str, List[Dict[str, Any]]] = {}
         self._failed_hop_ips: Set[str] = set()
         self._failed_endpoint_ids: Set[str] = set()
@@ -94,17 +95,21 @@ class TopologyGraphManager:
                     LIMIT 1
                 ) ev ON TRUE
                 WHERE e.endpoint_status != 'DELETED'
-                  AND e.allow_topology_discovery = TRUE
             """)
             ep_result = await _safe_execute(db, endpoints_query)
             ep_rows = ep_result.fetchall()
 
             monitored_by_id: Dict[str, Dict[str, Any]] = {}
             monitored_by_ip: Dict[str, str] = {}
+            disabled_topology_ep_ids: Set[str] = set()
 
             for row in ep_rows:
                 ep_id = str(row.id)
                 ip = str(row.ip_address)
+                if not bool(row.allow_topology_discovery):
+                    disabled_topology_ep_ids.add(ep_id)
+                    continue
+
                 monitored_by_id[ep_id] = {
                     "id": ep_id,
                     "label": row.hostname or ip,
@@ -306,6 +311,7 @@ class TopologyGraphManager:
             self._transit_children = transit_children
             self._monitored_by_id = monitored_by_id
             self._monitored_by_ip = monitored_by_ip
+            self._disabled_topology_ep_ids = disabled_topology_ep_ids
             self._baseline_routes = baseline_routes
             self._failed_hop_ips = failed_hop_ips
             self._failed_endpoint_ids = failed_endpoint_ids
@@ -352,6 +358,9 @@ class TopologyGraphManager:
         Incremental Event Mutation Hook:
         Updates target node's state in memory without re-parsing graph edges or querying DB.
         """
+        if node_id in self._disabled_topology_ep_ids:
+            return
+
         if node_id in self._nodes:
             self._nodes[node_id]["state"] = new_state
             self._nodes[node_id]["status"] = new_state
@@ -368,6 +377,8 @@ class TopologyGraphManager:
         Recalculates and updates visual edges affected by a single refreshed baseline route.
         """
         ep_id = str(endpoint_id)
+        if ep_id in self._disabled_topology_ep_ids:
+            return
         self._baseline_routes[ep_id] = new_hops
         previous_node_id = "root"
         previous_hop_ip_tag = "root"
