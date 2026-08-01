@@ -30,7 +30,7 @@
     </main>
 
     <!-- Forced Password Change Modal (Initial Setup / Admin Reset) -->
-    <div v-if="mustChangePassword" class="modal-overlay">
+    <div v-if="displayPasswordModal" class="modal-overlay">
       <div class="modal-card">
         <div class="modal-header">
           <h3>Initial Setup — Password Reset Required</h3>
@@ -97,6 +97,10 @@ const isDark = ref(false)
 
 const noNavRoutes = ['/login', '/change-password']
 const showNav = computed(() => !noNavRoutes.includes(route.path))
+
+const displayPasswordModal = computed(() => {
+  return !!currentUser.value && !!mustChangePassword.value && route.path !== '/login'
+})
 
 const changePasswordLoading = ref(false)
 const changePasswordError = ref(null)
