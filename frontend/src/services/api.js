@@ -1,4 +1,5 @@
 import axios from 'axios'
+import { clearUserState } from './auth.js'
 
 const api = axios.create({
   baseURL: '/api/v1',
@@ -12,7 +13,10 @@ api.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error.response && error.response.status === 401) {
-      window.location.href = '/login'
+      clearUserState()
+      if (window.location.pathname !== '/login') {
+        window.location.href = '/login'
+      }
     }
     return Promise.reject(error)
   }
