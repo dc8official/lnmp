@@ -102,6 +102,97 @@
     <div v-else-if="activeTab === 'topology'">
       <TopologyMap />
     </div>
+
+    <!-- Add / Edit Endpoint Modal -->
+    <div v-if="displayDialog" class="modal-overlay" @click.self="displayDialog = false">
+      <div class="modal-card">
+        <div class="modal-header">
+          <h3>{{ isEditing ? 'Modify Monitored Endpoint' : 'Register New Monitored Endpoint' }}</h3>
+          <button class="btn-close" @click="displayDialog = false">✕</button>
+        </div>
+        <form @submit.prevent="saveEndpoint" class="modal-form">
+          <div class="form-group">
+            <label>Hostname *</label>
+            <input 
+              class="form-input" 
+              v-model="form.hostname" 
+              placeholder="e.g. core-router.local" 
+              required 
+            />
+          </div>
+          <div class="form-group">
+            <label>IP Address *</label>
+            <input 
+              class="form-input" 
+              v-model="form.ip_address" 
+              placeholder="e.g. 192.168.1.1 or 8.8.8.8" 
+              required 
+              :disabled="isEditing" 
+            />
+          </div>
+          <div class="form-group">
+            <label>Device Type *</label>
+            <select class="form-select" v-model="form.device_type" required>
+              <option v-for="type in deviceTypes" :key="type" :value="type">
+                {{ type }}
+              </option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Location (optional)</label>
+            <input 
+              class="form-input" 
+              v-model="form.location" 
+              placeholder="e.g. Datacenter rack A5" 
+            />
+          </div>
+          <div class="form-group">
+            <label>Description (optional)</label>
+            <textarea 
+              class="form-input form-textarea" 
+              v-model="form.description" 
+              rows="3" 
+              placeholder="Additional endpoint metadata"
+            ></textarea>
+          </div>
+          <div class="form-group checkbox-form-group">
+            <label class="checkbox-label">
+              <input 
+                type="checkbox" 
+                v-model="form.monitoring_enabled" 
+              />
+              <span>Enable automated uptime checks</span>
+            </label>
+          </div>
+          <div class="modal-actions">
+            <button type="button" class="btn-secondary" @click="displayDialog = false">Cancel</button>
+            <button type="submit" class="btn-primary" :disabled="formSaving">
+              {{ formSaving ? 'Saving...' : (isEditing ? 'Update Endpoint' : 'Save Endpoint') }}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- Delete Confirmation Modal -->
+    <div v-if="displayDeleteDialog" class="modal-overlay" @click.self="displayDeleteDialog = false">
+      <div class="modal-card">
+        <div class="modal-header">
+          <h3>Confirm Deletion</h3>
+          <button class="btn-close" @click="displayDeleteDialog = false">✕</button>
+        </div>
+        <div class="modal-form text-center">
+          <p class="modal-alert-text">Are you sure you want to delete this endpoint?</p>
+          <p class="warning-subtext">This action will stop active monitoring and is completely irreversible.</p>
+          <div class="modal-actions">
+            <button type="button" class="btn-secondary" @click="displayDeleteDialog = false">Cancel</button>
+            <button type="button" class="btn-danger" :disabled="formSaving" @click="executeDeleteEndpoint">
+              {{ formSaving ? 'Deleting...' : 'Delete Host' }}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
