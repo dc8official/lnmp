@@ -348,17 +348,18 @@ if [ "$DRY_RUN" = false ]; then
     fi
 
     # Create database user
+    DB_PASS_ESCAPED=$(echo "$DB_PASS" | sed "s/'/''/g")
     if ! sudo -u postgres psql -tAc \
         "SELECT 1 FROM pg_roles WHERE rolname='netmon_user'" \
         | grep -q 1; then
         echo "--> Creating PostgreSQL user 'netmon_user'"
         sudo -u postgres psql -c \
-            "CREATE USER netmon_user WITH PASSWORD '$DB_PASS';"
+            "CREATE USER netmon_user WITH PASSWORD '$DB_PASS_ESCAPED';"
     else
         echo "PostgreSQL user 'netmon_user' already exists."
         # Update password in case it changed
         sudo -u postgres psql -c \
-            "ALTER USER netmon_user WITH PASSWORD '$DB_PASS';"
+            "ALTER USER netmon_user WITH PASSWORD '$DB_PASS_ESCAPED';"
     fi
 
     # Create database

@@ -10,7 +10,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
 from app.routers.auth import require_admin, get_current_user
-from app.services.auth_service import hash_password
+from app.services.auth_service import hash_password, generate_readable_password
 from app.schemas import APIResponse
 
 router = APIRouter(prefix="/users", tags=["users"])
@@ -76,7 +76,13 @@ async def create_user(
         raise HTTPException(status_code=400, detail="Invalid role specified.")
         
     # Set default password if not provided
-    plain_password = request.password if request.password else "password123"
+    generated_pass = None
+    if request.password and request.password.strip():
+        plain_password = request.password.strip()
+    else:
+        plain_password = generate_readable_password()
+        generated_pass = plain_password
+
     hashed = hash_password(plain_password)
     
     insert_query = text("""
@@ -111,12 +117,16 @@ async def create_user(
     
     await db.commit()
     
-    return APIResponse.success(data={
+    res_data = {
         "id": str(new_user.id),
         "username": request.username,
         "role": request.role,
         "message": f"User account '{request.username}' created successfully."
-    })
+    }
+    if generated_pass:
+        res_data["generated_password"] = generated_pass
+
+    return APIResponse.success(data=res_data)
 
 @router.post("/{user_id}/reset-password")
 async def reset_password(
@@ -131,7 +141,13 @@ async def reset_password(
     if not row:
         raise HTTPException(status_code=404, detail="User not found.")
         
-    plain_password = request.password if request.password else "password123"
+    generated_pass = None
+    if request.password and request.password.strip():
+        plain_password = request.password.strip()
+    else:
+        plain_password = generate_readable_password()
+        generated_pass = plain_password
+
     hashed = hash_password(plain_password)
     
     update_query = text("""
@@ -161,9 +177,13 @@ async def reset_password(
     
     await db.commit()
     
-    return APIResponse.success(data={
+    res_data = {
         "message": f"Password for user '{row.username}' reset successfully."
-    })
+    }
+    if generated_pass:
+        res_data["generated_password"] = generated_pass
+
+    return APIResponse.success(data=res_data)
 
 @router.patch("/{user_id}")
 async def update_user(

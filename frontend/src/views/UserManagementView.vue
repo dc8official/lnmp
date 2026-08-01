@@ -129,7 +129,7 @@
 
           <div class="form-group">
             <label>Temporary Password</label>
-            <input v-model="form.password" type="password" placeholder="Defaults to 'password123' if blank" />
+            <input v-model="form.password" type="password" placeholder="Leave blank to auto-generate (e.g. Falcon-482)" />
             <small class="form-help">User will be prompted to change temporary password on initial sign-in.</small>
           </div>
 
@@ -166,7 +166,7 @@
 
           <div class="form-group">
             <label>New Temporary Password</label>
-            <input v-model="resetForm.password" type="password" placeholder="Defaults to 'password123' if blank" />
+            <input v-model="resetForm.password" type="password" placeholder="Leave blank to auto-generate (e.g. Falcon-482)" />
           </div>
 
           <div class="modal-actions">
@@ -176,6 +176,33 @@
             </button>
           </div>
         </form>
+      </div>
+    </div>
+
+    <!-- Temporary Password Display Modal -->
+    <div class="modal-overlay" v-if="showPasswordModal" @click.self="showPasswordModal = false">
+      <div class="modal-card">
+        <div class="modal-header">
+          <h3>🔑 Temporary Password Generated</h3>
+          <button class="btn-close" @click="showPasswordModal = false">✕</button>
+        </div>
+
+        <div class="modal-form">
+          <div class="alert-info warning-alert">
+            Temporary password generated for <strong>{{ generatedPassUser }}</strong>. Please copy it now. The user will be required to change it on their next login.
+          </div>
+
+          <div class="password-box-container">
+            <span class="password-display">{{ generatedPasswordValue }}</span>
+            <button class="btn-primary btn-copy" type="button" @click="copyGeneratedPassword">
+              {{ copyBtnText }}
+            </button>
+          </div>
+
+          <div class="modal-actions">
+            <button type="button" class="btn-secondary" @click="showPasswordModal = false">Close</button>
+          </div>
+        </div>
       </div>
     </div>
   </div>
@@ -193,6 +220,10 @@ const currentUser = ref('')
 
 const showAddModal = ref(false)
 const showResetModal = ref(false)
+const showPasswordModal = ref(false)
+const generatedPasswordValue = ref('')
+const generatedPassUser = ref('')
+const copyBtnText = ref('📋 Copy Password')
 const targetUserId = ref(null)
 const targetUsername = ref('')
 
@@ -205,6 +236,16 @@ const form = ref({
 const resetForm = ref({
   password: ''
 })
+
+function copyGeneratedPassword() {
+  if (navigator.clipboard && generatedPasswordValue.value) {
+    navigator.clipboard.writeText(generatedPasswordValue.value)
+    copyBtnText.value = '✅ Copied!'
+    setTimeout(() => {
+      copyBtnText.value = '📋 Copy Password'
+    }, 2000)
+  }
+}
 
 function formatDate(isoStr) {
   if (!isoStr) return 'Never'
@@ -237,14 +278,23 @@ async function saveUser() {
   }
   saving.value = true
   try {
-    await createUser({
+    const res = await createUser({
       username: form.value.username,
       password: form.value.password || null,
       role: form.value.role
     })
     showAddModal.value = false
     await fetchUsers()
-    alert(`User account '${form.value.username}' created successfully.`)
+    
+    const genPass = res.data?.data?.generated_password || res.data?.generated_password
+    if (genPass) {
+      generatedPassUser.value = form.value.username
+      generatedPasswordValue.value = genPass
+      copyBtnText.value = '📋 Copy Password'
+      showPasswordModal.value = true
+    } else {
+      alert(`User account '${form.value.username}' created successfully.`)
+    }
   } catch (err) {
     console.error('Failed to create user:', err)
     alert(err.response?.data?.detail || 'Failed to create user.')
@@ -263,10 +313,19 @@ function openResetPasswordDialog(u) {
 async function saveResetPassword() {
   saving.value = true
   try {
-    await resetUserPassword(targetUserId.value, { password: resetForm.value.password || null })
+    const res = await resetUserPassword(targetUserId.value, { password: resetForm.value.password || null })
     showResetModal.value = false
     await fetchUsers()
-    alert(`Password reset successfully for ${targetUsername.value}.`)
+    
+    const genPass = res.data?.data?.generated_password || res.data?.generated_password
+    if (genPass) {
+      generatedPassUser.value = targetUsername.value
+      generatedPasswordValue.value = genPass
+      copyBtnText.value = '📋 Copy Password'
+      showPasswordModal.value = true
+    } else {
+      alert(`Password reset successfully for ${targetUsername.value}.`)
+    }
   } catch (err) {
     console.error('Failed to reset password:', err)
     alert(err.response?.data?.detail || 'Failed to reset password.')
@@ -665,6 +724,30 @@ onMounted(() => {
 
 @keyframes spin {
   to { transform: rotate(360deg); }
+}
+
+.password-box-container {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: var(--bg-app);
+  border: 1px solid var(--border-color);
+  padding: 12px 16px;
+  border-radius: 8px;
+  margin: 8px 0;
+}
+
+.password-display {
+  font-family: monospace;
+  font-size: 1.25rem;
+  font-weight: 700;
+  letter-spacing: 1px;
+  color: #2563eb;
+  flex: 1;
+}
+
+.btn-copy {
+  white-space: nowrap;
 }
 
 /* Light mode contrast overrides */

@@ -115,13 +115,18 @@ def load_settings() -> Settings:
         pass
 
     db_password = os.environ.get("NETMON_DB_PASSWORD") or os.environ.get("POSTGRES_PASSWORD", "postgres")
-    secret_key = os.environ.get("NETMON_SECRET_KEY", "dev-secret-key-lnmp-monitoring-platform-1234567890")
+    secret_key = os.environ.get("NETMON_SECRET_KEY") or config_data.get("security", {}).get("secret_key")
 
     if not db_password or not db_password.strip():
         db_password = "postgres"
 
-    if not secret_key or not secret_key.strip():
-        secret_key = "dev-secret-key-lnmp-monitoring-platform-1234567890"
+    if not secret_key or not str(secret_key).strip():
+        print(
+            "CRITICAL SECURITY ERROR: NETMON_SECRET_KEY is missing or empty. "
+            "Set NETMON_SECRET_KEY in environment or .env file before starting.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
 
     db_user = os.environ.get("NETMON_DB_USER") or os.environ.get("POSTGRES_USER")
     db_host = os.environ.get("NETMON_DB_HOST") or os.environ.get("POSTGRES_HOST")

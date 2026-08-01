@@ -35,29 +35,36 @@ fi
 sudo -H -u netmon bash -c "
     export NETMON_DB_PASSWORD='$DB_PASS' &&
     export NETMON_SECRET_KEY='$SECRET_KEY' &&
+    export TARGET_NEW_PASS=\"$NEW_PASS\" &&
     export PYTHONPATH='/opt/netmon/noop/backend' &&
     /opt/netmon/venv/bin/python - <<'PYEOF'
 import asyncio
+import os
 from app.database import AsyncSessionLocal
 from app.services.auth_service import hash_password
 from sqlalchemy import text
 
 async def update_admin_password():
+    target_pass = os.environ.get('TARGET_NEW_PASS', '')
+    if not target_pass:
+        print("Error: No password provided.")
+        return
+
     async with AsyncSessionLocal() as db:
         existing = await db.execute(
-            text(\"SELECT id FROM users WHERE username = 'admin'\")
+            text("SELECT id FROM users WHERE username = 'admin'")
         )
         if not existing.fetchone():
-            print(\"Error: Admin user does not exist in the database.\")
+            print("Error: Admin user does not exist in the database.")
             return
             
-        hashed = hash_password('$NEW_PASS')
+        hashed = hash_password(target_pass)
         await db.execute(
-            text(\"UPDATE users SET password_hash = :p, must_change_password = TRUE WHERE username = 'admin'\"),
+            text("UPDATE users SET password_hash = :p, must_change_password = TRUE WHERE username = 'admin'"),
             {'p': hashed}
         )
         await db.commit()
-        print(\"Admin password updated and reset flag set successfully inside the database.\")
+        print("Admin password updated and reset flag set successfully inside the database.")
 
 asyncio.run(update_admin_password())
 PYEOF

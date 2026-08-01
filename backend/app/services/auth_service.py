@@ -10,9 +10,23 @@ from argon2.exceptions import (
 from jose import JWTError, jwt
 from app.config import settings
 
+import secrets
+
 _ph = PasswordHasher()
 
 _failed_attempts: dict[str, dict] = {}
+
+READABLE_WORDS = [
+    "Atlas", "Beacon", "Cedar", "Drift", "Ember", "Falcon", "Gravel", "Haven",
+    "Iris", "Jasper", "Kestrel", "Lunar", "Matrix", "Nexus", "Opal", "Pulse",
+    "Quartz", "Ridge", "Solar", "Titan", "Vortex", "Zenith", "Anchor", "Breeze"
+]
+
+
+def generate_readable_password() -> str:
+    word = secrets.choice(READABLE_WORDS)
+    number = secrets.randbelow(900) + 100  # 100 to 999
+    return f"{word}-{number}"
 
 
 def hash_password(password: str) -> str:

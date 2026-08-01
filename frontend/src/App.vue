@@ -5,7 +5,7 @@
         <div class="brand">
           <span class="brand-icon">⬡</span>
           <span class="brand-name">lnmp</span>
-          <span class="brand-version">v1(beta)</span>
+          <span class="brand-version">v1.5(beta)</span>
         </div>
         <nav class="header-nav">
           <RouterLink to="/" class="nav-link">Dashboard</RouterLink>

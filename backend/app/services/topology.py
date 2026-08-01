@@ -4,7 +4,6 @@ import asyncio
 import json
 import logging
 from typing import Any, Dict, List, Optional, Set, Tuple
-from unittest.mock import MagicMock
 from uuid import UUID
 
 from sqlalchemy import text
@@ -13,13 +12,20 @@ from sqlalchemy.ext.asyncio import AsyncSession
 logger = logging.getLogger(__name__)
 
 
+class EmptyQueryResult:
+    def fetchall(self) -> list:
+        return []
+
+    def fetchone(self) -> None:
+        return None
+
+
 async def _safe_execute(db: AsyncSession, query: Any) -> Any:
     try:
         return await db.execute(query)
-    except (StopAsyncIteration, Exception):
-        mock_res = MagicMock()
-        mock_res.fetchall.return_value = []
-        return mock_res
+    except Exception as exc:
+        logger.error("Topology database query failed: %s", exc, exc_info=True)
+        return EmptyQueryResult()
 
 
 class TopologyGraphManager:
@@ -132,7 +138,7 @@ class TopologyGraphManager:
             for row in bl_rows:
                 ep_id = str(getattr(row, "endpoint_id", ""))
                 hops_raw = getattr(row, "hops", None)
-                if hops_raw is None or isinstance(hops_raw, MagicMock):
+                if hops_raw is None or not isinstance(hops_raw, list):
                     t_data = getattr(row, "trace_data", None)
                     if isinstance(t_data, (str, dict)):
                         if isinstance(t_data, str):

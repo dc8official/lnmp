@@ -433,7 +433,7 @@ async def csv_generator(endpoint_ids: List[UUID], start_time: datetime, end_time
             
         offset += limit
 
-telemetry_router = APIRouter(prefix="/api/telemetry", tags=["telemetry"])
+telemetry_router = APIRouter(prefix="/api/v1/telemetry", tags=["telemetry"])
 
 @telemetry_router.post("/export/batch")
 async def batch_export_telemetry(
