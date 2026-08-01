@@ -105,7 +105,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted, nextTick } from 'vue'
+import { ref, onMounted, onUnmounted, nextTick, watch } from 'vue'
 import { Network } from 'vis-network'
 import { DataSet } from 'vis-data'
 import { getTopology } from '../services/api.js'
@@ -123,6 +123,20 @@ let network = null
 let nodesDataSet = null
 let edgesDataSet = null
 let refreshInterval = null
+
+// Dark theme monitoring
+const isDark = ref(true)
+let themeObserver = null
+
+watch(isDark, (newVal) => {
+  if (nodesDataSet) {
+    const updated = nodesDataSet.get().map(node => ({
+      ...node,
+      font: { ...node.font, color: newVal ? '#F3F4F6' : '#111111' }
+    }))
+    nodesDataSet.update(updated)
+  }
+})
 
 function formatNodeType(type) {
   if (type === 'root') return 'LNMP Engine (Root)'
@@ -236,7 +250,7 @@ function formatVisData(nodesData, edgesData) {
       shape: shape,
       size: size,
       color: colors,
-      font: { color: '#F3F4F6', size: 12, face: 'Inter, sans-serif' },
+      font: { color: isDark.value ? '#F3F4F6' : '#111111', size: 12, face: 'Inter, sans-serif' },
       rawNode: node
     }
   })
@@ -345,6 +359,15 @@ function resetView() {
 }
 
 onMounted(() => {
+  isDark.value = document.documentElement.classList.contains('dark')
+  themeObserver = new MutationObserver(() => {
+    isDark.value = document.documentElement.classList.contains('dark')
+  })
+  themeObserver.observe(document.documentElement, {
+    attributes: true,
+    attributeFilter: ['class']
+  })
+
   fetchTopology()
   // 15-second auto-refresh
   refreshInterval = setInterval(() => {
@@ -355,6 +378,7 @@ onMounted(() => {
 onUnmounted(() => {
   if (refreshInterval) clearInterval(refreshInterval)
   if (network) network.destroy()
+  if (themeObserver) themeObserver.disconnect()
 })
 </script>
 
@@ -618,5 +642,48 @@ onUnmounted(() => {
 
 @keyframes spin {
   to { transform: rotate(360deg); }
+}
+
+/* Light mode contrast overrides */
+:global(html:not(.dark)) .badge-stabilized {
+  background: rgba(22, 163, 74, 0.1);
+  color: #15803d;
+  border-color: rgba(22, 163, 74, 0.2);
+}
+
+:global(html:not(.dark)) .badge-stabilizing {
+  background: rgba(180, 83, 9, 0.1);
+  color: #b45309;
+  border-color: rgba(180, 83, 9, 0.2);
+}
+
+:global(html:not(.dark)) .status-up {
+  background: rgba(22, 163, 74, 0.1);
+  color: #15803d;
+}
+
+:global(html:not(.dark)) .status-unstable {
+  background: rgba(180, 83, 9, 0.1);
+  color: #b45309;
+}
+
+:global(html:not(.dark)) .status-down {
+  background: rgba(220, 38, 38, 0.1);
+  color: #b91c1c;
+}
+
+:global(html:not(.dark)) .status-inferred-down {
+  background: rgba(220, 38, 38, 0.15);
+  color: #b91c1c;
+  border-color: rgba(220, 38, 38, 0.3);
+}
+
+:global(html:not(.dark)) .l2-pill {
+  background: rgba(37, 99, 235, 0.1);
+  color: #1d4ed8;
+}
+
+:global(html:not(.dark)) .meta-value.text-blue {
+  color: #1d4ed8;
 }
 </style>

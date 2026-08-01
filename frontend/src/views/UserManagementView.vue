@@ -371,9 +371,9 @@ onMounted(() => {
 }
 
 .alert-error {
-  background: rgba(239, 68, 68, 0.15);
-  border: 1px solid #EF4444;
-  color: #F87171;
+  background: rgba(220, 38, 38, 0.12);
+  border: 1px solid var(--status-down-color);
+  color: var(--status-down-color);
   padding: 12px 16px;
   border-radius: 8px;
   display: flex;
@@ -535,23 +535,23 @@ onMounted(() => {
 }
 
 .btn-icon.warning:hover {
-  color: #F59E0B;
-  border-color: #F59E0B;
+  color: var(--status-warn-color);
+  border-color: var(--status-warn-color);
 }
 
 .btn-icon.danger:hover {
-  color: #F87171;
-  border-color: #EF4444;
+  color: var(--status-down-color);
+  border-color: var(--status-down-color);
 }
 
 .btn-icon.toggle-disable:hover {
-  color: #F87171;
-  border-color: #EF4444;
+  color: var(--status-down-color);
+  border-color: var(--status-down-color);
 }
 
 .btn-icon.toggle-enable:hover {
-  color: #34D399;
-  border-color: #10B981;
+  color: var(--status-up-color);
+  border-color: var(--status-up-color);
 }
 
 /* Modal Overlay & Card */
@@ -606,9 +606,9 @@ onMounted(() => {
 }
 
 .alert-info {
-  background: rgba(59, 130, 246, 0.15);
-  border: 1px solid rgba(59, 130, 246, 0.3);
-  color: #60A5FA;
+  background: rgba(59, 130, 246, 0.12);
+  border: 1px solid #3b82f6;
+  color: var(--text-primary);
   padding: 10px 14px;
   border-radius: 6px;
   font-size: 0.85rem;
@@ -665,5 +665,16 @@ onMounted(() => {
 
 @keyframes spin {
   to { transform: rotate(360deg); }
+}
+
+/* Light mode contrast overrides */
+:global(html:not(.dark)) .you-tag {
+  color: #1d4ed8;
+}
+
+:global(html:not(.dark)) .role-badge.viewer {
+  background: rgba(37, 99, 235, 0.1);
+  color: #1d4ed8;
+  border-color: rgba(37, 99, 235, 0.25);
 }
 </style>

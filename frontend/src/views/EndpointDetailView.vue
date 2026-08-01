@@ -775,17 +775,19 @@ onBeforeUnmount(() => {
   border-radius: 4px;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  background-color: #000000;
+  background-color: var(--bg-surface-selected);
+  border: 1px solid var(--border-color);
+  color: var(--text-secondary);
 }
 
 .status-badge.active {
-  border: 1px solid #262626;
-  color: #FFFFFF;
+  color: var(--text-primary);
+  border-color: var(--border-color-strong);
 }
 
 .status-badge.disabled {
-  border: 1px solid var(--border-color);
   color: var(--text-muted);
+  border-color: var(--border-color);
 }
 
 .monitoring-badge {
@@ -798,17 +800,19 @@ onBeforeUnmount(() => {
   gap: 0.35rem;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  background-color: #000000;
+  background-color: var(--bg-surface-selected);
+  border: 1px solid var(--border-color);
+  color: var(--text-secondary);
 }
 
 .monitoring-badge.enabled {
-  border: 1px solid #262626;
-  color: #FFFFFF;
+  color: var(--text-primary);
+  border-color: var(--border-color-strong);
 }
 
 .monitoring-badge.disabled {
-  border: 1px solid #FF0000;
-  color: #FF0000;
+  border: 1px solid var(--status-down-color);
+  color: var(--status-down-color);
 }
 
 .loading-state {
@@ -816,26 +820,26 @@ onBeforeUnmount(() => {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  color: var(--text-muted);
   padding: 8rem 0;
   gap: 1rem;
   font-family: monospace;
+  color: var(--text-muted);
 }
 
 .spinner-icon {
   font-size: 2.5rem;
-  color: #FFFFFF;
+  color: var(--text-primary);
 }
 
 .error-message {
   display: flex;
   align-items: flex-start;
   gap: 1rem;
-  background-color: #000000;
-  color: #FF0000;
+  background-color: rgba(220, 38, 38, 0.15);
+  color: var(--status-down-color);
   padding: 1.5rem;
   border-radius: 4px;
-  border: 1px solid #FF0000;
+  border: 1px solid var(--status-down-color);
   margin-bottom: 2rem;
 }
 
@@ -1320,37 +1324,7 @@ h2 {
   border-bottom: 1px solid #cbd5e1;
 }
 
-:global(html:not(.dark)) .status-badge {
-  background-color: #ffffff;
-}
-:global(html:not(.dark)) .status-badge.active {
-  border: 1px solid #cbd5e1;
-  color: #334155;
-}
-:global(html:not(.dark)) .status-badge.disabled {
-  border: 1px solid #cbd5e1;
-  color: #64748b;
-}
-:global(html:not(.dark)) .monitoring-badge {
-  background-color: #ffffff;
-}
-:global(html:not(.dark)) .monitoring-badge.enabled {
-  border: 1px solid #cbd5e1;
-  color: #334155;
-}
-:global(html:not(.dark)) .monitoring-badge.disabled {
-  border: 1px solid #FF0000;
-  color: #FF0000;
-}
-:global(html:not(.dark)) .loading-state {
-  color: #475569;
-}
-:global(html:not(.dark)) .spinner-icon {
-  color: #0f172a;
-}
-:global(html:not(.dark)) .error-message {
-  background-color: #fef2f2;
-}
+
 :global(html:not(.dark)) .overview-card,
 :global(html:not(.dark)) .toolbar-card,
 :global(html:not(.dark)) .visualizer-container,

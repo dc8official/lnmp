@@ -448,16 +448,16 @@ button {
 }
 
 .btn-primary {
-  background-color: #2563EB !important;
-  color: #FFFFFF !important;
-  border: 1px solid #1D4ED8 !important;
+  background-color: #2563EB;
+  color: #FFFFFF;
+  border: 1px solid #1D4ED8;
   padding: 8px 16px;
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
 }
 
 .btn-primary:hover:not(:disabled) {
-  background-color: #1D4ED8 !important;
-  border-color: #1E40AF !important;
+  background-color: #1D4ED8;
+  border-color: #1E40AF;
 }
 
 .btn-primary:disabled {
@@ -466,26 +466,26 @@ button {
 }
 
 .btn-secondary {
-  background-color: var(--bg-surface-selected) !important;
-  color: var(--text-primary) !important;
-  border: 1px solid var(--border-color-strong) !important;
+  background-color: var(--bg-surface-selected);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color-strong);
   padding: 8px 16px;
 }
 
 .btn-secondary:hover:not(:disabled) {
-  background-color: var(--border-color) !important;
-  color: var(--text-primary) !important;
+  background-color: var(--border-color);
+  color: var(--text-primary);
 }
 
 .btn-danger {
-  background-color: #DC2626 !important;
-  color: #FFFFFF !important;
-  border: 1px solid #B91C1C !important;
+  background-color: #DC2626;
+  color: #FFFFFF;
+  border: 1px solid #B91C1C;
   padding: 8px 16px;
 }
 
 .btn-danger:hover:not(:disabled) {
-  background-color: #B91C1C !important;
+  background-color: #B91C1C;
 }
 
 /* ── Modal Overlay & Card System ── */

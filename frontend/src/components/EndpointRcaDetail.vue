@@ -311,9 +311,9 @@ onMounted(() => {
 
 /* Alert Error */
 .alert-error {
-  background: rgba(239, 68, 68, 0.15);
-  border: 1px solid #EF4444;
-  color: #F87171;
+  background: rgba(220, 38, 38, 0.12);
+  border: 1px solid var(--status-down-color);
+  color: var(--status-down-color);
   padding: 12px 16px;
   border-radius: 8px;
   display: flex;
@@ -503,7 +503,7 @@ onMounted(() => {
 }
 
 .ip-addr.text-danger {
-  color: #F87171;
+  color: var(--status-down-color);
   font-weight: 700;
 }
 
@@ -566,5 +566,37 @@ onMounted(() => {
 
 @keyframes spin {
   to { transform: rotate(360deg); }
+}
+
+/* Light mode contrast overrides */
+:global(html:not(.dark)) .l2-badge {
+  background: rgba(37, 99, 235, 0.1);
+  color: #1d4ed8;
+  border-color: rgba(37, 99, 235, 0.25);
+}
+
+:global(html:not(.dark)) .meta-pill.failure {
+  background: rgba(220, 38, 38, 0.1);
+  color: #b91c1c;
+  border-color: rgba(220, 38, 38, 0.2);
+}
+
+:global(html:not(.dark)) .meta-pill.good {
+  background: rgba(22, 163, 74, 0.1);
+  color: #15803d;
+  border-color: rgba(22, 163, 74, 0.2);
+}
+
+:global(html:not(.dark)) .diff-badge.matched {
+  background: rgba(22, 163, 74, 0.1);
+  color: #15803d;
+}
+
+:global(html:not(.dark)) .diff-badge.divergent {
+  background: #b45309;
+}
+
+:global(html:not(.dark)) .rtt-val {
+  color: #1d4ed8;
 }
 </style>
