@@ -330,7 +330,7 @@
 
     <!-- Admin Endpoint Settings Modal -->
     <div class="modal-overlay" v-if="showSettingsModal" @click.self="showSettingsModal = false">
-      <div class="modal-card">
+      <div class="modal-card wide">
         <div class="modal-header">
           <h3>⚙️ Endpoint Governance & Settings</h3>
           <button class="btn-close" @click="showSettingsModal = false">✕</button>
@@ -1403,82 +1403,10 @@ h2 {
 
 
 
-/* Modal Overlay & Governance Dialog Styles */
-.modal-overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.5);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 100;
-  backdrop-filter: blur(4px);
-}
-
-.modal-card {
-  background: var(--bg-surface);
-  border: 1px solid var(--border-color);
-  border-radius: 12px;
-  width: 600px;
-  max-width: 92vw;
-  max-height: 90vh;
-  overflow-y: auto;
-}
-
-.modal-header {
-  padding: 16px 20px;
-  border-bottom: 1px solid var(--border-color);
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-.modal-header h3 {
-  margin: 0;
-  font-size: 1.1rem;
-  color: var(--text-primary);
-}
-
-.btn-close {
-  background: transparent;
-  border: none;
-  color: var(--text-secondary);
-  font-size: 1.2rem;
-  cursor: pointer;
-}
-
-.modal-form {
-  padding: 20px;
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
-
 .form-row {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 16px;
-}
-
-.form-group {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.form-group label {
-  font-size: 0.85rem;
-  color: var(--text-secondary);
-  font-weight: 500;
-}
-
-.form-group input, .form-select, .form-textarea {
-  background: var(--bg-app);
-  border: 1px solid var(--border-color);
-  border-radius: 6px;
-  padding: 8px 12px;
-  color: var(--text-primary);
-  font-size: 0.9rem;
 }
 
 .form-textarea {
@@ -1551,7 +1479,7 @@ h2 {
   color: #60A5FA;
   border: 1px solid rgba(59, 130, 246, 0.4);
   padding: 8px 14px;
-  border-radius: 6px;
+  border-radius: var(--radius);
   font-size: 0.85rem;
   font-weight: 600;
   cursor: pointer;

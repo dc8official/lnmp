@@ -439,21 +439,7 @@ onUnmounted(() => {
   gap: 10px;
 }
 
-.btn-secondary {
-  background: var(--bg-surface-selected);
-  color: var(--text-secondary);
-  border: 1px solid var(--border-color);
-  padding: 6px 12px;
-  border-radius: 6px;
-  font-size: 0.85rem;
-  cursor: pointer;
-  transition: all 0.2s ease;
-}
 
-.btn-secondary:hover {
-  background: var(--border-color);
-  color: var(--text-primary);
-}
 
 .canvas-wrapper {
   flex: 1;
@@ -532,10 +518,10 @@ onUnmounted(() => {
 .l2-pill {
   background: rgba(59, 130, 246, 0.2);
   color: #60A5FA;
-  font-size: 0.7rem;
+  font-size: var(--text-xs);
   font-weight: 700;
   padding: 1px 5px;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
 }
 
 /* Inspector Side Drawer */
@@ -581,14 +567,7 @@ onUnmounted(() => {
   color: var(--text-muted);
 }
 
-.btn-close {
-  background: transparent;
-  border: none;
-  color: var(--text-secondary);
-  font-size: 1.2rem;
-  padding: 4px;
-  cursor: pointer;
-}
+
 
 .drawer-body {
   padding: 20px;

@@ -335,7 +335,7 @@ onMounted(() => {
   display: flex;
   gap: 16px;
   padding: 18px;
-  border-radius: 10px;
+  border-radius: var(--radius-lg);
   background: var(--bg-surface-selected);
   border: 1px solid var(--border-color);
 }
@@ -426,7 +426,7 @@ onMounted(() => {
 .path-inspector-card {
   background: var(--bg-surface);
   border: 1px solid var(--border-color);
-  border-radius: 10px;
+  border-radius: var(--radius-lg);
   overflow: hidden;
 }
 

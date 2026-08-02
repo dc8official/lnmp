@@ -99,7 +99,7 @@
 
     <!-- Create / Edit Endpoint Modal -->
     <div class="modal-overlay" v-if="showModal" @click.self="closeModal">
-      <div class="modal-card">
+      <div class="modal-card wide">
         <div class="modal-header">
           <h3>{{ isEditing ? 'Edit Endpoint Configuration' : 'Add New Monitored Endpoint' }}</h3>
           <button class="btn-close" @click="closeModal">✕</button>
@@ -423,6 +423,10 @@ onMounted(() => {
   font-size: 0.9rem;
 }
 
+.data-table tbody tr {
+  cursor: pointer;
+}
+
 .data-table th, .data-table td {
   padding: 14px 18px;
   text-align: left;
@@ -444,15 +448,21 @@ onMounted(() => {
 .host-link {
   color: #60A5FA;
   font-weight: 600;
+  display: inline-block;
+  max-width: 200px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: middle;
 }
 
 .l2-pill {
   background: rgba(59, 130, 246, 0.2);
   color: #60A5FA;
-  font-size: 0.7rem;
+  font-size: var(--text-xs);
   font-weight: 700;
   padding: 1px 6px;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   border: 1px solid rgba(59, 130, 246, 0.3);
 }
 
@@ -504,66 +514,7 @@ onMounted(() => {
   border-color: #EF4444;
 }
 
-.spinner-sm {
-  display: inline-block;
-  width: 12px;
-  height: 12px;
-  border: 2px solid var(--border-color);
-  border-top-color: #3b82f6;
-  border-radius: 50%;
-  animation: spin 0.8s infinite linear;
-}
 
-/* Modal Styles */
-.modal-overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.5);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 100;
-  backdrop-filter: blur(4px);
-}
-
-.modal-card {
-  background: var(--bg-surface);
-  border: 1px solid var(--border-color);
-  border-radius: 12px;
-  width: 600px;
-  max-width: 92vw;
-  max-height: 90vh;
-  overflow-y: auto;
-}
-
-.modal-header {
-  padding: 16px 20px;
-  border-bottom: 1px solid var(--border-color);
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-.modal-header h3 {
-  margin: 0;
-  font-size: 1.1rem;
-  color: var(--text-primary);
-}
-
-.btn-close {
-  background: transparent;
-  border: none;
-  color: var(--text-secondary);
-  font-size: 1.2rem;
-  cursor: pointer;
-}
-
-.modal-form {
-  padding: 20px;
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
 
 .form-grid {
   display: grid;
@@ -571,26 +522,7 @@ onMounted(() => {
   gap: 14px;
 }
 
-.form-group {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
 
-.form-group label {
-  font-size: 0.85rem;
-  color: var(--text-secondary);
-  font-weight: 500;
-}
-
-.form-group input, .form-group textarea, .form-select {
-  background: var(--bg-app);
-  border: 1px solid var(--border-color);
-  border-radius: 6px;
-  padding: 8px 12px;
-  color: var(--text-primary);
-  font-size: 0.9rem;
-}
 
 .field-help {
   font-size: 0.75rem;
@@ -643,16 +575,7 @@ onMounted(() => {
   accent-color: #2563EB;
 }
 
-.modal-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 12px;
-  margin-top: 10px;
-}
 
-@keyframes spin {
-  to { transform: rotate(360deg); }
-}
 
 /* Light mode contrast overrides */
 </style>

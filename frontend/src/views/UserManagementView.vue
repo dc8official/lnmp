@@ -205,6 +205,23 @@
         </div>
       </div>
     </div>
+
+    <!-- Custom Confirmation Modal -->
+    <div class="modal-overlay" v-if="confirmModal.show" @click.self="confirmModal.show = false">
+      <div class="modal-card">
+        <div class="modal-header">
+          <h3>{{ confirmModal.title }}</h3>
+          <button class="btn-close" @click="confirmModal.show = false">✕</button>
+        </div>
+        <div class="modal-form">
+          <p class="modal-alert-text">{{ confirmModal.message }}</p>
+          <div class="modal-actions">
+            <button type="button" class="btn-secondary" @click="confirmModal.show = false">Cancel</button>
+            <button type="button" class="btn-danger" @click="confirmModal.onConfirm">Confirm</button>
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -226,6 +243,13 @@ const generatedPassUser = ref('')
 const copyBtnText = ref('📋 Copy Password')
 const targetUserId = ref(null)
 const targetUsername = ref('')
+
+const confirmModal = ref({
+  show: false,
+  title: '',
+  message: '',
+  onConfirm: () => {}
+})
 
 const form = ref({
   username: '',
@@ -337,25 +361,37 @@ async function saveResetPassword() {
 async function toggleUserActive(u) {
   const newStatus = !u.is_active
   const actionName = newStatus ? 'enable' : 'disable'
-  if (confirm(`Are you sure you want to ${actionName} account '${u.username}'?`)) {
-    try {
-      await updateUser(u.id, { is_active: newStatus })
-      await fetchUsers()
-    } catch (err) {
-      console.error('Failed to toggle user status:', err)
-      alert(err.response?.data?.detail || 'Failed to update account status.')
+  confirmModal.value = {
+    show: true,
+    title: `${newStatus ? 'Enable' : 'Disable'} User Account`,
+    message: `Are you sure you want to ${actionName} account '${u.username}'?`,
+    onConfirm: async () => {
+      confirmModal.value.show = false
+      try {
+        await updateUser(u.id, { is_active: newStatus })
+        await fetchUsers()
+      } catch (err) {
+        console.error('Failed to toggle user status:', err)
+        alert(err.response?.data?.detail || 'Failed to update account status.')
+      }
     }
   }
 }
 
 async function confirmDelete(u) {
-  if (confirm(`Are you sure you want to delete user account '${u.username}'?`)) {
-    try {
-      await deleteUser(u.id)
-      await fetchUsers()
-    } catch (err) {
-      console.error('Failed to delete user:', err)
-      alert(err.response?.data?.detail || 'Failed to delete user account.')
+  confirmModal.value = {
+    show: true,
+    title: 'Delete User Account',
+    message: `Are you sure you want to delete user account '${u.username}'?`,
+    onConfirm: async () => {
+      confirmModal.value.show = false
+      try {
+        await deleteUser(u.id)
+        await fetchUsers()
+      } catch (err) {
+        console.error('Failed to delete user:', err)
+        alert(err.response?.data?.detail || 'Failed to delete user account.')
+      }
     }
   }
 }
@@ -403,31 +439,7 @@ onMounted(() => {
   gap: 12px;
 }
 
-.btn-secondary {
-  background: var(--bg-surface-selected);
-  color: var(--text-secondary);
-  border: 1px solid var(--border-color);
-  padding: 8px 14px;
-  border-radius: 6px;
-  font-size: 0.85rem;
-  font-weight: 500;
-  cursor: pointer;
-}
 
-.btn-primary {
-  background: #2563EB;
-  color: #FFFFFF;
-  border: none;
-  padding: 8px 16px;
-  border-radius: 6px;
-  font-size: 0.85rem;
-  font-weight: 600;
-  cursor: pointer;
-}
-
-.btn-primary:hover {
-  background: #1D4ED8;
-}
 
 .alert-error {
   background: rgba(220, 38, 38, 0.12);
@@ -614,96 +626,9 @@ onMounted(() => {
 }
 
 /* Modal Overlay & Card */
-.modal-overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.5);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 100;
-  backdrop-filter: blur(4px);
-}
-
-.modal-card {
-  background: var(--bg-surface);
-  border: 1px solid var(--border-color);
-  border-radius: 12px;
-  width: 480px;
-  max-width: 90vw;
-  max-height: 90vh;
-  overflow-y: auto;
-}
-
-.modal-header {
-  padding: 16px 20px;
-  border-bottom: 1px solid var(--border-color);
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-.modal-header h3 {
-  margin: 0;
-  font-size: 1.1rem;
-  color: var(--text-primary);
-}
-
-.btn-close {
-  background: transparent;
-  border: none;
-  color: var(--text-secondary);
-  font-size: 1.2rem;
-  cursor: pointer;
-}
-
-.modal-form {
-  padding: 20px;
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
-
-.alert-info {
-  background: rgba(59, 130, 246, 0.12);
-  border: 1px solid #3b82f6;
-  color: var(--text-primary);
-  padding: 10px 14px;
-  border-radius: 6px;
-  font-size: 0.85rem;
-}
-
-.form-group {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.form-group label {
-  font-size: 0.85rem;
-  color: var(--text-secondary);
-  font-weight: 500;
-}
-
-.form-group input, .form-select {
-  background: var(--bg-app);
-  border: 1px solid var(--border-color);
-  border-radius: 6px;
-  padding: 8px 12px;
-  color: var(--text-primary);
-  font-size: 0.9rem;
-}
-
 .form-help {
-  font-size: 0.75rem;
+  font-size: var(--text-xs);
   color: var(--text-muted);
-}
-
-.modal-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 12px;
-  margin-top: 10px;
 }
 
 .loading-state, .empty-state {

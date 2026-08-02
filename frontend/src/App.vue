@@ -207,7 +207,17 @@ button { cursor: pointer; border: none; background: none; }
   --accent-hover: #333333;
   --shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
   --shadow-hover: 0 4px 12px rgba(0, 0, 0, 0.12);
+  --radius-sm: 4px;
   --radius: 8px;
+  --radius-lg: 12px;
+  --radius-full: 9999px;
+
+  --text-xs: 0.75rem;     /* 12px */
+  --text-sm: 0.8125rem;   /* 13px */
+  --text-base: 0.875rem;  /* 14px */
+  --text-lg: 1rem;        /* 16px */
+  --text-xl: 1.15rem;     /* 18px */
+  --text-2xl: 1.5rem;     /* 24px */
   
   /* Semantic Status Variables */
   --status-up-color: #16a34a;        /* High-contrast green */
@@ -230,6 +240,16 @@ button { cursor: pointer; border: none; background: none; }
   --canvas-bg: var(--bg-app);
   --card-bg: var(--bg-surface);
   --card-border: var(--border-color);
+}
+
+/* ── Focus Outlines for Keyboard Accessibility ── */
+:focus-visible {
+  outline: 2px solid #2563EB;
+  outline-offset: 2px;
+}
+html.dark :focus-visible {
+  outline: 2px solid #60A5FA;
+  outline-offset: 2px;
 }
 
 html.dark {
@@ -513,6 +533,10 @@ button {
   flex-direction: column;
 }
 
+.modal-card.wide {
+  width: 600px;
+}
+
 .modal-header {
   padding: 18px 24px;
   border-bottom: 1px solid var(--border-color);
@@ -520,6 +544,23 @@ button {
   display: flex;
   justify-content: space-between;
   align-items: center;
+}
+
+.btn-close {
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 1.25rem;
+  padding: 4px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: color 0.15s ease;
+}
+
+.btn-close:hover {
+  color: var(--text-primary);
 }
 
 .modal-header h3 {
@@ -582,21 +623,49 @@ button {
   letter-spacing: 0.04em;
 }
 
-.form-group input {
+.form-group label {
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  color: var(--text-muted);
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  margin-bottom: 0.25rem;
+}
+
+.form-group input, .form-select, .form-textarea {
   background: var(--bg-app);
   border: 1px solid var(--border-color);
-  border-radius: 6px;
-  padding: 10px 14px;
+  border-radius: var(--radius);
+  padding: 10px 12px;
   color: var(--text-primary);
-  font-size: 0.95rem;
+  font-size: var(--text-base);
   width: 100%;
+  outline: none;
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
-.form-group input:focus {
-  outline: none;
-  border-color: #2563EB;
-  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.25);
+.form-group input:focus, .form-select:focus, .form-textarea:focus {
+  border-color: #049f6c;
+  box-shadow: 0 0 0 3px rgba(4, 159, 108, 0.15);
+}
+
+/* ── Global Spinner System ── */
+.spinner-sm {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border: 2px solid rgba(255, 255, 255, 0.2);
+  border-top-color: #3b82f6;
+  border-radius: 50%;
+  animation: spin 0.8s infinite linear;
+}
+html:not(.dark) .spinner-sm {
+  border: 2px solid rgba(0, 0, 0, 0.12);
+  border-top-color: #3b82f6;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
 }
 
 .modal-actions {
