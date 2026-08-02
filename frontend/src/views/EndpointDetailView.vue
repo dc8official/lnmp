@@ -1316,23 +1316,7 @@ h2 {
 /* ==========================================================================
    Light Mode Theme Scoping Overrides (Remaining wrapper variables)
    ========================================================================== */
-:global(html:not(.dark)) .detail-wrapper {
-  background-color: #ffffff;
-}
-:global(html:not(.dark)) .app-nav {
-  background-color: #ffffff;
-  border-bottom: 1px solid #cbd5e1;
-}
 
-
-:global(html:not(.dark)) .overview-card,
-:global(html:not(.dark)) .toolbar-card,
-:global(html:not(.dark)) .visualizer-container,
-:global(html:not(.dark)) .metric-card {
-  background-color: #fafafa !important;
-  border: 1px solid #cbd5e1 !important;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.02) !important;
-}
 
 .version-tag {
   font-family: monospace;
@@ -1417,10 +1401,7 @@ h2 {
   border-color: var(--text-secondary);
 }
 
-/* Light mode hover background for arrow buttons */
-:global(html:not(.dark)) .nav-arrow-btn:hover:not(:disabled) {
-  background-color: rgba(0, 0, 0, 0.05);
-}
+
 
 /* Modal Overlay & Governance Dialog Styles */
 .modal-overlay {
@@ -1579,14 +1560,34 @@ h2 {
 .btn-discovery:hover {
   background: rgba(59, 130, 246, 0.25);
 }
+</style>
 
-:global(html:not(.dark)) .btn-discovery {
+<style>
+/* Global light-theme overrides to prevent SFC compilation bugs */
+html:not(.dark) .detail-wrapper {
+  background-color: #ffffff;
+}
+html:not(.dark) .app-nav {
+  background-color: #ffffff;
+  border-bottom: 1px solid #cbd5e1;
+}
+html:not(.dark) .overview-card,
+html:not(.dark) .toolbar-card,
+html:not(.dark) .visualizer-container,
+html:not(.dark) .metric-card {
+  background-color: #fafafa !important;
+  border: 1px solid #cbd5e1 !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02) !important;
+}
+html:not(.dark) .nav-arrow-btn:hover:not(:disabled) {
+  background-color: rgba(0, 0, 0, 0.05);
+}
+html:not(.dark) .btn-discovery {
   background: #EFF6FF;
   color: #1D4ED8;
   border-color: #93C5FD;
 }
-
-:global(html:not(.dark)) .btn-discovery:hover {
+html:not(.dark) .btn-discovery:hover {
   background: #DBEAFE;
   color: #1E40AF;
 }

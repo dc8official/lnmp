@@ -569,34 +569,32 @@ onMounted(() => {
 }
 
 /* Light mode contrast overrides */
-:global(html:not(.dark)) .l2-badge {
+</style>
+
+<style>
+html:not(.dark) .l2-badge {
   background: rgba(37, 99, 235, 0.1);
   color: #1d4ed8;
   border-color: rgba(37, 99, 235, 0.25);
 }
-
-:global(html:not(.dark)) .meta-pill.failure {
+html:not(.dark) .meta-pill.failure {
   background: rgba(220, 38, 38, 0.1);
   color: #b91c1c;
   border-color: rgba(220, 38, 38, 0.2);
 }
-
-:global(html:not(.dark)) .meta-pill.good {
+html:not(.dark) .meta-pill.good {
   background: rgba(22, 163, 74, 0.1);
   color: #15803d;
   border-color: rgba(22, 163, 74, 0.2);
 }
-
-:global(html:not(.dark)) .diff-badge.matched {
+html:not(.dark) .diff-badge.matched {
   background: rgba(22, 163, 74, 0.1);
   color: #15803d;
 }
-
-:global(html:not(.dark)) .diff-badge.divergent {
+html:not(.dark) .diff-badge.divergent {
   background: #b45309;
 }
-
-:global(html:not(.dark)) .rtt-val {
+html:not(.dark) .rtt-val {
   color: #1d4ed8;
 }
 </style>

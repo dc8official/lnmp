@@ -217,44 +217,47 @@ label {
 }
  
 /* Light Mode Overrides */
-:global(html:not(.dark)) .login-wrapper {
+</style>
+
+<style>
+html:not(.dark) .login-wrapper {
   background: radial-gradient(circle at 50% 50%, #f8fafc 0%, #e2e8f0 100%);
 }
-:global(html:not(.dark)) .glass-container {
+html:not(.dark) .glass-container {
   background-color: #ffffff;
   border: 1px solid #e2e8f0;
 }
-:global(html:not(.dark)) .brand-icon {
+html:not(.dark) .brand-icon {
   color: #0f172a;
   background-color: #f8fafc;
   border: 1px solid #cbd5e1;
 }
-:global(html:not(.dark)) h2 {
+html:not(.dark) h2 {
   color: #0f172a;
 }
-:global(html:not(.dark)) .brand-subtitle {
+html:not(.dark) .brand-subtitle {
   color: #475569;
 }
-:global(html:not(.dark)) label {
+html:not(.dark) label {
   color: #334155;
 }
-:global(html:not(.dark)) .field-icon {
+html:not(.dark) .field-icon {
   color: #64748b;
 }
-:global(html:not(.dark)) :deep(.p-inputtext) {
+html:not(.dark) .p-inputtext {
   background-color: #ffffff !important;
   border: 1px solid #cbd5e1 !important;
   color: #0f172a !important;
 }
-:global(html:not(.dark)) :deep(.p-inputtext:focus) {
+html:not(.dark) .p-inputtext:focus {
   border-color: #049f6c !important;
 }
-:global(html:not(.dark)) .submit-button {
+html:not(.dark) .submit-button {
   background-color: #0f172a !important;
   border-color: #0f172a !important;
   color: #ffffff !important;
 }
-:global(html:not(.dark)) .submit-button:hover {
+html:not(.dark) .submit-button:hover {
   background-color: #334155 !important;
   border-color: #334155 !important;
 }

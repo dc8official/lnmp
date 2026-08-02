@@ -645,45 +645,41 @@ onUnmounted(() => {
 }
 
 /* Light mode contrast overrides */
-:global(html:not(.dark)) .badge-stabilized {
+</style>
+
+<style>
+html:not(.dark) .badge-stabilized {
   background: rgba(22, 163, 74, 0.1);
   color: #15803d;
   border-color: rgba(22, 163, 74, 0.2);
 }
-
-:global(html:not(.dark)) .badge-stabilizing {
+html:not(.dark) .badge-stabilizing {
   background: rgba(180, 83, 9, 0.1);
   color: #b45309;
   border-color: rgba(180, 83, 9, 0.2);
 }
-
-:global(html:not(.dark)) .status-up {
+html:not(.dark) .status-up {
   background: rgba(22, 163, 74, 0.1);
   color: #15803d;
 }
-
-:global(html:not(.dark)) .status-unstable {
+html:not(.dark) .status-unstable {
   background: rgba(180, 83, 9, 0.1);
   color: #b45309;
 }
-
-:global(html:not(.dark)) .status-down {
+html:not(.dark) .status-down {
   background: rgba(220, 38, 38, 0.1);
   color: #b91c1c;
 }
-
-:global(html:not(.dark)) .status-inferred-down {
+html:not(.dark) .status-inferred-down {
   background: rgba(220, 38, 38, 0.15);
   color: #b91c1c;
   border-color: rgba(220, 38, 38, 0.3);
 }
-
-:global(html:not(.dark)) .l2-pill {
+html:not(.dark) .l2-pill {
   background: rgba(37, 99, 235, 0.1);
   color: #1d4ed8;
 }
-
-:global(html:not(.dark)) .meta-value.text-blue {
+html:not(.dark) .meta-value.text-blue {
   color: #1d4ed8;
 }
 </style>

@@ -238,8 +238,10 @@ const chartOptions = computed(() => {
   font-size: 1rem;
   transition: color 0.2s;
 }
+</style>
 
-:global(html:not(.dark)) .rtt-trend-panel {
+<style>
+html:not(.dark) .rtt-trend-panel {
   background: #ffffff;
 }
 </style>

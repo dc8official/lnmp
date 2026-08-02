@@ -268,8 +268,10 @@ const chartOptions = computed(() => {
   margin-bottom: 1.5rem;
   transition: background-color 0.2s, border-color 0.2s;
 }
+</style>
 
-:global(html:not(.dark)) .state-timeline {
+<style>
+html:not(.dark) .state-timeline {
   background: #ffffff;
 }
 </style>

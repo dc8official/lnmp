@@ -751,11 +751,13 @@ onMounted(() => {
 }
 
 /* Light mode contrast overrides */
-:global(html:not(.dark)) .you-tag {
+</style>
+
+<style>
+html:not(.dark) .you-tag {
   color: #1d4ed8;
 }
-
-:global(html:not(.dark)) .role-badge.viewer {
+html:not(.dark) .role-badge.viewer {
   background: rgba(37, 99, 235, 0.1);
   color: #1d4ed8;
   border-color: rgba(37, 99, 235, 0.25);

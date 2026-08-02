@@ -655,41 +655,37 @@ onMounted(() => {
 }
 
 /* Light mode contrast overrides */
-:global(html:not(.dark)) .host-link {
+</style>
+
+<style>
+html:not(.dark) .host-link {
   color: #1d4ed8;
 }
-
-:global(html:not(.dark)) .toggle-pill.active {
+html:not(.dark) .toggle-pill.active {
   background: rgba(22, 163, 74, 0.1);
   color: #15803d;
 }
-
-:global(html:not(.dark)) .toggle-pill.active-blue {
+html:not(.dark) .toggle-pill.active-blue {
   background: rgba(37, 99, 235, 0.1);
   color: #1d4ed8;
 }
-
-:global(html:not(.dark)) .toggle-pill.disabled {
+html:not(.dark) .toggle-pill.disabled {
   background: rgba(100, 116, 139, 0.1);
   color: #475569;
 }
-
-:global(html:not(.dark)) .l2-pill {
+html:not(.dark) .l2-pill {
   background: rgba(37, 99, 235, 0.1);
   color: #1d4ed8;
   border-color: rgba(37, 99, 235, 0.25);
 }
-
-:global(html:not(.dark)) .btn-icon.action-discovery {
+html:not(.dark) .btn-icon.action-discovery {
   color: #1d4ed8;
   border-color: rgba(37, 99, 235, 0.25);
 }
-
-:global(html:not(.dark)) .btn-icon.action-discovery:hover {
+html:not(.dark) .btn-icon.action-discovery:hover {
   background: rgba(37, 99, 235, 0.08);
 }
-
-:global(html:not(.dark)) .form-divider {
+html:not(.dark) .form-divider {
   color: #1d4ed8;
 }
 </style>
