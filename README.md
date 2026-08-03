@@ -32,6 +32,12 @@ The platform is decoupled into independent, modular layers to guarantee continuo
 | Feature Module | Technical Mechanism | Operational Benefit |
 | --- | --- | --- |
 | **Adaptive Thresholds** | TimescaleDB Continuous Aggregates + In-Memory Z-Score ($Z > 3.0$) | Eliminates false alerts by adjusting latency baselines to match time-of-day traffic patterns. |
+| **L2/L3 & FHRP Boundary Detection** | Pure-Python `/proc/net/route` & `/proc/net/arp` parsing + HSRP/VRRP/GLBP MAC regex | Automatically identifies local host interfaces, Default Gateways, and Virtual Router Redundancy Protocol boundaries. |
+| **Single-Vertex Topology Deduplication** | Monitored IP alias mapping in Trie graph builder | Eliminates duplicate transit nodes by mapping hops directly to monitored endpoint vertices. |
+| **Differential RCA Engine** | Pre-outage baseline vs live failure trace comparison | Differentiates exact transit router hop drops from local L2 broadcast attachment drops. |
+| **Streaming Telemetry CSV Export** | Streaming server-side cursor + `csv.writer` with formula injection escaping (`=`, `+`, `-`, `@`) | Allows exporting millions of telemetry rows cleanly without memory bloat or spreadsheet formula risks. |
+| **RBAC & Security Governance** | Admin/Operator role separation, forced password changes, DB token status validation | Ensures immediate 401 session invalidation for disabled users and enforces initial login password resets. |
+| **Background Discovery Engine** | Non-blocking async endpoint creation (`_bg_run_initial_discovery`) | Delivers sub-50ms API responses on endpoint creation while background tasks execute initial traceroutes. |
 | **Automated Diagnostics** | Async `traceroute` execution on initial sub-cycle drop | Captures microsecond-level transit path failures before network routing reconverges. |
 | **Topological RCA** | Parent-child graph parsing with intermediate transit inference | Pinpoints upstream network link drops and silences cascading downstream alerts. |
 | **Decoupled Data Storage** | Dedicated JSONB table with automated 14-day cleanup worker | Keeps core time-series hypertables fast and query-optimized while preserving diagnostic traces. |
@@ -107,7 +113,24 @@ cd deploy
 
 ```
 
-### 3. Uninstalling the Platform
+### 3. Upgrading the Platform (Zero Data Loss)
+
+To upgrade an existing installation to the latest version without data loss, execute the automated upgrade utility:
+
+```bash
+cd deploy
+sudo bash upgrade.sh
+
+```
+
+The upgrade utility automatically executes the following safety sequence:
+1. **Pre-Upgrade Backup**: Dumps a timestamped PostgreSQL SQL backup to `/var/backups/netmon/netmon_backup_YYYYMMDD_HHMMSS.sql`.
+2. **Service Pause**: Gracefully stops `netmon-engine` and `netmon-api` systemd daemons.
+3. **Code & Dependency Sync**: Pulls latest repository updates, upgrades Python packages, and rebuilds Vue 3 frontend assets.
+4. **Database Migrations**: Applies latest Alembic database migrations (`alembic upgrade head`).
+5. **Service Restart**: Restarts background services and reloads Nginx.
+
+### 4. Uninstalling the Platform
 
 To remove platform services, database schemas, and associated background daemon configurations:
 
