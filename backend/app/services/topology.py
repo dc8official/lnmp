@@ -256,7 +256,10 @@ class TopologyGraphManager:
                     transit_children[manual_parent].add(ep_id)
                     continue
 
-                hops = baseline_routes.get(ep_id, [])
+                raw_hops = baseline_routes.get(ep_id, [])
+                from app.services.diagnostics import sanitize_traceroute_hops
+                hops = sanitize_traceroute_hops(raw_hops)
+
                 if not hops:
                     edges.add((root_node_id, ep_id))
                     if root_node_id not in transit_children:
@@ -268,11 +271,10 @@ class TopologyGraphManager:
                 previous_hop_ip_tag: str = "root"
 
                 for idx, hop in enumerate(hops):
-                    hop_num = hop.get("hop", idx + 1)
                     hop_ip = hop.get("ip")
 
                     if hop_ip is None:
-                        current_node_id = f"anon_after_{previous_hop_ip_tag}_hop_{hop_num}"
+                        current_node_id = f"anon_after_{previous_hop_ip_tag}"
                         if current_node_id not in nodes:
                             nodes[current_node_id] = {
                                 "id": current_node_id,
@@ -303,6 +305,7 @@ class TopologyGraphManager:
                                     "ip_address": hop_ip,
                                     "device_type": "TRANSIT_ROUTER",
                                     "endpoint_id": None,
+                                    "subnet": get_subnet_group(hop_ip),
                                 }
                             elif hop_ip in failed_hop_ips:
                                 nodes[current_node_id]["state"] = "FAILURE_POINT"
@@ -395,21 +398,25 @@ class TopologyGraphManager:
     def update_endpoint_path(self, endpoint_id: UUID, new_hops: List[dict]) -> None:
         """
         Incremental Event Mutation Hook:
-        Recalculates and updates visual edges affected by a single refreshed baseline route.
+        Recalculates visual edges affected by a single refreshed baseline route
+        and prunes orphaned ghost transit nodes/edges from memory.
         """
         ep_id = str(endpoint_id)
         if ep_id in self._disabled_topology_ep_ids:
             return
-        self._baseline_routes[ep_id] = new_hops
+
+        from app.services.diagnostics import sanitize_traceroute_hops
+        clean_hops = sanitize_traceroute_hops(new_hops)
+        self._baseline_routes[ep_id] = clean_hops
+
         previous_node_id = "root"
         previous_hop_ip_tag = "root"
 
-        for idx, hop in enumerate(new_hops):
-            hop_num = hop.get("hop", idx + 1)
+        for idx, hop in enumerate(clean_hops):
             hop_ip = hop.get("ip")
 
             if hop_ip is None:
-                current_node_id = f"anon_after_{previous_hop_ip_tag}_hop_{hop_num}"
+                current_node_id = f"anon_after_{previous_hop_ip_tag}"
                 if current_node_id not in self._nodes:
                     self._nodes[current_node_id] = {
                         "id": current_node_id,
@@ -439,6 +446,7 @@ class TopologyGraphManager:
                             "ip_address": hop_ip,
                             "device_type": "TRANSIT_ROUTER",
                             "endpoint_id": None,
+                            "subnet": get_subnet_group(hop_ip),
                         }
                 previous_hop_ip_tag = hop_ip.replace(".", "_")
 
@@ -455,6 +463,45 @@ class TopologyGraphManager:
             if previous_node_id not in self._transit_children:
                 self._transit_children[previous_node_id] = set()
             self._transit_children[previous_node_id].add(ep_id)
+
+        # Ghost Transit Node & Edge Pruning Pass:
+        # Collect all active nodes referenced by current baseline routes
+        active_transit_nodes: Set[str] = set()
+        for active_id, a_hops in self._baseline_routes.items():
+            prev_tag = "root"
+            for h in sanitize_traceroute_hops(a_hops):
+                h_ip = h.get("ip")
+                if h_ip is None:
+                    active_transit_nodes.add(f"anon_after_{prev_tag}")
+                else:
+                    h_ep = self._monitored_by_ip.get(h_ip)
+                    if not h_ep:
+                        active_transit_nodes.add(f"transit:{h_ip}")
+                    prev_tag = h_ip.replace(".", "_")
+
+        # Identify orphaned transit nodes
+        orphaned_ids = [
+            n_id for n_id, n_info in self._nodes.items()
+            if n_info.get("type") == "transit" and n_id not in active_transit_nodes
+        ]
+
+        for orphan_id in orphaned_ids:
+            del self._nodes[orphan_id]
+
+        # Prune stale edges involving deleted nodes
+        self._edges = {
+            (src, tgt) for (src, tgt) in self._edges
+            if src in self._nodes and tgt in self._nodes
+        }
+
+        # Re-build transit children index
+        self._transit_children = {}
+        for src, tgt in self._edges:
+            if src not in self._transit_children:
+                self._transit_children[src] = set()
+            self._transit_children[src].add(tgt)
+
+        self._propagate_inferred_down(self._nodes, self._transit_children)
 
         self._cached_graph = {
             "nodes": list(self._nodes.values()),

@@ -282,6 +282,51 @@ class TestV15BackendCore(unittest.TestCase):
         self.assertEqual(get_subnet_group("10.0.5.12"), "10.0.5.0/24")
         self.assertIsNone(get_subnet_group(None))
 
+    def test_sanitize_traceroute_hops_collapsing(self) -> None:
+        from app.services.diagnostics import sanitize_traceroute_hops
+
+        raw_hops = [
+            {"hop": 1, "ip": "192.168.1.1", "rtt_ms": 1.0},
+            {"hop": 2, "ip": None, "rtt_ms": None},
+            {"hop": 3, "ip": None, "rtt_ms": None},
+            {"hop": 4, "ip": "10.0.0.5", "rtt_ms": 5.0},
+            {"hop": 5, "ip": None, "rtt_ms": None},
+            {"hop": 6, "ip": None, "rtt_ms": None},
+        ]
+
+        cleaned = sanitize_traceroute_hops(raw_hops)
+        # Trailing nulls (hop 5 & 6) must be stripped.
+        # Consecutive nulls (hop 2 & 3) must be collapsed to 1 null.
+        self.assertEqual(len(cleaned), 3)
+        self.assertEqual(cleaned[0]["ip"], "192.168.1.1")
+        self.assertIsNone(cleaned[1]["ip"])
+        self.assertEqual(cleaned[2]["ip"], "10.0.0.5")
+
+    def test_ghost_node_pruning_on_update_endpoint_path(self) -> None:
+        from app.services.topology import TopologyGraphManager
+        manager = TopologyGraphManager.get_instance()
+        ep_id = uuid4()
+        ep_str = str(ep_id)
+
+        # Setup initial state with a stale transit node
+        manager._nodes = {
+            "root": {"id": "root", "type": "root"},
+            ep_str: {"id": ep_str, "type": "monitored"},
+            "transit:10.0.0.99": {"id": "transit:10.0.0.99", "type": "transit", "ip_address": "10.0.0.99"},
+        }
+        manager._monitored_by_id = {ep_str: {"id": ep_str}}
+        manager._monitored_by_ip = {"192.168.1.100": ep_str}
+
+        # Update path with new route (192.168.1.1)
+        manager.update_endpoint_path(ep_id, [{"hop": 1, "ip": "192.168.1.1"}])
+
+        cached_graph = manager.get_cached_graph()
+        node_ids = {n["id"] for n in cached_graph["nodes"]}
+
+        # Old transit 10.0.0.99 must be pruned as a ghost node
+        self.assertNotIn("transit:10.0.0.99", node_ids)
+        self.assertIn("transit:192.168.1.1", node_ids)
+
 
 if __name__ == "__main__":
     unittest.main()

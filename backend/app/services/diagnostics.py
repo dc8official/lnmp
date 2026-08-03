@@ -20,6 +20,36 @@ trace_semaphore = asyncio.Semaphore(5)
 discovery_queue: asyncio.Queue[tuple[UUID, str]] = asyncio.Queue()
 
 
+def sanitize_traceroute_hops(hops: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """
+    Sanitizes traceroute hop list:
+    1. Strips trailing 'no reply' (ip is None) hops.
+    2. Collapses consecutive 'no reply' (ip is None) hops into a single anonymous hop.
+    """
+    if not hops:
+        return []
+
+    # Strip trailing no-reply hops
+    clean_hops = list(hops)
+    while clean_hops and clean_hops[-1].get("ip") is None:
+        clean_hops.pop()
+
+    collapsed_hops: List[Dict[str, Any]] = []
+    prev_was_null = False
+
+    for h in clean_hops:
+        is_null = h.get("ip") is None
+        if is_null:
+            if not prev_was_null:
+                collapsed_hops.append(h)
+                prev_was_null = True
+        else:
+            collapsed_hops.append(h)
+            prev_was_null = False
+
+    return collapsed_hops
+
+
 async def run_traceroute(target_ip: str) -> Dict[str, Any]:
     """
     Executes asynchronous route discovery using standard non-privileged `tracepath` utility.
@@ -90,9 +120,11 @@ async def run_traceroute(target_ip: str) -> Dict[str, Any]:
         # Fallback trace entry
         hops.append({"hop": 1, "ip": target_ip, "rtt_ms": None})
 
+    sanitized_hops = sanitize_traceroute_hops(hops)
+
     return {
         "target_ip": target_ip,
-        "hops": hops,
+        "hops": sanitized_hops,
         "timestamp": timestamp,
     }
 
