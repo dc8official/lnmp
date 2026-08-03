@@ -14,7 +14,7 @@ NC='\033[0m' # No Color
 
 # 1. Require Root / Administrative Privileges
 if [[ ${EUID} -ne 0 ]]; then
-    echo -e "${RED}[ERROR] This script must be executed with root privileges (e.g., sudo bash deploy/upgrade.sh).${NC}" >&2
+    echo -e "${RED}[ERROR] This script must be executed with root privileges (e.g., sudo -i or ./upgrade.sh as root).${NC}" >&2
     exit 1
 fi
 
@@ -62,6 +62,11 @@ BACKUP_FILE="${BACKUP_DIR}/netmon_backup_${TIMESTAMP}.sql"
 
 echo -e "\n${BLUE}--- Step 1/6: Executing Pre-Upgrade Database Backup ---${NC}"
 if [[ ${DRY_RUN} -eq 0 ]]; then
+    if ! command -v pg_dump &> /dev/null; then
+        echo -e "${RED}[ERROR] pg_dump command not found. Please install postgresql-client.${NC}" >&2
+        exit 1
+    fi
+
     mkdir -p "${BACKUP_DIR}"
     chmod 750 "${BACKUP_DIR}"
     echo -e "${GREEN}[INFO] Creating timestamped database dump at ${BACKUP_FILE}...${NC}"
@@ -96,7 +101,7 @@ if [[ ${DRY_RUN} -eq 0 ]]; then
     cd "${PROJECT_ROOT}"
     if [[ -d ".git" ]]; then
         echo -e "${GREEN}[INFO] Pulling latest updates from git repository...${NC}"
-        git pull origin main || git pull || echo -e "${YELLOW}[WARN] Git pull finished with non-zero exit code. Continuing upgrade...${NC}"
+        git pull origin main || git pull || echo -e "${YELLOW}[WARN] Git pull completed with non-zero status. Continuing...${NC}"
     else
         echo -e "${YELLOW}[INFO] Working directory is not a git repository. Skipping git pull.${NC}"
     fi
@@ -136,7 +141,7 @@ if [[ ${DRY_RUN} -eq 0 ]]; then
     cd "${PROJECT_ROOT}"
     if [[ -d "${PROJECT_ROOT}/backend/migrations" && -f "${PROJECT_ROOT}/.venv/bin/alembic" ]]; then
         echo -e "${GREEN}[INFO] Running Alembic schema migration (alembic upgrade head)...${NC}"
-        PYTHONPATH="${PROJECT_ROOT}::${PROJECT_ROOT}/backend" "${PROJECT_ROOT}/.venv/bin/alembic" -c "${PROJECT_ROOT}/backend/alembic.ini" upgrade head || true
+        PYTHONPATH="${PROJECT_ROOT}:${PROJECT_ROOT}/backend" "${PROJECT_ROOT}/.venv/bin/alembic" -c "${PROJECT_ROOT}/backend/alembic.ini" upgrade head
     else
         echo -e "${YELLOW}[INFO] Alembic migration configuration not found. Skipping DB migration.${NC}"
     fi
@@ -144,15 +149,21 @@ else
     echo -e "[DRY-RUN] Would execute: alembic upgrade head"
 fi
 
-# 8. Service Restart
-echo -e "\n${BLUE}--- Step 6/6: Restarting Platform System Services ---${NC}"
+# 8. Service Restart & Verification
+echo -e "\n${BLUE}--- Step 6/6: Restarting & Verifying Platform Services ---${NC}"
 if [[ ${DRY_RUN} -eq 0 ]]; then
     if systemctl list-unit-files | grep -q "netmon-api.service"; then
-        echo -e "${GREEN}[INFO] Starting netmon-api and netmon-engine systemd services...${NC}"
+        echo -e "${GREEN}[INFO] Reloading systemd daemons and starting services...${NC}"
         systemctl daemon-reload
         systemctl start netmon-api netmon-engine
         systemctl restart nginx || true
-        echo -e "${GREEN}[SUCCESS] System services restarted cleanly.${NC}"
+
+        sleep 2
+        if systemctl is-active --quiet netmon-api && systemctl is-active --quiet netmon-engine; then
+            echo -e "${GREEN}[SUCCESS] All systemd services (netmon-api, netmon-engine) are active and healthy.${NC}"
+        else
+            echo -e "${YELLOW}[WARN] One or more services failed to start cleanly. Check systemctl status netmon-api netmon-engine.${NC}"
+        fi
     else
         echo -e "${YELLOW}[INFO] Systemd services not registered. Please start services manually if using non-systemd setup.${NC}"
     fi

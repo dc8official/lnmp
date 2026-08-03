@@ -119,7 +119,7 @@ To upgrade an existing installation to the latest version without data loss, exe
 
 ```bash
 cd deploy
-sudo bash upgrade.sh
+./upgrade.sh
 
 ```
 
