@@ -3,7 +3,7 @@ import logging
 from datetime import date, datetime
 from app.services.timezone_utils import get_local_timezone
 from math import ceil
-from typing import Optional, List
+from typing import Optional, List, Any
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
@@ -374,25 +374,34 @@ async def get_endpoint_events(
 # ---------------------------------------------------------------------------
 # Batch Telemetry Export Streaming API
 # ---------------------------------------------------------------------------
-logger = logging.getLogger(__name__)
+import csv
+import io
 
 class BatchExportRequest(BaseModel):
     endpoint_ids: List[UUID]
     start_time: datetime
     end_time: datetime
 
+def sanitize_csv_field(val: Any) -> str:
+    s = str(val) if val is not None else ""
+    if s and s[0] in ("=", "+", "-", "@", "\t", "\r"):
+        return f"'{s}"
+    return s
+
 async def csv_generator(endpoint_ids: List[UUID], start_time: datetime, end_time: datetime):
-    # Yield CSV Header on startup
-    yield "Endpoint_ID,Timestamp,Operational_State,Detailed_State,Packet_Success_Rate,Avg_RTT_ms\n"
-    
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["Endpoint_ID", "Timestamp", "Operational_State", "Detailed_State", "Packet_Success_Rate", "Avg_RTT_ms"])
+    yield output.getvalue()
+    output.seek(0)
+    output.truncate(0)
+
     offset = 0
     limit = 1000
-    
+
     while True:
         rows = []
-        # Database connections must remain completely encapsulated within short-lived context managers
         async with AsyncSessionLocal() as session:
-            # Open an asynchronous server-side cursor to PostgreSQL via stream()
             result = await session.stream(
                 text("""
                     SELECT endpoint_id, start_time, operational_state, detailed_state, health_score, avg_rtt_ms
@@ -411,26 +420,29 @@ async def csv_generator(endpoint_ids: List[UUID], start_time: datetime, end_time
                     "offset": offset,
                 }
             )
-            
+
             async for row in result:
                 rows.append(row)
-                
+
         if not rows:
             break
-            
+
         for row in rows:
-            endpoint_id_str = str(row.endpoint_id)
-            ts_str = row.start_time.isoformat().replace("+00:00", "Z") if row.start_time else ""
-            op_state = row.operational_state
-            det_state = row.detailed_state
-            success_rate = ("%.2f" % row.health_score) if row.health_score is not None else ""
-            rtt_val = ("%.2f" % row.avg_rtt_ms) if row.avg_rtt_ms is not None else ""
-            
-            yield "%s,%s,%s,%s,%s,%s\n" % (endpoint_id_str, ts_str, op_state, det_state, success_rate, rtt_val)
-            
+            endpoint_id_str = sanitize_csv_field(str(row.endpoint_id))
+            ts_str = sanitize_csv_field(row.start_time.isoformat().replace("+00:00", "Z") if row.start_time else "")
+            op_state = sanitize_csv_field(row.operational_state)
+            det_state = sanitize_csv_field(row.detailed_state)
+            success_rate = sanitize_csv_field(("%.2f" % row.health_score) if row.health_score is not None else "")
+            rtt_val = sanitize_csv_field(("%.2f" % row.avg_rtt_ms) if row.avg_rtt_ms is not None else "")
+
+            writer.writerow([endpoint_id_str, ts_str, op_state, det_state, success_rate, rtt_val])
+            yield output.getvalue()
+            output.seek(0)
+            output.truncate(0)
+
         if len(rows) < limit:
             break
-            
+
         offset += limit
 
 telemetry_router = APIRouter(prefix="/api/v1/telemetry", tags=["telemetry"])

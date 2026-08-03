@@ -88,6 +88,7 @@ async def login(
         "user_id": str(row.id),
         "details": json.dumps({"username": request.username})
     })
+    await db.commit()
 
     token = create_access_token(
         user_id=str(row.id),
@@ -102,24 +103,27 @@ async def login(
         message="Login successful."
     )
 
+    is_secure = request.url.scheme == "https" or getattr(settings.security, "hsts_enabled", False)
+
     response.set_cookie(
         key=cookie_name,
         value=token,
         httponly=True,
-        secure=True,
+        secure=is_secure,
         samesite="lax",
         path="/",
         max_age=settings.security.session_timeout_minutes * 60,
     )
 
-    return response_body
+    return APIResponse.success(data=response_body)
 
 @router.post("/logout")
-async def logout(response: Response):
+async def logout(request: Request, response: Response):
+    is_secure = request.url.scheme == "https" or getattr(settings.security, "hsts_enabled", False)
     response.delete_cookie(
         key=cookie_name,
         path="/",
-        secure=True,
+        secure=is_secure,
         httponly=True,
         samesite="lax",
     )
@@ -136,7 +140,22 @@ async def get_current_user(
     payload = decode_access_token(token)
     if payload is None:
         raise HTTPException(status_code=401, detail="Session expired or invalid.")
-        
+
+    user_id = payload.get("sub")
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Invalid token claims.")
+
+    user_query = text("""
+        SELECT is_active, must_change_password
+        FROM users
+        WHERE id = :user_id
+    """)
+    res = await db.execute(user_query, {"user_id": str(user_id)})
+    row = res.fetchone()
+    if not row or not row.is_active:
+        raise HTTPException(status_code=401, detail="User account is inactive or disabled.")
+
+    payload["must_change_password"] = row.must_change_password
     return payload
 
 async def require_admin(

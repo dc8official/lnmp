@@ -43,6 +43,7 @@ async def run_system_ping_fallback(
             "-c", str(count),
             "-i", str(safe_interval),
             "-W", str(int(timeout)),
+            "--",
             ip_address,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,

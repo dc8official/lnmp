@@ -69,6 +69,7 @@ async def run_traceroute(target_ip: str) -> Dict[str, Any]:
             "-n",
             "-m",
             "30",
+            "--",
             target_ip,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,

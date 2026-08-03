@@ -1,5 +1,7 @@
 from __future__ import annotations
+import asyncio
 import json
+import logging
 from datetime import datetime, timedelta
 from typing import Literal, Optional
 from uuid import UUID
@@ -15,6 +17,26 @@ from app.services.uptime_calculator import (
     calculate_uptime_denominator_and_percentage,
     get_unknown_seconds_for_period,
 )
+
+logger = logging.getLogger(__name__)
+
+
+async def _bg_run_initial_discovery(endpoint_id: UUID, ip_address: str) -> None:
+    try:
+        from app.database import AsyncSessionLocal
+    except ImportError:
+        from app.db.session import AsyncSessionLocal
+
+    from app.services.baseline_route import refresh_baseline_route
+    from app.services.topology import topology_manager
+
+    async with AsyncSessionLocal() as bg_db:
+        try:
+            await refresh_baseline_route(endpoint_id, ip_address, db=bg_db)
+            await bg_db.commit()
+            await topology_manager.full_rebuild(bg_db)
+        except Exception as exc:
+            logger.error("Background initial discovery failed for endpoint %s: %s", endpoint_id, exc)
 
 class CreateEndpointRequest(BaseModel):
     ip_address: str
@@ -168,17 +190,7 @@ async def list_endpoints(
             ev.detailed_state     AS current_detailed_state,
             ev.health_score       AS current_health_score,
             ev.start_time         AS last_seen,
-            COALESCE(
-                (
-                    SELECT COUNT(*)
-                    FROM endpoint_events sub_ev
-                    WHERE sub_ev.endpoint_id = e.id
-                      AND sub_ev.start_time >= :since_utc
-                      AND sub_ev.start_time <= :now_utc
-                      AND sub_ev.operational_state = 'UP'
-                ),
-                0
-            )::integer AS up_events_count
+            COALESCE(up_counts.up_events_count, 0)::integer AS up_events_count
         FROM endpoints e
         LEFT JOIN LATERAL (
             SELECT operational_state, detailed_state, health_score, start_time
@@ -187,6 +199,14 @@ async def list_endpoints(
             ORDER BY start_time DESC
             LIMIT 1
         ) ev ON TRUE
+        LEFT JOIN (
+            SELECT endpoint_id, COUNT(*)::integer AS up_events_count
+            FROM endpoint_events
+            WHERE start_time >= :since_utc
+              AND start_time <= :now_utc
+              AND operational_state = 'UP'
+            GROUP BY endpoint_id
+        ) up_counts ON up_counts.endpoint_id = e.id
         WHERE e.endpoint_status != 'DELETED'
     """
     
@@ -425,10 +445,11 @@ async def create_endpoint(
         })
         
         await db.commit()
+        asyncio.create_task(_bg_run_initial_discovery(UUID(str(deleted_row.id)), request.ip_address))
         return APIResponse.success(
             data={"id": str(deleted_row.id), "message": "Endpoint restored successfully."},
         )
-        
+
     insert_query = text("""
         INSERT INTO endpoints (
             ip_address, hostname, device_type,
@@ -480,19 +501,7 @@ async def create_endpoint(
     
     await db.commit()
     
-    # Auto-run baseline route discovery & rebuild topology DAG in memory
-    from app.services.baseline_route import refresh_baseline_route
-    from app.services.topology import topology_manager
-    try:
-        await refresh_baseline_route(new_endpoint.id, request.ip_address, db=db)
-        await db.commit()
-    except Exception as e:
-        pass
-
-    try:
-        await topology_manager.full_rebuild(db)
-    except Exception as e:
-        pass
+    asyncio.create_task(_bg_run_initial_discovery(new_endpoint.id, request.ip_address))
 
     return APIResponse.success(
         data={"id": str(new_endpoint.id), "message": "Endpoint created."},

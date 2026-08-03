@@ -74,7 +74,30 @@ def decode_access_token(token: str) -> Optional[dict]:
         return None
 
 
+MAX_FAILED_ATTEMPTS_ENTRIES = 1000
+
+
+def _prune_expired_attempts() -> None:
+    now = datetime.now(timezone.utc)
+    expired = [
+        u for u, data in _failed_attempts.items()
+        if (data.get("locked_until") and data["locked_until"] <= now) or
+           (data.get("last_attempt") and now - data["last_attempt"] > timedelta(minutes=30))
+    ]
+    for u in expired:
+        _failed_attempts.pop(u, None)
+
+    if len(_failed_attempts) > MAX_FAILED_ATTEMPTS_ENTRIES:
+        sorted_keys = sorted(
+            _failed_attempts.keys(),
+            key=lambda k: _failed_attempts[k].get("last_attempt") or datetime.min.replace(tzinfo=timezone.utc)
+        )
+        for k in sorted_keys[: len(_failed_attempts) - MAX_FAILED_ATTEMPTS_ENTRIES]:
+            _failed_attempts.pop(k, None)
+
+
 def is_account_locked(username: str) -> bool:
+    _prune_expired_attempts()
     entry = _failed_attempts.get(username)
     if not entry:
         return False
@@ -87,12 +110,13 @@ def is_account_locked(username: str) -> bool:
 
 
 def record_failed_attempt(username: str) -> None:
+    _prune_expired_attempts()
+    now = datetime.now(timezone.utc)
     entry = _failed_attempts.get(username, {"count": 0})
     entry["count"] = entry.get("count", 0) + 1
+    entry["last_attempt"] = now
     if entry["count"] >= 5:
-        entry["locked_until"] = (
-            datetime.now(timezone.utc) + timedelta(minutes=15)
-        )
+        entry["locked_until"] = now + timedelta(minutes=15)
     _failed_attempts[username] = entry
 
 

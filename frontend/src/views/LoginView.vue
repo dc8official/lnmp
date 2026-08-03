@@ -84,10 +84,11 @@ const handleLogin = async () => {
   error.value = null
   try {
     const response = await login(username.value, password.value)
+    const payloadData = response.data?.data || response.data
     setUserState({
-      username: response.data.username,
-      role: response.data.role,
-      must_change_password: response.data.must_change_password
+      username: payloadData.username,
+      role: payloadData.role,
+      must_change_password: payloadData.must_change_password
     })
     router.push('/')
   } catch (err) {
