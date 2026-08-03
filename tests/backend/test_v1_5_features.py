@@ -257,6 +257,31 @@ class TestV15BackendCore(unittest.TestCase):
         self.assertIn("transit:172.16.0.1", nodes_map)
         self.assertIn("transit:172.16.0.2", nodes_map)
 
+    def test_fhrp_mac_regex_patterns(self) -> None:
+        from app.services.baseline_route import get_fhrp_type
+        self.assertEqual(get_fhrp_type("00:00:0c:07:ac:01"), "HSRP_V1")
+        self.assertEqual(get_fhrp_type("00:00:0c:9f:f1:02"), "HSRP_V2")
+        self.assertEqual(get_fhrp_type("00:00:5e:00:01:0a"), "VRRP_IPV4")
+        self.assertEqual(get_fhrp_type("00:00:5e:00:02:0b"), "VRRP_IPV6")
+        self.assertEqual(get_fhrp_type("00:07:b4:01:02:03"), "GLBP")
+        self.assertIsNone(get_fhrp_type("00:11:22:33:44:55"))
+
+    def test_4_tier_boundary_classifier(self) -> None:
+        from app.services.baseline_route import classify_boundary_tier
+        tier, is_l2, default_gw, mac_addr, fhrp_type = classify_boundary_tier("127.0.0.1")
+        self.assertEqual(tier, "L2_LOCAL_HOST")
+        self.assertTrue(is_l2)
+
+        tier_wan, is_l2_wan, _, _, _ = classify_boundary_tier("8.8.8.8")
+        self.assertEqual(tier_wan, "L3_ROUTED_TRANSIT")
+        self.assertFalse(is_l2_wan)
+
+    def test_subnet_group_calculation(self) -> None:
+        from app.services.topology import get_subnet_group
+        self.assertEqual(get_subnet_group("192.168.1.50"), "192.168.1.0/24")
+        self.assertEqual(get_subnet_group("10.0.5.12"), "10.0.5.0/24")
+        self.assertIsNone(get_subnet_group(None))
+
 
 if __name__ == "__main__":
     unittest.main()

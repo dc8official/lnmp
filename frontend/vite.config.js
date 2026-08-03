@@ -20,5 +20,20 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     emptyOutDir: true,
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (id.includes('node_modules/vis-network') || id.includes('node_modules/vis-data')) {
+            return 'vendor-vis'
+          }
+          if (id.includes('node_modules/chart.js') || id.includes('node_modules/vue-chartjs')) {
+            return 'vendor-charts'
+          }
+          if (id.includes('node_modules/vue/') || id.includes('node_modules/vue-router') || id.includes('node_modules/axios')) {
+            return 'vendor-core'
+          }
+        }
+      }
+    }
   },
 })

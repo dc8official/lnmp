@@ -78,6 +78,10 @@
               <span class="meta-label">Segment Type:</span>
               <span class="meta-value text-blue">Layer 2 Broadcast Segment</span>
             </div>
+            <div class="meta-row" v-if="selectedNode.subnet">
+              <span class="meta-label">Subnet / VLAN:</span>
+              <span class="meta-value text-blue">{{ selectedNode.subnet }}</span>
+            </div>
             <div class="meta-row" v-if="selectedNode.device_type">
               <span class="meta-label">Device Type:</span>
               <span class="meta-value">{{ selectedNode.device_type }}</span>
@@ -250,6 +254,7 @@ function formatVisData(nodesData, edgesData) {
       shape: shape,
       size: size,
       color: colors,
+      group: node.subnet || 'default',
       font: { color: isDark.value ? '#F3F4F6' : '#111111', size: 12, face: 'Inter, sans-serif' },
       rawNode: node
     }

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import ipaddress
 import json
 import logging
 from typing import Any, Dict, List, Optional, Set, Tuple
@@ -26,6 +27,19 @@ async def _safe_execute(db: AsyncSession, query: Any) -> Any:
     except Exception as exc:
         logger.error("Topology database query failed: %s", exc, exc_info=True)
         return EmptyQueryResult()
+
+
+def get_subnet_group(ip_str: Optional[str]) -> Optional[str]:
+    """
+    Computes the IPv4 /24 subnet CIDR block for an IP address for visual clustering.
+    """
+    if not ip_str:
+        return None
+    try:
+        net = ipaddress.ip_network(f"{ip_str}/24", strict=False)
+        return str(net)
+    except Exception:
+        return None
 
 
 class TopologyGraphManager:
@@ -126,6 +140,7 @@ class TopologyGraphManager:
                     "endpoint_id": ep_id,
                     "is_l2_segment": bool(row.is_l2_segment),
                     "manual_parent_id": str(row.manual_parent_id) if row.manual_parent_id else None,
+                    "subnet": get_subnet_group(ip),
                 }
                 monitored_by_ip[ip] = ep_id
 
