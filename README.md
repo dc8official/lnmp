@@ -47,11 +47,17 @@ The platform is decoupled into independent, modular layers to guarantee continuo
 
 ## Recommended System Specifications
 
-### Hardware Requirements
+### Hardware Sizing Matrix
 
-* **CPU:** 1 vCPU (minimum), 2+ Cores (recommended for polling hundreds of nodes concurrently and processing background traceroutes).
-* **Memory:** 1 GB RAM (minimum), 2 GB+ RAM (recommended to accommodate TimescaleDB caching, API queries, and in-memory baseline lookup maps).
-* **Storage:** 10 GB+ SSD space (dependent on metric retention windows and number of monitored hosts).
+| Deployment Scale | Monitored Endpoints | CPU Cores | Memory (RAM) | Storage (SSD) | Recommended Use Case |
+| --- | --- | --- | --- | --- | --- |
+| **Small / Lab** | Up to 100 | 1 vCPU | 2 GB RAM | 10 GB SSD | Home lab, edge monitoring, small office networks. |
+| **Medium Enterprise** | 100 – 500 | 2 vCPUs | 4 GB RAM | 25 GB SSD | Branch networks, regional datacenter monitoring. |
+| **Large Scale** | 500 – 2,000+ | 4+ vCPUs | 8 GB+ RAM | 50 GB+ NVMe | Multi-site enterprise datacenters & ISP backbones. |
+
+> [!NOTE]
+> **v1.5 Resource Dynamics:**
+> In LNMP v1.5, features such as **TimescaleDB continuous aggregates**, **in-memory Z-score baseline caches**, and **non-blocking background traceroute workers** perform optimally with **2 GB+ RAM**. While a 1 GB RAM virtual machine can host small lab setups (<50 endpoints), **2 GB RAM is the recommended baseline** to ensure smooth zero-swap database caching, instant API responses, and fast frontend asset builds (`npm run build`).
 
 ### Software Requirements
 
