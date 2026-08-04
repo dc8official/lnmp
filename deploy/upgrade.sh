@@ -95,8 +95,8 @@ else
     echo -e "[DRY-RUN] Would run: systemctl stop netmon-engine netmon-api"
 fi
 
-# 5. Code Sync
-echo -e "\n${BLUE}--- Step 3/6: Synchronizing Codebase with Upstream Repository ---${NC}"
+# 5. Code Sync & Sync Exclusions
+echo -e "\n${BLUE}--- Step 3/6: Synchronizing Codebase & Enforcing Production Exclusions ---${NC}"
 if [[ ${DRY_RUN} -eq 0 ]]; then
     cd "${PROJECT_ROOT}"
     if [[ -d ".git" ]]; then
@@ -105,8 +105,22 @@ if [[ ${DRY_RUN} -eq 0 ]]; then
     else
         echo -e "${YELLOW}[INFO] Working directory is not a git repository. Skipping git pull.${NC}"
     fi
+
+    INSTALL_DIR="/opt/netmon/noop"
+    if [[ -d "${INSTALL_DIR}" && "${PROJECT_ROOT}" != "${INSTALL_DIR}" ]]; then
+        echo -e "${GREEN}[INFO] Syncing repository files to production target ${INSTALL_DIR}...${NC}"
+        rsync -a --delete \
+            --exclude='.git' \
+            --exclude='frontend/node_modules' \
+            --exclude='backend/venv' \
+            --exclude='tests' \
+            --exclude='pytest.ini' \
+            --exclude='scratch' \
+            "${PROJECT_ROOT}/" "${INSTALL_DIR}/"
+        chown -R netmon:netmon "${INSTALL_DIR}"
+    fi
 else
-    echo -e "[DRY-RUN] Would execute git pull origin main in ${PROJECT_ROOT}"
+    echo -e "[DRY-RUN] Would pull git changes and rsync files to /opt/netmon/noop excluding tests/, pytest.ini, scratch/"
 fi
 
 # 6. Dependency Update

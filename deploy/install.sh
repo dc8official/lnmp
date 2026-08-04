@@ -199,8 +199,17 @@ done
 print_header "Step 7: Copying project files"
 
 if [ ! -d "$INSTALL_DIR" ]; then
-    run "Copying project to $INSTALL_DIR" \
-        cp -r "$PROJECT_ROOT" "$INSTALL_DIR"
+    run "Creating project directory $INSTALL_DIR" \
+        mkdir -p "$INSTALL_DIR"
+    run "Copying project files to $INSTALL_DIR" \
+        rsync -a \
+        --exclude='.git' \
+        --exclude='frontend/node_modules' \
+        --exclude='backend/venv' \
+        --exclude='tests' \
+        --exclude='pytest.ini' \
+        --exclude='scratch' \
+        "$PROJECT_ROOT/" "$INSTALL_DIR/"
     run "Setting project ownership" \
         chown -R netmon:netmon "$INSTALL_DIR"
 else
@@ -211,6 +220,9 @@ else
         --exclude='.git' \
         --exclude='frontend/node_modules' \
         --exclude='backend/venv' \
+        --exclude='tests' \
+        --exclude='pytest.ini' \
+        --exclude='scratch' \
         "$PROJECT_ROOT/" "$INSTALL_DIR/"
     run "Setting project ownership" \
         chown -R netmon:netmon "$INSTALL_DIR"
