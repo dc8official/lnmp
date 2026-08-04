@@ -32,11 +32,11 @@ if [ -z "$NEW_PASS" ]; then
 fi
 
 # Execute python reset script inside the virtual environment
-sudo -H -u netmon bash -c "
-    export NETMON_DB_PASSWORD='$DB_PASS' &&
-    export NETMON_SECRET_KEY='$SECRET_KEY' &&
-    export TARGET_NEW_PASS=\"$NEW_PASS\" &&
-    export PYTHONPATH='/opt/netmon/noop/backend' &&
+sudo -H -u netmon \
+    NETMON_DB_PASSWORD="$DB_PASS" \
+    NETMON_SECRET_KEY="$SECRET_KEY" \
+    TARGET_NEW_PASS="$NEW_PASS" \
+    PYTHONPATH='/opt/netmon/noop/backend' \
     /opt/netmon/venv/bin/python - <<'PYEOF'
 import asyncio
 import os
@@ -68,7 +68,6 @@ async def update_admin_password():
 
 asyncio.run(update_admin_password())
 PYEOF
-"
 
 echo ""
 echo "--------------------------------------------------------"

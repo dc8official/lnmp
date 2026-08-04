@@ -409,13 +409,12 @@ run "Running Alembic migrations" \
 print_header "Step 14: Creating default admin user"
 
 if [ "$DRY_RUN" = false ]; then
-    sudo -H -u netmon bash -c "
-        export NETMON_DB_PASSWORD='$DB_PASS' &&
-        export NETMON_SECRET_KEY='$SECRET_KEY' &&
-        export DEFAULT_ADMIN_PASSWORD='$ADMIN_PASS' &&
-        export PYTHONPATH='$INSTALL_DIR/backend' &&
-        cd '$INSTALL_DIR/backend' &&
-        '$VENV_DIR/bin/python3' - <<'PYEOF'
+    sudo -H -u netmon \
+        NETMON_DB_PASSWORD="$DB_PASS" \
+        NETMON_SECRET_KEY="$SECRET_KEY" \
+        DEFAULT_ADMIN_PASSWORD="$ADMIN_PASS" \
+        PYTHONPATH="$INSTALL_DIR/backend" \
+        "$VENV_DIR/bin/python3" - <<'PYEOF'
 import os
 import asyncio
 from app.database import AsyncSessionLocal
@@ -426,7 +425,7 @@ async def create_default_admin():
     admin_pass = os.environ.get('DEFAULT_ADMIN_PASSWORD', 'Admin@lnmp1')
     async with AsyncSessionLocal() as db:
         existing = await db.execute(
-            text(\"SELECT id FROM users WHERE username = 'admin'\")
+            text("SELECT id FROM users WHERE username = 'admin'")
         )
         hashed = hash_password(admin_pass)
         if existing.fetchone():
@@ -438,10 +437,9 @@ async def create_default_admin():
             print('Default admin user password updated successfully.')
             return
         role = await db.execute(
-            text(\"SELECT id FROM roles WHERE role_name = 'ADMIN'\")
+            text("SELECT id FROM roles WHERE role_name = 'ADMIN'")
         )
         role_id = role.scalar()
-        hashed = hash_password(admin_pass)
         await db.execute(
             text(
                 'INSERT INTO users '
@@ -456,7 +454,6 @@ async def create_default_admin():
 
 asyncio.run(create_default_admin())
 PYEOF
-    "
 else
     echo "[DRY RUN] Would create default admin user (admin / $ADMIN_PASS)"
 fi
