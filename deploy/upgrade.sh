@@ -95,8 +95,8 @@ else
     echo -e "[DRY-RUN] Would run: systemctl stop netmon-engine netmon-api"
 fi
 
-# 5. Code Sync & Sync Exclusions
-echo -e "\n${BLUE}--- Step 3/6: Synchronizing Codebase & Enforcing Production Exclusions ---${NC}"
+# 5. Dependency Update & Code Compilation
+echo -e "\n${BLUE}--- Step 3/6: Updating Python Dependencies & Building Frontend ---${NC}"
 if [[ ${DRY_RUN} -eq 0 ]]; then
     cd "${PROJECT_ROOT}"
     if [[ -d ".git" ]]; then
@@ -106,9 +106,41 @@ if [[ ${DRY_RUN} -eq 0 ]]; then
         echo -e "${YELLOW}[INFO] Working directory is not a git repository. Skipping git pull.${NC}"
     fi
 
+    # Determine Python virtual environment path (/opt/netmon/venv preferred, fallback to .venv)
+    VENV_PATH=""
+    if [[ -d "/opt/netmon/venv" ]]; then
+        VENV_PATH="/opt/netmon/venv"
+    elif [[ -d "${PROJECT_ROOT}/.venv" ]]; then
+        VENV_PATH="${PROJECT_ROOT}/.venv"
+    fi
+
+    if [[ -n "${VENV_PATH}" ]]; then
+        echo -e "${GREEN}[INFO] Upgrading Python dependencies in ${VENV_PATH}...${NC}"
+        "${VENV_PATH}/bin/pip" install --upgrade pip
+        "${VENV_PATH}/bin/pip" install -r "${PROJECT_ROOT}/backend/requirements.txt" --upgrade
+    else
+        echo -e "${YELLOW}[WARN] Virtual environment not found at /opt/netmon/venv or ${PROJECT_ROOT}/.venv. Skipping pip upgrade.${NC}"
+    fi
+
+    # Rebuild Vue 3 frontend
+    FRONTEND_DIR="${PROJECT_ROOT}/frontend"
+    if [[ -d "${FRONTEND_DIR}" && -f "${FRONTEND_DIR}/package.json" ]]; then
+        echo -e "${GREEN}[INFO] Rebuilding production Vue 3 frontend bundle...${NC}"
+        cd "${FRONTEND_DIR}"
+        npm install
+        npm run build
+        cd "${PROJECT_ROOT}"
+    fi
+else
+    echo -e "[DRY-RUN] Would pull git updates, upgrade pip requirements, and execute npm run build in frontend/"
+fi
+
+# 6. Synchronize Production Files
+echo -e "\n${BLUE}--- Step 4/6: Synchronizing Codebase & Enforcing Production Exclusions ---${NC}"
+if [[ ${DRY_RUN} -eq 0 ]]; then
     INSTALL_DIR="/opt/netmon/noop"
     if [[ -d "${INSTALL_DIR}" && "${PROJECT_ROOT}" != "${INSTALL_DIR}" ]]; then
-        echo -e "${GREEN}[INFO] Syncing repository files to production target ${INSTALL_DIR}...${NC}"
+        echo -e "${GREEN}[INFO] Syncing repository and built assets to production target ${INSTALL_DIR}...${NC}"
         rsync -a --delete \
             --exclude='.git' \
             --exclude='frontend/node_modules' \
@@ -120,44 +152,29 @@ if [[ ${DRY_RUN} -eq 0 ]]; then
         chown -R netmon:netmon "${INSTALL_DIR}"
     fi
 else
-    echo -e "[DRY-RUN] Would pull git changes and rsync files to /opt/netmon/noop excluding tests/, pytest.ini, scratch/"
-fi
-
-# 6. Dependency Update
-echo -e "\n${BLUE}--- Step 4/6: Updating Python & Frontend Dependencies ---${NC}"
-if [[ ${DRY_RUN} -eq 0 ]]; then
-    # Python virtual environment update
-    VENV_PATH="${PROJECT_ROOT}/.venv"
-    if [[ -d "${VENV_PATH}" ]]; then
-        echo -e "${GREEN}[INFO] Upgrading Python dependencies in ${VENV_PATH}...${NC}"
-        "${VENV_PATH}/bin/pip" install --upgrade pip
-        "${VENV_PATH}/bin/pip" install -r "${PROJECT_ROOT}/backend/requirements.txt" --upgrade
-    else
-        echo -e "${YELLOW}[WARN] Virtual environment not found at ${VENV_PATH}. Skipping pip upgrade.${NC}"
-    fi
-
-    # Frontend build
-    FRONTEND_DIR="${PROJECT_ROOT}/frontend"
-    if [[ -d "${FRONTEND_DIR}" && -f "${FRONTEND_DIR}/package.json" ]]; then
-        echo -e "${GREEN}[INFO] Rebuilding production Vue 3 frontend bundle...${NC}"
-        cd "${FRONTEND_DIR}"
-        npm install
-        npm run build
-        cd "${PROJECT_ROOT}"
-    fi
-else
-    echo -e "[DRY-RUN] Would upgrade pip requirements and execute npm run build in frontend/"
+    echo -e "[DRY-RUN] Would rsync compiled codebase to /opt/netmon/noop excluding tests/, pytest.ini, scratch/"
 fi
 
 # 7. Database Migrations
 echo -e "\n${BLUE}--- Step 5/6: Executing Database Schema Migrations ---${NC}"
 if [[ ${DRY_RUN} -eq 0 ]]; then
     cd "${PROJECT_ROOT}"
-    if [[ -d "${PROJECT_ROOT}/backend/migrations" && -f "${PROJECT_ROOT}/.venv/bin/alembic" ]]; then
+    ALEMBIC_BIN=""
+    if [[ -n "${VENV_PATH:-}" && -f "${VENV_PATH}/bin/alembic" ]]; then
+        ALEMBIC_BIN="${VENV_PATH}/bin/alembic"
+    elif [[ -f "/opt/netmon/venv/bin/alembic" ]]; then
+        ALEMBIC_BIN="/opt/netmon/venv/bin/alembic"
+    elif [[ -f "${PROJECT_ROOT}/.venv/bin/alembic" ]]; then
+        ALEMBIC_BIN="${PROJECT_ROOT}/.venv/bin/alembic"
+    fi
+
+    if [[ -d "${PROJECT_ROOT}/backend/migrations" && -n "${ALEMBIC_BIN}" ]]; then
         echo -e "${GREEN}[INFO] Running Alembic schema migration (alembic upgrade head)...${NC}"
-        PYTHONPATH="${PROJECT_ROOT}:${PROJECT_ROOT}/backend" "${PROJECT_ROOT}/.venv/bin/alembic" -c "${PROJECT_ROOT}/backend/alembic.ini" upgrade head
+        export NETMON_DB_PASSWORD="${DB_PASS}"
+        export NETMON_SECRET_KEY="${NETMON_SECRET_KEY:-${SECRET_KEY:-}}"
+        PYTHONPATH="${PROJECT_ROOT}:${PROJECT_ROOT}/backend" "${ALEMBIC_BIN}" -c "${PROJECT_ROOT}/backend/alembic.ini" upgrade head
     else
-        echo -e "${YELLOW}[INFO] Alembic migration configuration not found. Skipping DB migration.${NC}"
+        echo -e "${YELLOW}[INFO] Alembic migration configuration or binary not found. Skipping DB migration.${NC}"
     fi
 else
     echo -e "[DRY-RUN] Would execute: alembic upgrade head"
@@ -167,7 +184,7 @@ fi
 echo -e "\n${BLUE}--- Step 6/6: Restarting & Verifying Platform Services ---${NC}"
 if [[ ${DRY_RUN} -eq 0 ]]; then
     if systemctl list-unit-files | grep -q "netmon-api.service"; then
-        echo -e "${GREEN}[INFO] Reloading systemd daemons and starting services...${NC}"
+        echo -e "${GREEN}[INFO] Reloading systemd daemons and restarting services...${NC}"
         systemctl daemon-reload
         systemctl restart netmon-api netmon-engine
         systemctl restart nginx || true
@@ -182,7 +199,7 @@ if [[ ${DRY_RUN} -eq 0 ]]; then
         echo -e "${YELLOW}[INFO] Systemd services not registered. Please start services manually if using non-systemd setup.${NC}"
     fi
 else
-    echo -e "[DRY-RUN] Would run: systemctl start netmon-api netmon-engine"
+    echo -e "[DRY-RUN] Would run: systemctl restart netmon-api netmon-engine"
 fi
 
 echo -e "\n${GREEN}========================================================================${NC}"

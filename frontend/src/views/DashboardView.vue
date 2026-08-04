@@ -298,7 +298,7 @@ const fetchEndpoints = async () => {
       localStorage.removeItem('user')
       router.push('/login')
     } else {
-      error.value = err.response?.data?.error?.message || 'Failed to connect to backend engine. Verify backend is running.'
+      error.value = err.response?.data?.detail || err.response?.data?.error?.message || 'Failed to connect to backend engine. Verify backend is running.'
     }
   } finally {
     loading.value = false

@@ -123,7 +123,7 @@ async def monitor_endpoint(
                 # Down-State Trigger Hook: Fire incident diagnostic trace on first failed ping sub-cycle
                 if result.failed_count > 0:
                     allow_res = await db.execute(
-                        text("SELECT allow_incident_trace FROM endpoints WHERE id = :id"),
+                        text("SELECT allow_incident_trace FROM endpoints WHERE id = :id::uuid"),
                         {"id": str(endpoint_id)},
                     )
                     row = allow_res.fetchone()

@@ -71,7 +71,7 @@ async def close_monitoring_gap(
             duration_seconds = EXTRACT(
                 EPOCH FROM (:end_time - start_time)
             )::BIGINT
-        WHERE id = :gap_id
+        WHERE id = :gap_id::uuid
     """)
     await db.execute(
         query,

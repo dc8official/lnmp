@@ -77,7 +77,7 @@ async def get_endpoint_traces(
     query = text("""
         SELECT id, endpoint_id, timestamp, trigger_reason, trace_data
         FROM endpoint_diagnostic_traces
-        WHERE endpoint_id = :id
+        WHERE endpoint_id = :id::uuid
         ORDER BY timestamp DESC
         LIMIT 10
     """)
@@ -120,7 +120,7 @@ async def get_endpoint_rca(
             failure_trace_snapshot,
             is_resolved
         FROM endpoint_rca_incidents
-        WHERE endpoint_id = :id
+        WHERE endpoint_id = :id::uuid
         ORDER BY incident_timestamp DESC
         LIMIT 1
     """)
@@ -319,7 +319,7 @@ async def get_endpoint(
             ORDER BY start_time DESC
             LIMIT 1
         ) ev ON TRUE
-        WHERE e.id = :endpoint_id
+        WHERE e.id = :endpoint_id::uuid
           AND e.endpoint_status != 'DELETED'
     """)
     result = await db.execute(query, {
@@ -409,7 +409,7 @@ async def create_endpoint(
                 endpoint_status = 'ACTIVE',
                 deleted_at = NULL,
                 updated_at = NOW()
-            WHERE id = :endpoint_id
+            WHERE id = :endpoint_id::uuid
         """)
         await db.execute(restore_query, {
             "hostname": request.hostname,
@@ -430,8 +430,8 @@ async def create_endpoint(
             INSERT INTO audit_logs (
                 user_id, action, target_type, target_id, details
             ) VALUES (
-                :user_id, 'ENDPOINT:RESTORE', 'endpoints',
-                :target_id, :details
+                :user_id::uuid, 'ENDPOINT:RESTORE', 'endpoints',
+                :target_id::uuid, :details
             )
         """)
         await db.execute(audit_query, {
@@ -462,7 +462,7 @@ async def create_endpoint(
             :location, :description, :monitoring_enabled,
             :allow_incident_trace, :allow_topology_discovery,
             :enable_rca, :enable_scheduled_discovery, :is_l2_segment,
-            :manual_parent_id, 'ACTIVE', :created_by
+            :manual_parent_id::uuid, 'ACTIVE', :created_by::uuid
         ) RETURNING id, created_at, updated_at
     """)
     insert_result = await db.execute(insert_query, {
@@ -486,8 +486,8 @@ async def create_endpoint(
         INSERT INTO audit_logs (
             user_id, action, target_type, target_id, details
         ) VALUES (
-            :user_id, 'ENDPOINT:CREATE', 'endpoints',
-            :target_id, :details
+            :user_id::uuid, 'ENDPOINT:CREATE', 'endpoints',
+            :target_id::uuid, :details
         )
     """)
     await db.execute(audit_query, {
@@ -518,7 +518,7 @@ async def update_endpoint(
 
     check_query = text("""
         SELECT id FROM endpoints
-        WHERE id = :endpoint_id
+        WHERE id = :endpoint_id::uuid
           AND endpoint_status != 'DELETED'
     """)
     check_result = await db.execute(check_query, {"endpoint_id": str(endpoint_id)})
@@ -556,10 +556,13 @@ async def update_endpoint(
     if len(updates) == 1:
         return APIResponse.success(data={"message": "No changes provided."})
         
-    set_clause = ", ".join(f"{k} = :{k}" for k in updates)
+    set_clause = ", ".join(
+        f"manual_parent_id = :manual_parent_id::uuid" if k == "manual_parent_id" else f"{k} = :{k}"
+        for k in updates
+    )
     update_query = text(f"""
         UPDATE endpoints SET {set_clause}
-        WHERE id = :endpoint_id
+        WHERE id = :endpoint_id::uuid
     """)
     
     params = updates.copy()
@@ -572,8 +575,8 @@ async def update_endpoint(
         INSERT INTO audit_logs (
             user_id, action, target_type, target_id, details
         ) VALUES (
-            :user_id, 'ENDPOINT:UPDATE', 'endpoints',
-            :target_id, :details
+            :user_id::uuid, 'ENDPOINT:UPDATE', 'endpoints',
+            :target_id::uuid, :details
         )
     """)
     await db.execute(audit_query, {
@@ -601,7 +604,7 @@ async def delete_endpoint(
 
     check_query = text("""
         SELECT id FROM endpoints
-        WHERE id = :endpoint_id
+        WHERE id = :endpoint_id::uuid
           AND endpoint_status != 'DELETED'
     """)
     check_result = await db.execute(check_query, {"endpoint_id": str(endpoint_id)})
@@ -614,7 +617,7 @@ async def delete_endpoint(
         SET endpoint_status = 'DELETED',
             deleted_at = :now,
             updated_at = :now
-        WHERE id = :endpoint_id
+        WHERE id = :endpoint_id::uuid
     """)
     await db.execute(delete_query, {
         "endpoint_id": str(endpoint_id),
@@ -625,8 +628,8 @@ async def delete_endpoint(
         INSERT INTO audit_logs (
             user_id, action, target_type, target_id, details
         ) VALUES (
-            :user_id, 'ENDPOINT:DELETE', 'endpoints',
-            :target_id, :details
+            :user_id::uuid, 'ENDPOINT:DELETE', 'endpoints',
+            :target_id::uuid, :details
         )
     """)
     await db.execute(audit_query, {
@@ -655,7 +658,7 @@ async def trigger_refresh_baseline(
 
     check_query = text("""
         SELECT host(ip_address) AS ip_address FROM endpoints
-        WHERE id = :endpoint_id
+        WHERE id = :endpoint_id::uuid
           AND endpoint_status != 'DELETED'
     """)
     check_result = await db.execute(check_query, {"endpoint_id": str(endpoint_id)})

@@ -154,7 +154,7 @@ async def save_diagnostic_trace(
                 trigger_reason,
                 trace_data
             ) VALUES (
-                :endpoint_id,
+                :endpoint_id::uuid,
                 :trigger_reason,
                 :trace_data
             ) RETURNING id

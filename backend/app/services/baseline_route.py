@@ -204,7 +204,7 @@ async def refresh_baseline_route(
         INSERT INTO endpoint_baseline_routes (
             endpoint_id, updated_at, total_hops, hops
         ) VALUES (
-            :endpoint_id, NOW(), :total_hops, :hops
+            :endpoint_id::uuid, NOW(), :total_hops, :hops
         )
         ON CONFLICT (endpoint_id) DO UPDATE SET
             updated_at = NOW(),
@@ -216,7 +216,7 @@ async def refresh_baseline_route(
         UPDATE endpoints
         SET is_l2_segment = :is_l2_segment,
             updated_at = NOW()
-        WHERE id = :endpoint_id
+        WHERE id = :endpoint_id::uuid
     """)
 
     async def _execute_queries(session: AsyncSession):
