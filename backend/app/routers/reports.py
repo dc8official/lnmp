@@ -406,7 +406,7 @@ async def csv_generator(endpoint_ids: List[UUID], start_time: datetime, end_time
                 text("""
                     SELECT endpoint_id, start_time, operational_state, detailed_state, health_score, avg_rtt_ms
                     FROM endpoint_events
-                    WHERE endpoint_id = ANY(:endpoint_ids)
+                    WHERE endpoint_id = ANY(:endpoint_ids::uuid[])
                       AND start_time >= :start_time
                       AND start_time <= :end_time
                     ORDER BY start_time ASC

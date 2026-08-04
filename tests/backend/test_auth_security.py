@@ -99,6 +99,27 @@ class TestSecurityAuditFixes(unittest.TestCase):
         self.assertIn("--", args)
         self.assertEqual(args[args.index("--") + 1], "-h")
 
+    def test_get_current_user_executes_uuid_cast_query(self) -> None:
+        mock_request = MagicMock()
+        mock_request.cookies.get.return_value = "valid_token"
+
+        mock_db = AsyncMock()
+        test_user_id = str(uuid4())
+
+        with patch("app.routers.auth.decode_access_token") as mock_decode:
+            mock_decode.return_value = {"sub": test_user_id, "username": "active_user", "role": "ADMIN"}
+
+            db_res = MagicMock()
+            db_res.fetchone.return_value = MagicMock(is_active=True, must_change_password=False)
+            mock_db.execute.return_value = db_res
+
+            res = self.loop.run_until_complete(get_current_user(mock_request, db=mock_db))
+
+            self.assertEqual(res["username"], "active_user")
+            mock_db.execute.assert_called_once()
+            called_sql = str(mock_db.execute.call_args[0][0])
+            self.assertIn("WHERE id = :user_id::uuid", called_sql)
+
 
 if __name__ == "__main__":
     unittest.main()

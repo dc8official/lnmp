@@ -169,7 +169,7 @@ if [[ ${DRY_RUN} -eq 0 ]]; then
     if systemctl list-unit-files | grep -q "netmon-api.service"; then
         echo -e "${GREEN}[INFO] Reloading systemd daemons and starting services...${NC}"
         systemctl daemon-reload
-        systemctl start netmon-api netmon-engine
+        systemctl restart netmon-api netmon-engine
         systemctl restart nginx || true
 
         sleep 2
