@@ -26,8 +26,8 @@ if [ -z "$NEW_PASS" ]; then
     read -s -p "Enter new admin password (leave blank to auto-generate): " NEW_PASS
     echo ""
     if [ -z "$NEW_PASS" ]; then
-        NEW_PASS=$(openssl rand -base64 12 | tr -dc 'a-zA-Z0-9' | head -c 12)
-        echo "Auto-generated new password: $NEW_PASS"
+        NEW_PASS="admin"
+        echo "Defaulting new admin password to: $NEW_PASS"
     fi
 fi
 

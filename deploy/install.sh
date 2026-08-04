@@ -422,7 +422,7 @@ from app.services.auth_service import hash_password
 from sqlalchemy import text
 
 async def create_default_admin():
-    admin_pass = os.environ.get('DEFAULT_ADMIN_PASSWORD', 'Admin@lnmp1')
+    admin_pass = os.environ.get('DEFAULT_ADMIN_PASSWORD', 'admin')
     async with AsyncSessionLocal() as db:
         existing = await db.execute(
             text("SELECT id FROM users WHERE username = 'admin'")

@@ -166,7 +166,7 @@ async def require_admin(
     return current_user
 
 class ChangePasswordRequest(BaseModel):
-    old_password: str
+    old_password: Optional[str] = None
     new_password: str
 
 @router.post("/change-password")
@@ -176,7 +176,7 @@ async def change_password(
     db: AsyncSession = Depends(get_db),
 ):
     query = text("""
-        SELECT id, password_hash FROM users
+        SELECT id, password_hash, must_change_password FROM users
         WHERE id = :user_id::uuid AND is_active = TRUE
         LIMIT 1
     """)
@@ -185,8 +185,12 @@ async def change_password(
     if not row:
         raise HTTPException(status_code=404, detail="User not found.")
         
-    if not verify_password(request.old_password, row.password_hash):
-        raise HTTPException(status_code=400, detail="Invalid current password.")
+    if not row.must_change_password:
+        if not request.old_password or not verify_password(request.old_password, row.password_hash):
+            raise HTTPException(status_code=400, detail="Invalid current password.")
+    else:
+        if request.old_password and not verify_password(request.old_password, row.password_hash):
+            logger.info("Forced password reset for user %s: completing initial password update.", current_user.get("sub"))
         
     hashed = hash_password(request.new_password)
     update_query = text("""
