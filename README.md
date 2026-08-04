@@ -136,14 +136,26 @@ The upgrade utility automatically executes the following safety sequence:
 4. **Database Migrations**: Applies latest Alembic database migrations (`alembic upgrade head`).
 5. **Service Restart**: Restarts background services and reloads Nginx.
 
-### 4. Uninstalling the Platform
+### 4. Uninstalling the Platform & Residual File Cleanup
 
-To remove platform services, database schemas, and associated background daemon configurations:
+To automatically stop background daemons, remove database schemas, configurations, and clean up residual platform files:
 
 ```bash
 cd deploy
-./uninstall.sh
+sudo ./uninstall.sh --force
+```
 
+If you need to manually purge all leftover residual files, database roles, systemd units, and logs across the system:
+
+```bash
+sudo bash -c '
+systemctl stop netmon-api netmon-engine 2>/dev/null || true
+rm -f /etc/systemd/system/netmon-api.service /etc/systemd/system/netmon-engine.service
+rm -f /etc/nginx/sites-enabled/netmon /etc/nginx/sites-available/netmon /etc/logrotate.d/netmon
+rm -rf /opt/netmon /etc/netmon /var/log/netmon /var/backups/netmon
+id netmon &>/dev/null && userdel -r netmon 2>/dev/null || true
+systemctl daemon-reload
+'
 ```
 
 ---

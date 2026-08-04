@@ -428,8 +428,14 @@ async def create_default_admin():
         existing = await db.execute(
             text(\"SELECT id FROM users WHERE username = 'admin'\")
         )
+        hashed = hash_password(admin_pass)
         if existing.fetchone():
-            print('Default admin user already exists. Skipping.')
+            await db.execute(
+                text("UPDATE users SET password_hash = :p, must_change_password = TRUE WHERE username = 'admin'"),
+                {'p': hashed}
+            )
+            await db.commit()
+            print('Default admin user password updated successfully.')
             return
         role = await db.execute(
             text(\"SELECT id FROM roles WHERE role_name = 'ADMIN'\")
