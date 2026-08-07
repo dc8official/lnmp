@@ -22,11 +22,17 @@ async def seed_admin(password: str = "admin"):
         hashed = hash_password(password)
 
         existing = await db.execute(
-            text("SELECT id FROM users WHERE username = 'admin' LIMIT 1")
+            text("SELECT id, must_change_password FROM users WHERE username = 'admin' LIMIT 1")
         )
         user_row = existing.fetchone()
 
+        force_reset = os.environ.get("FORCE_RESET_ADMIN", "").lower() in ("true", "1")
+
         if user_row:
+            if not user_row.must_change_password and not force_reset:
+                logger.info("Admin user has already set a custom password (must_change_password=FALSE). Preserving user password across upgrade.")
+                return True
+
             await db.execute(
                 text("""
                     UPDATE users
@@ -38,7 +44,7 @@ async def seed_admin(password: str = "admin"):
                 """),
                 {"p": hashed}
             )
-            logger.info("Successfully updated admin user password to '%s' and set must_change_password=TRUE.", password)
+            logger.info("Successfully updated initial admin user password to '%s' and set must_change_password=TRUE.", password)
         else:
             await db.execute(
                 text("""

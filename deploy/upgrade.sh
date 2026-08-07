@@ -145,6 +145,8 @@ if [[ ${DRY_RUN} -eq 0 ]]; then
             --exclude='.git' \
             --exclude='frontend/node_modules' \
             --exclude='backend/venv' \
+            --exclude='backend/.env' \
+            --exclude='.env' \
             --exclude='tests' \
             --exclude='pytest.ini' \
             --exclude='scratch' \

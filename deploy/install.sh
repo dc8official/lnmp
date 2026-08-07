@@ -425,16 +425,20 @@ async def create_default_admin():
     admin_pass = os.environ.get('DEFAULT_ADMIN_PASSWORD', 'admin')
     async with AsyncSessionLocal() as db:
         existing = await db.execute(
-            text("SELECT id FROM users WHERE username = 'admin'")
+            text("SELECT id, must_change_password FROM users WHERE username = 'admin'")
         )
+        row = existing.fetchone()
         hashed = hash_password(admin_pass)
-        if existing.fetchone():
+        if row:
+            if not row.must_change_password:
+                print('Admin user already exists with custom password. Preserving user password.')
+                return
             await db.execute(
                 text("UPDATE users SET password_hash = :p, must_change_password = TRUE WHERE username = 'admin'"),
                 {'p': hashed}
             )
             await db.commit()
-            print('Default admin user password updated successfully.')
+            print('Default admin user password set successfully.')
             return
         role = await db.execute(
             text("SELECT id FROM roles WHERE role_name = 'ADMIN'")
@@ -445,7 +449,7 @@ async def create_default_admin():
                 'INSERT INTO users '
                 '(username, password_hash, role_id, '
                 'is_active, must_change_password) '
-                'VALUES (:u, :p, :r, TRUE, TRUE)'
+                'VALUES (:u, :p, :r::uuid, TRUE, TRUE)'
             ),
             {'u': 'admin', 'p': hashed, 'r': str(role_id)}
         )
