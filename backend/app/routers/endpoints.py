@@ -77,7 +77,7 @@ async def get_endpoint_traces(
     query = text("""
         SELECT id, endpoint_id, timestamp, trigger_reason, trace_data
         FROM endpoint_diagnostic_traces
-        WHERE endpoint_id = :id::uuid
+        WHERE endpoint_id = CAST(:id AS uuid)
         ORDER BY timestamp DESC
         LIMIT 10
     """)
@@ -120,7 +120,7 @@ async def get_endpoint_rca(
             failure_trace_snapshot,
             is_resolved
         FROM endpoint_rca_incidents
-        WHERE endpoint_id = :id::uuid
+        WHERE endpoint_id = CAST(:id AS uuid)
         ORDER BY incident_timestamp DESC
         LIMIT 1
     """)
@@ -319,7 +319,7 @@ async def get_endpoint(
             ORDER BY start_time DESC
             LIMIT 1
         ) ev ON TRUE
-        WHERE e.id = :endpoint_id::uuid
+        WHERE e.id = CAST(:endpoint_id AS uuid)
           AND e.endpoint_status != 'DELETED'
     """)
     result = await db.execute(query, {
@@ -409,7 +409,7 @@ async def create_endpoint(
                 endpoint_status = 'ACTIVE',
                 deleted_at = NULL,
                 updated_at = NOW()
-            WHERE id = :endpoint_id::uuid
+            WHERE id = CAST(:endpoint_id AS uuid)
         """)
         await db.execute(restore_query, {
             "hostname": request.hostname,
@@ -430,8 +430,8 @@ async def create_endpoint(
             INSERT INTO audit_logs (
                 user_id, action, target_type, target_id, details
             ) VALUES (
-                :user_id::uuid, 'ENDPOINT:RESTORE', 'endpoints',
-                :target_id::uuid, :details
+                CAST(:user_id AS uuid), 'ENDPOINT:RESTORE', 'endpoints',
+                CAST(:target_id AS uuid), :details
             )
         """)
         await db.execute(audit_query, {
@@ -462,7 +462,7 @@ async def create_endpoint(
             :location, :description, :monitoring_enabled,
             :allow_incident_trace, :allow_topology_discovery,
             :enable_rca, :enable_scheduled_discovery, :is_l2_segment,
-            :manual_parent_id::uuid, 'ACTIVE', :created_by::uuid
+            CAST(:manual_parent_id AS uuid), 'ACTIVE', CAST(:created_by AS uuid)
         ) RETURNING id, created_at, updated_at
     """)
     insert_result = await db.execute(insert_query, {
@@ -486,8 +486,8 @@ async def create_endpoint(
         INSERT INTO audit_logs (
             user_id, action, target_type, target_id, details
         ) VALUES (
-            :user_id::uuid, 'ENDPOINT:CREATE', 'endpoints',
-            :target_id::uuid, :details
+            CAST(:user_id AS uuid), 'ENDPOINT:CREATE', 'endpoints',
+            CAST(:target_id AS uuid), :details
         )
     """)
     await db.execute(audit_query, {
@@ -518,7 +518,7 @@ async def update_endpoint(
 
     check_query = text("""
         SELECT id FROM endpoints
-        WHERE id = :endpoint_id::uuid
+        WHERE id = CAST(:endpoint_id AS uuid)
           AND endpoint_status != 'DELETED'
     """)
     check_result = await db.execute(check_query, {"endpoint_id": str(endpoint_id)})
@@ -559,7 +559,7 @@ async def update_endpoint(
                 if curr in visited:
                     raise HTTPException(status_code=400, detail="Cyclic parent relationship detected.")
                 visited.add(curr)
-                parent_query = text("SELECT manual_parent_id FROM endpoints WHERE id = :pid::uuid")
+                parent_query = text("SELECT manual_parent_id FROM endpoints WHERE id = CAST(:pid AS uuid)")
                 p_res = await db.execute(parent_query, {"pid": curr})
                 p_row = p_res.fetchone()
                 curr = str(p_row.manual_parent_id) if p_row and p_row.manual_parent_id else None
@@ -574,12 +574,12 @@ async def update_endpoint(
         return APIResponse.success(data={"message": "No changes provided."})
         
     set_clause = ", ".join(
-        f"manual_parent_id = :manual_parent_id::uuid" if k == "manual_parent_id" else f"{k} = :{k}"
+        f"manual_parent_id = CAST(:manual_parent_id AS uuid)" if k == "manual_parent_id" else f"{k} = :{k}"
         for k in updates
     )
     update_query = text(f"""
         UPDATE endpoints SET {set_clause}
-        WHERE id = :endpoint_id::uuid
+        WHERE id = CAST(:endpoint_id AS uuid)
     """)
     
     params = updates.copy()
@@ -592,8 +592,8 @@ async def update_endpoint(
         INSERT INTO audit_logs (
             user_id, action, target_type, target_id, details
         ) VALUES (
-            :user_id::uuid, 'ENDPOINT:UPDATE', 'endpoints',
-            :target_id::uuid, :details
+            CAST(:user_id AS uuid), 'ENDPOINT:UPDATE', 'endpoints',
+            CAST(:target_id AS uuid), :details
         )
     """)
     await db.execute(audit_query, {
@@ -621,7 +621,7 @@ async def delete_endpoint(
 
     check_query = text("""
         SELECT id FROM endpoints
-        WHERE id = :endpoint_id::uuid
+        WHERE id = CAST(:endpoint_id AS uuid)
           AND endpoint_status != 'DELETED'
     """)
     check_result = await db.execute(check_query, {"endpoint_id": str(endpoint_id)})
@@ -634,7 +634,7 @@ async def delete_endpoint(
         SET endpoint_status = 'DELETED',
             deleted_at = :now,
             updated_at = :now
-        WHERE id = :endpoint_id::uuid
+        WHERE id = CAST(:endpoint_id AS uuid)
     """)
     await db.execute(delete_query, {
         "endpoint_id": str(endpoint_id),
@@ -645,8 +645,8 @@ async def delete_endpoint(
         INSERT INTO audit_logs (
             user_id, action, target_type, target_id, details
         ) VALUES (
-            :user_id::uuid, 'ENDPOINT:DELETE', 'endpoints',
-            :target_id::uuid, :details
+            CAST(:user_id AS uuid), 'ENDPOINT:DELETE', 'endpoints',
+            CAST(:target_id AS uuid), :details
         )
     """)
     await db.execute(audit_query, {
@@ -675,7 +675,7 @@ async def trigger_refresh_baseline(
 
     check_query = text("""
         SELECT host(ip_address) AS ip_address FROM endpoints
-        WHERE id = :endpoint_id::uuid
+        WHERE id = CAST(:endpoint_id AS uuid)
           AND endpoint_status != 'DELETED'
     """)
     check_result = await db.execute(check_query, {"endpoint_id": str(endpoint_id)})

@@ -89,7 +89,7 @@ async def create_user(
         INSERT INTO users (
             username, password_hash, role_id, is_active, must_change_password
         ) VALUES (
-            :u, :p, :r::uuid, TRUE, TRUE
+            :u, :p, CAST(:r AS uuid), TRUE, TRUE
         ) RETURNING id, created_at
     """)
     insert_result = await db.execute(insert_query, {
@@ -103,7 +103,7 @@ async def create_user(
         INSERT INTO audit_logs (
             user_id, action, target_type, target_id, details
         ) VALUES (
-            :user_id::uuid, 'USER:CREATE', 'users', :target_id::uuid, :details
+            CAST(:user_id AS uuid), 'USER:CREATE', 'users', CAST(:target_id AS uuid), :details
         )
     """)
     await db.execute(audit_query, {
@@ -138,7 +138,7 @@ async def reset_password(
     if str(user_id) == str(current_user.get("sub")):
         raise HTTPException(status_code=400, detail="Use the password change menu to update your own password.")
 
-    query = text("SELECT id, username FROM users WHERE id = :user_id::uuid LIMIT 1")
+    query = text("SELECT id, username FROM users WHERE id = CAST(:user_id AS uuid) LIMIT 1")
     result = await db.execute(query, {"user_id": str(user_id)})
     row = result.fetchone()
     if not row:
@@ -158,7 +158,7 @@ async def reset_password(
         SET password_hash = :p,
             must_change_password = TRUE,
             updated_at = NOW()
-        WHERE id = :user_id::uuid
+        WHERE id = CAST(:user_id AS uuid)
     """)
     await db.execute(update_query, {
         "p": hashed,
@@ -169,7 +169,7 @@ async def reset_password(
         INSERT INTO audit_logs (
             user_id, action, target_type, target_id, details
         ) VALUES (
-            :user_id::uuid, 'USER:RESET_PASSWORD', 'users', :target_id::uuid, :details
+            CAST(:user_id AS uuid), 'USER:RESET_PASSWORD', 'users', CAST(:target_id AS uuid), :details
         )
     """)
     await db.execute(audit_query, {
@@ -199,7 +199,7 @@ async def update_user(
     if str(user_id) == str(current_user.get("sub")):
         raise HTTPException(status_code=400, detail="Administrative roles cannot modify their own privileges or status.")
         
-    query = text("SELECT id, username FROM users WHERE id = :user_id::uuid LIMIT 1")
+    query = text("SELECT id, username FROM users WHERE id = CAST(:user_id AS uuid) LIMIT 1")
     result = await db.execute(query, {"user_id": str(user_id)})
     row = result.fetchone()
     if not row:
@@ -222,7 +222,7 @@ async def update_user(
         
     updates["updated_at"] = datetime.now(get_local_timezone())
     set_clause = ", ".join(f"{k} = :{k}" for k in updates)
-    update_query = text(f"UPDATE users SET {set_clause} WHERE id = :user_id::uuid")
+    update_query = text(f"UPDATE users SET {set_clause} WHERE id = CAST(:user_id AS uuid)")
     
     params = updates.copy()
     params["user_id"] = str(user_id)
@@ -237,7 +237,7 @@ async def update_user(
         INSERT INTO audit_logs (
             user_id, action, target_type, target_id, details
         ) VALUES (
-            :user_id::uuid, 'USER:UPDATE', 'users', :target_id::uuid, :details
+            CAST(:user_id AS uuid), 'USER:UPDATE', 'users', CAST(:target_id AS uuid), :details
         )
     """)
     await db.execute(audit_query, {
@@ -260,7 +260,7 @@ async def delete_user(
     if str(user_id) == str(current_user.get("sub")):
         raise HTTPException(status_code=400, detail="Administrators cannot delete or deactivate their own active accounts.")
         
-    query = text("SELECT id, username FROM users WHERE id = :user_id::uuid LIMIT 1")
+    query = text("SELECT id, username FROM users WHERE id = CAST(:user_id AS uuid) LIMIT 1")
     result = await db.execute(query, {"user_id": str(user_id)})
     row = result.fetchone()
     if not row:
@@ -271,7 +271,7 @@ async def delete_user(
         UPDATE users
         SET is_active = FALSE,
             updated_at = NOW()
-        WHERE id = :user_id::uuid
+        WHERE id = CAST(:user_id AS uuid)
     """)
     await db.execute(update_query, {"user_id": str(user_id)})
     
@@ -279,7 +279,7 @@ async def delete_user(
         INSERT INTO audit_logs (
             user_id, action, target_type, target_id, details
         ) VALUES (
-            :user_id::uuid, 'USER:DEACTIVATE', 'users', :target_id::uuid, :details
+            CAST(:user_id AS uuid), 'USER:DEACTIVATE', 'users', CAST(:target_id AS uuid), :details
         )
     """)
     await db.execute(audit_query, {

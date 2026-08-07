@@ -29,7 +29,7 @@ async def run_differential_rca(
         ep_query = text("""
             SELECT id, host(ip_address) AS ip_address, enable_rca, is_l2_segment
             FROM endpoints
-            WHERE id = :endpoint_id::uuid AND endpoint_status != 'DELETED'
+            WHERE id = CAST(:endpoint_id AS uuid) AND endpoint_status != 'DELETED'
         """)
         ep_res = await session.execute(ep_query, {"endpoint_id": str(endpoint_id)})
         ep_row = ep_res.fetchone()
@@ -50,7 +50,7 @@ async def run_differential_rca(
         bl_query = text("""
             SELECT total_hops, hops
             FROM endpoint_baseline_routes
-            WHERE endpoint_id = :endpoint_id::uuid
+            WHERE endpoint_id = CAST(:endpoint_id AS uuid)
         """)
         bl_res = await session.execute(bl_query, {"endpoint_id": str(endpoint_id)})
         bl_row = bl_res.fetchone()
@@ -147,7 +147,7 @@ async def run_differential_rca(
                 failure_trace_snapshot,
                 is_resolved
             ) VALUES (
-                :endpoint_id::uuid,
+                CAST(:endpoint_id AS uuid),
                 NOW(),
                 'DOWN',
                 :failed_hop_number,
@@ -216,7 +216,7 @@ async def handle_endpoint_recovery(
         resolve_sql = text("""
             UPDATE endpoint_rca_incidents
             SET is_resolved = TRUE
-            WHERE endpoint_id = :endpoint_id::uuid
+            WHERE endpoint_id = CAST(:endpoint_id AS uuid)
               AND is_resolved = FALSE
         """)
         res = await session.execute(resolve_sql, {"endpoint_id": str(endpoint_id)})

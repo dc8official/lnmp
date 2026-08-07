@@ -118,7 +118,7 @@ class TestSecurityAuditFixes(unittest.TestCase):
             self.assertEqual(res["username"], "active_user")
             mock_db.execute.assert_called_once()
             called_sql = str(mock_db.execute.call_args[0][0])
-            self.assertIn("WHERE id = :user_id::uuid", called_sql)
+            self.assertIn("WHERE id = CAST(:user_id AS uuid)", called_sql)
 
 
 if __name__ == "__main__":

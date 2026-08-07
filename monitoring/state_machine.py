@@ -60,7 +60,7 @@ class StateMachine:
                     """
                     SELECT id, operational_state, detailed_state
                     FROM endpoint_events
-                    WHERE endpoint_id = :endpoint_id::uuid
+                    WHERE endpoint_id = CAST(:endpoint_id AS uuid)
                     ORDER BY start_time DESC
                     LIMIT 1
                     """
@@ -119,7 +119,7 @@ class StateMachine:
                         duration_seconds,
                         monitoring_cycle_count
                     ) VALUES (
-                        :endpoint_id::uuid,
+                        CAST(:endpoint_id AS uuid),
                         :operational_state,
                         :detailed_state,
                         :success_count,
@@ -239,7 +239,7 @@ class StateMachine:
                     if new_operational_state == "DOWN":
                         # Fetch enable_rca configuration
                         rca_check = await db.execute(
-                            text("SELECT enable_rca FROM endpoints WHERE id = :id::uuid"),
+                            text("SELECT enable_rca FROM endpoints WHERE id = CAST(:id AS uuid)"),
                             {"id": str(state.endpoint_id)},
                         )
                         rca_row = rca_check.fetchone()
@@ -247,7 +247,7 @@ class StateMachine:
                             asyncio.create_task(run_differential_rca(state.endpoint_id))
                     elif new_operational_state == "UP":
                         ep_check = await db.execute(
-                            text("SELECT host(ip_address) AS ip_address FROM endpoints WHERE id = :id::uuid"),
+                            text("SELECT host(ip_address) AS ip_address FROM endpoints WHERE id = CAST(:id AS uuid)"),
                             {"id": str(state.endpoint_id)},
                         )
                         ep_row = ep_check.fetchone()
@@ -289,7 +289,7 @@ class StateMachine:
                         duration_seconds,
                         monitoring_cycle_count
                     ) VALUES (
-                        :endpoint_id::uuid,
+                        CAST(:endpoint_id AS uuid),
                         :operational_state,
                         :detailed_state,
                         :success_count,

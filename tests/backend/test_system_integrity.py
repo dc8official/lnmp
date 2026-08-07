@@ -65,9 +65,8 @@ class TestSystemIntegrityAndFixes(unittest.TestCase):
             self.assertTrue(filepath.exists(), f"Router file {filename} must exist")
             content = filepath.read_text(encoding="utf-8")
 
-            # Check that text(...) query patterns matching WHERE or VALUES with UUID parameters use ::uuid
-            # Look for un-cast WHERE endpoint_id = :endpoint_id or WHERE id = :id without ::uuid
-            uncast_id_pattern = re.compile(r"WHERE\s+[\w\.]*id\s*=\s*:(endpoint_id|user_id|id)\b(?!::uuid)", re.IGNORECASE)
+            # Check that text(...) query patterns matching WHERE or VALUES with UUID parameters use CAST(... AS uuid)
+            uncast_id_pattern = re.compile(r"WHERE\s+[\w\.]*id\s*=\s*:(endpoint_id|user_id|id)\b(?!(\s*AS\s*uuid|::uuid))", re.IGNORECASE)
             matches = uncast_id_pattern.findall(content)
             self.assertEqual(
                 len(matches),

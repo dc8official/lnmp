@@ -24,10 +24,10 @@ async def log_action(
             target_id,
             details
         ) VALUES (
-            :user_id::uuid,
+            CAST(:user_id AS uuid),
             :action,
             :target_type,
-            :target_id::uuid,
+            CAST(:target_id AS uuid),
             :details
         )
     """)

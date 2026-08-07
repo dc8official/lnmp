@@ -70,7 +70,7 @@ async def login(
     update_query = text("""
         UPDATE users
         SET last_login = :now
-        WHERE id = :user_id::uuid
+        WHERE id = CAST(:user_id AS uuid)
     """)
     await db.execute(update_query, {"now": now, "user_id": str(row.id)})
 
@@ -79,8 +79,8 @@ async def login(
             user_id, action, target_type,
             target_id, details
         ) VALUES (
-            :user_id::uuid, 'USER:LOGIN',
-            'users', :user_id::uuid,
+            CAST(:user_id AS uuid), 'USER:LOGIN',
+            'users', CAST(:user_id AS uuid),
             :details
         )
     """)
@@ -148,7 +148,7 @@ async def get_current_user(
     user_query = text("""
         SELECT is_active, must_change_password
         FROM users
-        WHERE id = :user_id::uuid
+        WHERE id = CAST(:user_id AS uuid)
     """)
     res = await db.execute(user_query, {"user_id": str(user_id)})
     row = res.fetchone()
@@ -177,7 +177,7 @@ async def change_password(
 ):
     query = text("""
         SELECT id, password_hash, must_change_password FROM users
-        WHERE id = :user_id::uuid AND is_active = TRUE
+        WHERE id = CAST(:user_id AS uuid) AND is_active = TRUE
         LIMIT 1
     """)
     result = await db.execute(query, {"user_id": current_user.get("sub")})
@@ -198,7 +198,7 @@ async def change_password(
         SET password_hash = :p,
             must_change_password = FALSE,
             updated_at = NOW()
-        WHERE id = :user_id::uuid
+        WHERE id = CAST(:user_id AS uuid)
     """)
     await db.execute(update_query, {
         "p": hashed,
@@ -209,7 +209,7 @@ async def change_password(
         INSERT INTO audit_logs (
             user_id, action, target_type, target_id, details
         ) VALUES (
-            :user_id::uuid, 'USER:CHANGE_PASSWORD', 'users', :user_id::uuid, :details
+            CAST(:user_id AS uuid), 'USER:CHANGE_PASSWORD', 'users', CAST(:user_id AS uuid), :details
         )
     """)
     await db.execute(audit_query, {

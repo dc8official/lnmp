@@ -104,7 +104,7 @@ async def get_uptime_report(
 
     query_exists = text("""
         SELECT id, created_at FROM endpoints
-        WHERE id = :endpoint_id::uuid
+        WHERE id = CAST(:endpoint_id AS uuid)
           AND endpoint_status != 'DELETED'
     """)
     result_exists = await db.execute(query_exists, {"endpoint_id": str(endpoint_id)})
@@ -132,7 +132,7 @@ async def get_uptime_report(
     query_events = text("""
         SELECT operational_state, start_time, end_time
         FROM endpoint_events
-        WHERE endpoint_id = :endpoint_id::uuid
+        WHERE endpoint_id = CAST(:endpoint_id AS uuid)
           AND start_time >= :effective_start
           AND start_time <= :period_end
         ORDER BY start_time ASC
@@ -200,7 +200,7 @@ async def get_incident_report(
 
     query_exists = text("""
         SELECT id FROM endpoints
-        WHERE id = :endpoint_id::uuid
+        WHERE id = CAST(:endpoint_id AS uuid)
           AND endpoint_status != 'DELETED'
     """)
     result_exists = await db.execute(query_exists, {"endpoint_id": str(endpoint_id)})
@@ -216,7 +216,7 @@ async def get_incident_report(
             start_time,
             end_time
         FROM endpoint_events
-        WHERE endpoint_id = :endpoint_id::uuid
+        WHERE endpoint_id = CAST(:endpoint_id AS uuid)
           AND start_time >= :period_start
           AND start_time <= :period_end
         ORDER BY start_time ASC
@@ -305,7 +305,7 @@ async def get_endpoint_events(
     count_result = await db.execute(
         text("""
             SELECT COUNT(*) FROM endpoint_events
-            WHERE endpoint_id = :endpoint_id::uuid
+            WHERE endpoint_id = CAST(:endpoint_id AS uuid)
               AND start_time >= :period_start
               AND start_time <= :period_end
         """),
@@ -325,7 +325,7 @@ async def get_endpoint_events(
                    is_split_event, start_time, end_time,
                    duration_seconds, monitoring_cycle_count
             FROM endpoint_events
-            WHERE endpoint_id = :endpoint_id::uuid
+            WHERE endpoint_id = CAST(:endpoint_id AS uuid)
               AND start_time >= :period_start
               AND start_time <= :period_end
             ORDER BY start_time DESC
@@ -409,7 +409,7 @@ async def csv_generator(endpoint_ids: List[UUID], start_time: datetime, end_time
                     text("""
                         SELECT endpoint_id, start_time, operational_state, detailed_state, health_score, avg_rtt_ms
                         FROM endpoint_events
-                        WHERE endpoint_id = ANY(:endpoint_ids::uuid[])
+                        WHERE endpoint_id = ANY(CAST(:endpoint_ids AS uuid[]))
                           AND start_time >= :start_time
                           AND start_time <= :end_time
                         ORDER BY start_time ASC

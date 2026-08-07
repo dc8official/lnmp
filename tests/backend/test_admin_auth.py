@@ -45,6 +45,12 @@ class TestAdminAuthSeeding(unittest.TestCase):
         clear_failed_attempts(username)
         self.assertFalse(is_account_locked(username))
 
+    def test_login_schema_parsing(self) -> None:
+        from app.routers.auth import LoginRequest
+        req = LoginRequest(username="admin", password="admin")
+        self.assertEqual(req.username, "admin")
+        self.assertEqual(req.password, "admin")
+
 
 if __name__ == "__main__":
     unittest.main()
