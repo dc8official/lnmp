@@ -35,11 +35,12 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 
 @router.post("/login")
 async def login(
-    request: LoginRequest,
+    payload: LoginRequest,
     response: Response,
+    http_request: Request,
     db: AsyncSession = Depends(get_db),
 ):
-    if is_account_locked(request.username):
+    if is_account_locked(payload.username):
         raise HTTPException(
             status_code=403,
             detail="Account temporarily locked due to failed login attempts."
@@ -53,18 +54,18 @@ async def login(
         WHERE u.username = :username
         LIMIT 1
     """)
-    result = await db.execute(query, {"username": request.username})
+    result = await db.execute(query, {"username": payload.username})
     row = result.fetchone()
 
     if not row or not row.is_active:
-        record_failed_attempt(request.username)
+        record_failed_attempt(payload.username)
         raise HTTPException(status_code=401, detail="Invalid username or password.")
 
-    if not verify_password(request.password, row.password_hash):
-        record_failed_attempt(request.username)
+    if not verify_password(payload.password, row.password_hash):
+        record_failed_attempt(payload.username)
         raise HTTPException(status_code=401, detail="Invalid username or password.")
 
-    clear_failed_attempts(request.username)
+    clear_failed_attempts(payload.username)
 
     now = datetime.now(get_local_timezone())
     update_query = text("""
@@ -86,7 +87,7 @@ async def login(
     """)
     await db.execute(audit_query, {
         "user_id": str(row.id),
-        "details": json.dumps({"username": request.username})
+        "details": json.dumps({"username": payload.username})
     })
     await db.commit()
 
@@ -103,7 +104,7 @@ async def login(
         message="Login successful."
     )
 
-    is_secure = request.url.scheme == "https" or getattr(settings.security, "hsts_enabled", False)
+    is_secure = http_request.url.scheme == "https" or getattr(settings.security, "hsts_enabled", False)
 
     response.set_cookie(
         key=cookie_name,
