@@ -1,0 +1,60 @@
+import os
+import asyncio
+import logging
+from sqlalchemy import text
+from app.database import AsyncSessionLocal
+from app.services.auth_service import hash_password
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("seed_admin")
+
+async def seed_admin(password: str = "admin"):
+    async with AsyncSessionLocal() as db:
+        role_res = await db.execute(
+            text("SELECT id FROM roles WHERE role_name = 'ADMIN' LIMIT 1")
+        )
+        role_row = role_res.fetchone()
+        if not role_row:
+            logger.error("Role 'ADMIN' does not exist in database. Ensure Alembic migrations have run.")
+            return False
+
+        role_id = role_row.id
+        hashed = hash_password(password)
+
+        existing = await db.execute(
+            text("SELECT id FROM users WHERE username = 'admin' LIMIT 1")
+        )
+        user_row = existing.fetchone()
+
+        if user_row:
+            await db.execute(
+                text("""
+                    UPDATE users
+                    SET password_hash = :p,
+                        must_change_password = TRUE,
+                        is_active = TRUE,
+                        updated_at = NOW()
+                    WHERE username = 'admin'
+                """),
+                {"p": hashed}
+            )
+            logger.info("Successfully updated admin user password to '%s' and set must_change_password=TRUE.", password)
+        else:
+            await db.execute(
+                text("""
+                    INSERT INTO users (
+                        username, password_hash, role_id, is_active, must_change_password
+                    ) VALUES (
+                        'admin', :p, :r::uuid, TRUE, TRUE
+                    )
+                """),
+                {"p": hashed, "r": str(role_id)}
+            )
+            logger.info("Successfully created default admin user (username: admin, password: %s).", password)
+
+        await db.commit()
+        return True
+
+if __name__ == "__main__":
+    target_pass = os.environ.get("ADMIN_PASSWORD", "admin")
+    asyncio.run(seed_admin(target_pass))

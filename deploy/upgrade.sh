@@ -170,9 +170,13 @@ if [[ ${DRY_RUN} -eq 0 ]]; then
 
     if [[ -d "${PROJECT_ROOT}/backend/migrations" && -n "${ALEMBIC_BIN}" ]]; then
         echo -e "${GREEN}[INFO] Running Alembic schema migration (alembic upgrade head)...${NC}"
-        export NETMON_DB_PASSWORD="${DB_PASS}"
-        export NETMON_SECRET_KEY="${NETMON_SECRET_KEY:-${SECRET_KEY:-}}"
         PYTHONPATH="${PROJECT_ROOT}:${PROJECT_ROOT}/backend" "${ALEMBIC_BIN}" -c "${PROJECT_ROOT}/backend/alembic.ini" upgrade head
+        
+        PYTHON_BIN="$(dirname "${ALEMBIC_BIN}")/python"
+        if [[ -f "${PYTHON_BIN}" ]]; then
+            echo -e "${GREEN}[INFO] Verifying default admin account seeding...${NC}"
+            PYTHONPATH="${PROJECT_ROOT}:${PROJECT_ROOT}/backend" "${PYTHON_BIN}" -m app.seed_admin || true
+        fi
     else
         echo -e "${YELLOW}[INFO] Alembic migration configuration or binary not found. Skipping DB migration.${NC}"
     fi
