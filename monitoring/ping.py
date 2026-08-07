@@ -184,7 +184,7 @@ def classify_ping_result(
     if ratio == 1.0:
         # Dynamic Z-score baseline evaluation
         if baseline_mean is not None and baseline_stddev is not None and result.avg_rtt_ms is not None:
-            safe_stddev = baseline_stddev if baseline_stddev > 0 else 15.0
+            safe_stddev = max(baseline_stddev, 2.0)
             threshold = baseline_mean + (k * safe_stddev)
             if result.avg_rtt_ms > threshold:
                 return "UP", "UP-UNSTABLE"

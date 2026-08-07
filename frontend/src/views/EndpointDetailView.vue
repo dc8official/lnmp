@@ -593,8 +593,10 @@ function getQueryRange() {
     const past = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000)
     start = past.toISOString()
   } else {
-    start = new Date(customStartDate.value).toISOString()
-    end = new Date(customEndDate.value).toISOString()
+    const s = customStartDate.value ? new Date(customStartDate.value) : new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000)
+    const e = customEndDate.value ? new Date(customEndDate.value) : now
+    start = isNaN(s.getTime()) ? new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString() : s.toISOString()
+    end = isNaN(e.getTime()) ? now.toISOString() : e.toISOString()
   }
   return { start, end }
 }

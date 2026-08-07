@@ -135,6 +135,9 @@ async def reset_password(
     current_user: dict = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
+    if str(user_id) == str(current_user.get("sub")):
+        raise HTTPException(status_code=400, detail="Use the password change menu to update your own password.")
+
     query = text("SELECT id, username FROM users WHERE id = :user_id::uuid LIMIT 1")
     result = await db.execute(query, {"user_id": str(user_id)})
     row = result.fetchone()

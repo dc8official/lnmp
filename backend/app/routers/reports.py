@@ -27,6 +27,8 @@ from app.services.uptime_calculator import (
 router = APIRouter(prefix="/reports", tags=["reports"])
 
 def parse_datetime_param(val: str, is_end: bool = False) -> datetime:
+    if not val or not isinstance(val, str):
+        raise HTTPException(status_code=400, detail=f"Invalid ISO 8601 date format: {val}")
     local_tz = get_local_timezone()
     # Try parsing as ISO datetime
     try:
@@ -36,9 +38,9 @@ def parse_datetime_param(val: str, is_end: bool = False) -> datetime:
         else:
             dt = dt.astimezone(local_tz)
         return dt
-    except ValueError:
+    except (ValueError, AttributeError, TypeError):
         pass
-    
+
     # Try parsing as date
     try:
         d = date.fromisoformat(val)
@@ -46,8 +48,8 @@ def parse_datetime_param(val: str, is_end: bool = False) -> datetime:
             return datetime(d.year, d.month, d.day, 23, 59, 59, tzinfo=local_tz)
         else:
             return datetime(d.year, d.month, d.day, 0, 0, 0, tzinfo=local_tz)
-    except ValueError:
-        raise HTTPException(status_code=400, detail=f"Invalid date/datetime format: {val}")
+    except (ValueError, AttributeError, TypeError):
+        raise HTTPException(status_code=400, detail=f"Invalid ISO 8601 date format: {val}")
 
 def _build_period(
     start_date: date,
@@ -399,51 +401,54 @@ async def csv_generator(endpoint_ids: List[UUID], start_time: datetime, end_time
     offset = 0
     limit = 1000
 
-    while True:
-        rows = []
-        async with AsyncSessionLocal() as session:
-            result = await session.stream(
-                text("""
-                    SELECT endpoint_id, start_time, operational_state, detailed_state, health_score, avg_rtt_ms
-                    FROM endpoint_events
-                    WHERE endpoint_id = ANY(:endpoint_ids::uuid[])
-                      AND start_time >= :start_time
-                      AND start_time <= :end_time
-                    ORDER BY start_time ASC
-                    LIMIT :limit OFFSET :offset
-                """),
-                {
-                    "endpoint_ids": [str(eid) for eid in endpoint_ids],
-                    "start_time": start_time,
-                    "end_time": end_time,
-                    "limit": limit,
-                    "offset": offset,
-                }
-            )
+    try:
+        while True:
+            rows = []
+            async with AsyncSessionLocal() as session:
+                result = await session.stream(
+                    text("""
+                        SELECT endpoint_id, start_time, operational_state, detailed_state, health_score, avg_rtt_ms
+                        FROM endpoint_events
+                        WHERE endpoint_id = ANY(:endpoint_ids::uuid[])
+                          AND start_time >= :start_time
+                          AND start_time <= :end_time
+                        ORDER BY start_time ASC
+                        LIMIT :limit OFFSET :offset
+                    """),
+                    {
+                        "endpoint_ids": [str(eid) for eid in endpoint_ids],
+                        "start_time": start_time,
+                        "end_time": end_time,
+                        "limit": limit,
+                        "offset": offset,
+                    }
+                )
 
-            async for row in result:
-                rows.append(row)
+                async for row in result:
+                    rows.append(row)
 
-        if not rows:
-            break
+            if not rows:
+                break
 
-        for row in rows:
-            endpoint_id_str = sanitize_csv_field(str(row.endpoint_id))
-            ts_str = sanitize_csv_field(row.start_time.isoformat().replace("+00:00", "Z") if row.start_time else "")
-            op_state = sanitize_csv_field(row.operational_state)
-            det_state = sanitize_csv_field(row.detailed_state)
-            success_rate = sanitize_csv_field(("%.2f" % row.health_score) if row.health_score is not None else "")
-            rtt_val = sanitize_csv_field(("%.2f" % row.avg_rtt_ms) if row.avg_rtt_ms is not None else "")
+            for row in rows:
+                endpoint_id_str = sanitize_csv_field(str(row.endpoint_id))
+                ts_str = sanitize_csv_field(row.start_time.isoformat().replace("+00:00", "Z") if row.start_time else "")
+                op_state = sanitize_csv_field(row.operational_state)
+                det_state = sanitize_csv_field(row.detailed_state)
+                success_rate = sanitize_csv_field(("%.2f" % row.health_score) if row.health_score is not None else "")
+                rtt_val = sanitize_csv_field(("%.2f" % row.avg_rtt_ms) if row.avg_rtt_ms is not None else "")
 
-            writer.writerow([endpoint_id_str, ts_str, op_state, det_state, success_rate, rtt_val])
-            yield output.getvalue()
-            output.seek(0)
-            output.truncate(0)
+                writer.writerow([endpoint_id_str, ts_str, op_state, det_state, success_rate, rtt_val])
+                yield output.getvalue()
+                output.seek(0)
+                output.truncate(0)
 
-        if len(rows) < limit:
-            break
+            if len(rows) < limit:
+                break
 
-        offset += limit
+            offset += limit
+    finally:
+        output.close()
 
 telemetry_router = APIRouter(prefix="/api/v1/telemetry", tags=["telemetry"])
 

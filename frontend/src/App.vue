@@ -154,7 +154,8 @@ async function executeChangePassword() {
     
     const existing = loadUserFromStorage() || {}
     setUserState({
-      ...existing,
+      username: existing.username || '',
+      role: existing.role || '',
       must_change_password: false
     })
 

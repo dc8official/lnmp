@@ -547,6 +547,23 @@ async def update_endpoint(
     if request.is_l2_segment is not None:
         updates["is_l2_segment"] = request.is_l2_segment
     if request.manual_parent_id is not None:
+        if request.manual_parent_id:
+            parent_id_str = str(request.manual_parent_id)
+            if parent_id_str == str(endpoint_id):
+                raise HTTPException(status_code=400, detail="Endpoint cannot be set as its own parent.")
+
+            # Check for cyclic parent traversal
+            curr = parent_id_str
+            visited = {str(endpoint_id)}
+            while curr:
+                if curr in visited:
+                    raise HTTPException(status_code=400, detail="Cyclic parent relationship detected.")
+                visited.add(curr)
+                parent_query = text("SELECT manual_parent_id FROM endpoints WHERE id = :pid::uuid")
+                p_res = await db.execute(parent_query, {"pid": curr})
+                p_row = p_res.fetchone()
+                curr = str(p_row.manual_parent_id) if p_row and p_row.manual_parent_id else None
+
         updates["manual_parent_id"] = str(request.manual_parent_id) if request.manual_parent_id else None
     if request.endpoint_status is not None:
         updates["endpoint_status"] = request.endpoint_status

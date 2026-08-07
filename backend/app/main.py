@@ -50,8 +50,8 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.api.allowed_origins,
     allow_credentials=True,
-    allow_methods=["GET", "POST", "PATCH", "DELETE"],
-    allow_headers=["Content-Type", "X-Requested-With"],
+    allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["*"],
 )
 
 class HSTSMiddleware(BaseHTTPMiddleware):

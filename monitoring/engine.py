@@ -198,6 +198,11 @@ async def main() -> None:
                         if endpoint_id_str in endpoint_states:
                             endpoint_states.pop(endpoint_id_str)
 
+            def _on_task_done(t: asyncio.Task, ep_id: str):
+                if not t.cancelled() and t.exception():
+                    logger.error("Monitoring task for endpoint %s crashed: %s", ep_id, t.exception())
+                    running_tasks.pop(ep_id, None)
+
             # Dynamic Addition: spawn tasks for newly active/enabled targets
             for endpoint_id_str, ip_address in db_active_ids.items():
                 if endpoint_id_str not in running_tasks:
@@ -210,6 +215,7 @@ async def main() -> None:
                             state_machine,
                         )
                     )
+                    task.add_done_callback(lambda t, id=endpoint_id_str: _on_task_done(t, id))
                     running_tasks[endpoint_id_str] = task
 
         except Exception as e:
