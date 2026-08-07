@@ -135,7 +135,11 @@ async def get_current_user(
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     token = request.cookies.get(cookie_name)
-    if token is None:
+    if not token:
+        auth_header = request.headers.get("Authorization")
+        if auth_header and auth_header.startswith("Bearer "):
+            token = auth_header.split(" ", 1)[1]
+    if not token:
         raise HTTPException(status_code=401, detail="Not authenticated.")
         
     payload = decode_access_token(token)
@@ -190,8 +194,7 @@ async def change_password(
         if not request.old_password or not verify_password(request.old_password, row.password_hash):
             raise HTTPException(status_code=400, detail="Invalid current password.")
     else:
-        if request.old_password and not verify_password(request.old_password, row.password_hash):
-            logger.info("Forced password reset for user %s: completing initial password update.", current_user.get("sub"))
+        logger.info("Initial forced password change for user %s.", current_user.get("sub"))
         
     hashed = hash_password(request.new_password)
     update_query = text("""

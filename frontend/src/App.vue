@@ -44,13 +44,13 @@
             {{ changePasswordError }}
           </div>
 
-          <div class="form-group">
+          <div v-if="!mustChangePassword" class="form-group">
             <label>Current Password *</label>
             <input 
               type="password"
               v-model="changePasswordForm.old_password" 
               placeholder="Enter current password" 
-              required 
+              :required="!mustChangePassword" 
               :disabled="changePasswordLoading"
             />
           </div>
