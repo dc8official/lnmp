@@ -449,7 +449,7 @@ async def create_default_admin():
                 'INSERT INTO users '
                 '(username, password_hash, role_id, '
                 'is_active, must_change_password) '
-                'VALUES (:u, :p, :r::uuid, TRUE, TRUE)'
+                'VALUES (:u, :p, CAST(:r AS uuid), TRUE, TRUE)'
             ),
             {'u': 'admin', 'p': hashed, 'r': str(role_id)}
         )

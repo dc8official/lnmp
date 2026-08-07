@@ -51,7 +51,7 @@ async def seed_admin(password: str = "admin"):
                     INSERT INTO users (
                         username, password_hash, role_id, is_active, must_change_password
                     ) VALUES (
-                        'admin', :p, :r::uuid, TRUE, TRUE
+                        'admin', :p, CAST(:r AS uuid), TRUE, TRUE
                     )
                 """),
                 {"p": hashed, "r": str(role_id)}
