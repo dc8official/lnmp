@@ -409,55 +409,15 @@ run "Running Alembic migrations" \
 print_header "Step 14: Creating default admin user"
 
 if [ "$DRY_RUN" = false ]; then
-    sudo -H -u netmon \
-        NETMON_DB_PASSWORD="$DB_PASS" \
-        NETMON_SECRET_KEY="$SECRET_KEY" \
-        DEFAULT_ADMIN_PASSWORD="$ADMIN_PASS" \
-        PYTHONPATH="$INSTALL_DIR/backend" \
-        "$VENV_DIR/bin/python3" - <<'PYEOF'
-import os
-import asyncio
-from app.database import AsyncSessionLocal
-from app.services.auth_service import hash_password
-from sqlalchemy import text
-
-async def create_default_admin():
-    admin_pass = os.environ.get('DEFAULT_ADMIN_PASSWORD', 'admin')
-    async with AsyncSessionLocal() as db:
-        existing = await db.execute(
-            text("SELECT id, must_change_password FROM users WHERE username = 'admin'")
-        )
-        row = existing.fetchone()
-        hashed = hash_password(admin_pass)
-        if row:
-            if not row.must_change_password:
-                print('Admin user already exists with custom password. Preserving user password.')
-                return
-            await db.execute(
-                text("UPDATE users SET password_hash = :p, must_change_password = TRUE WHERE username = 'admin'"),
-                {'p': hashed}
-            )
-            await db.commit()
-            print('Default admin user password set successfully.')
-            return
-        role = await db.execute(
-            text("SELECT id FROM roles WHERE role_name = 'ADMIN'")
-        )
-        role_id = role.scalar()
-        await db.execute(
-            text(
-                'INSERT INTO users '
-                '(username, password_hash, role_id, '
-                'is_active, must_change_password) '
-                'VALUES (:u, :p, CAST(:r AS uuid), TRUE, TRUE)'
-            ),
-            {'u': 'admin', 'p': hashed, 'r': str(role_id)}
-        )
-        await db.commit()
-        print('Default admin user created successfully.')
-
-asyncio.run(create_default_admin())
-PYEOF
+    run "Seeding default admin user" \
+        sudo -H -u netmon bash -c "
+            export NETMON_DB_PASSWORD='$DB_PASS' &&
+            export NETMON_SECRET_KEY='$SECRET_KEY' &&
+            export DEFAULT_ADMIN_PASSWORD='$ADMIN_PASS' &&
+            export PYTHONPATH='$INSTALL_DIR/backend' &&
+            cd '$INSTALL_DIR/backend' &&
+            '$VENV_DIR/bin/python3' -m app.seed_admin
+        "
 else
     echo "[DRY RUN] Would create default admin user (admin / $ADMIN_PASS)"
 fi

@@ -62,5 +62,5 @@ async def seed_admin(password: str = "admin"):
         return True
 
 if __name__ == "__main__":
-    target_pass = os.environ.get("ADMIN_PASSWORD", "admin")
+    target_pass = os.environ.get("DEFAULT_ADMIN_PASSWORD") or os.environ.get("ADMIN_PASSWORD", "admin")
     asyncio.run(seed_admin(target_pass))
