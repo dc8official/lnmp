@@ -228,12 +228,23 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { getUsers, createUser, updateUser, resetUserPassword, deleteUser } from '../services/api.js'
+import { currentUser as activeUser, loadUserFromStorage } from '../services/auth.js'
 
 const users = ref([])
 const loading = ref(true)
 const error = ref(null)
 const saving = ref(false)
 const currentUser = ref('')
+
+onMounted(() => {
+  const u = loadUserFromStorage()
+  if (u && u.username) {
+    currentUser.value = u.username
+  } else if (activeUser.value) {
+    currentUser.value = activeUser.value
+  }
+  fetchUsers()
+})
 
 const showAddModal = ref(false)
 const showResetModal = ref(false)

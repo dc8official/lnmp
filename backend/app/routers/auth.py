@@ -1,10 +1,14 @@
 from __future__ import annotations
 import json
+import logging
 from datetime import datetime
+from typing import Optional
 from app.services.timezone_utils import get_local_timezone
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel
 from sqlalchemy import text
+
+logger = logging.getLogger(__name__)
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
 from app.schemas import APIResponse
