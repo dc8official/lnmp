@@ -194,13 +194,17 @@ async def change_password(
     if not row:
         raise HTTPException(status_code=404, detail="User not found.")
         
-    if not row.must_change_password:
-        if not request.old_password or not verify_password(request.old_password, row.password_hash):
+    if request.old_password and request.old_password.strip():
+        if not verify_password(request.old_password.strip(), row.password_hash):
             raise HTTPException(status_code=400, detail="Invalid current password.")
-    else:
-        logger.info("Initial forced password change for user %s.", current_user.get("sub"))
+    elif not row.must_change_password:
+        raise HTTPException(status_code=400, detail="Current password is required.")
         
-    hashed = hash_password(request.new_password)
+    if not request.new_password or len(request.new_password.strip()) < 8:
+        raise HTTPException(status_code=400, detail="New password must be at least 8 characters long.")
+
+    clean_new_pass = request.new_password.strip()
+    hashed = hash_password(clean_new_pass)
     update_query = text("""
         UPDATE users
         SET password_hash = :p,
