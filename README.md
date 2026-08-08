@@ -18,6 +18,18 @@ The platform is decoupled into independent, modular layers to guarantee continuo
 
 ---
 
+## Detailed Documentation
+
+For a deeper dive into specific components of the platform, please refer to the comprehensive guides in the `docs/` directory:
+
+* **[Architecture Overview](docs/architecture.md):** In-depth explanation of the decoupled engines, background diagnostic traceroutes, and Topology RCA inference logic.
+* **[User & Operator Guide](docs/user-guide.md):** Instructions for onboarding devices, interpreting Z-Score baselines, and navigating the Vue 3 dashboard.
+* **[API Reference](docs/api-reference.md):** Complete guide to the FastAPI REST endpoints, JSON payloads, and RBAC implementation.
+* **[Deployment & Operations](docs/deployment.md):** Step-by-step production installation, systemd service management, and backup/upgrade procedures.
+* **[Developer Guide](docs/developer-guide.md):** Local setup instructions for Vite and Uvicorn, plus guidelines for contributing via Alembic migrations.
+
+---
+
 ## Technical Stack
 
 * **Backend:** Python 3.10+, FastAPI, SQLAlchemy, Alembic (Migrations), Native `asyncio`
