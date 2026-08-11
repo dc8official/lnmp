@@ -243,7 +243,7 @@ class TestV15BackendCore(unittest.TestCase):
 
         # Test incremental node status update
         manager._nodes["test-node-1"] = {"id": "test-node-1", "state": "UP", "status": "UP", "type": "monitored"}
-        manager.update_node_status("test-node-1", "DOWN")
+        self.loop.run_until_complete(manager.update_node_status("test-node-1", "DOWN"))
         cached_graph = manager.get_cached_graph()
         test_node = next((n for n in cached_graph["nodes"] if n["id"] == "test-node-1"), None)
         self.assertIsNotNone(test_node)
@@ -251,7 +251,7 @@ class TestV15BackendCore(unittest.TestCase):
 
         # Test incremental endpoint path update
         ep_id = uuid4()
-        manager.update_endpoint_path(ep_id, [{"hop": 1, "ip": "172.16.0.1"}, {"hop": 2, "ip": "172.16.0.2"}])
+        self.loop.run_until_complete(manager.update_endpoint_path(ep_id, [{"hop": 1, "ip": "172.16.0.1"}, {"hop": 2, "ip": "172.16.0.2"}]))
         cached_graph_updated = manager.get_cached_graph()
         nodes_map = {n["id"]: n for n in cached_graph_updated["nodes"]}
         self.assertIn("transit:172.16.0.1", nodes_map)
@@ -318,7 +318,7 @@ class TestV15BackendCore(unittest.TestCase):
         manager._monitored_by_ip = {"192.168.1.100": ep_str}
 
         # Update path with new route (192.168.1.1)
-        manager.update_endpoint_path(ep_id, [{"hop": 1, "ip": "192.168.1.1"}])
+        self.loop.run_until_complete(manager.update_endpoint_path(ep_id, [{"hop": 1, "ip": "192.168.1.1"}]))
 
         cached_graph = manager.get_cached_graph()
         node_ids = {n["id"] for n in cached_graph["nodes"]}

@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import AsyncSessionLocal
 from app.services.diagnostics import run_throttled_traceroute
+from app.services.timezone_utils import get_local_timezone
 
 logger = logging.getLogger(__name__)
 
@@ -333,7 +334,7 @@ async def start_midnight_discovery_worker(db_session_factory) -> asyncio.Task:
     async def _midnight_scheduler():
         while True:
             try:
-                now = datetime.now()
+                now = datetime.now(get_local_timezone())
                 # Compute seconds until next 00:00 (midnight)
                 seconds_until_midnight = (
                     24 * 3600 - (now.hour * 3600 + now.minute * 60 + now.second)

@@ -74,10 +74,17 @@ def decode_access_token(token: str) -> Optional[dict]:
         return None
 
 
+# Account Lockout Memory Manager:
+# In-memory failed login tracking is used to shield PostgreSQL from database connection
+# amplification and write load during brute-force authentication attacks.
+# Under default single-worker Uvicorn deployment (netmon-api.service), lockout tracking is
+# 100% accurate. Under multi-worker cluster deployments, each worker process tracks lockout
+# thresholds independently while preserving zero DB query overhead per authentication attempt.
 MAX_FAILED_ATTEMPTS_ENTRIES = 1000
 
 
 def _prune_expired_attempts() -> None:
+    """Prunes expired account lockout entries and enforces max memory allocation bounds."""
     now = datetime.now(timezone.utc)
     expired = [
         u for u, data in _failed_attempts.items()

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -12,6 +13,23 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from monitoring.ping import PingResult, classify_ping_result
 
 logger = logging.getLogger(__name__)
+
+_active_background_tasks: set[asyncio.Task] = set()
+
+def safe_create_task(coro, task_name: str = "background_task") -> asyncio.Task:
+    """Safely spawn a background asyncio task with error logging and lifetime tracking."""
+    task = asyncio.create_task(coro)
+    _active_background_tasks.add(task)
+
+    def _on_complete(t: asyncio.Task) -> None:
+        _active_background_tasks.discard(t)
+        if not t.cancelled():
+            exc = t.exception()
+            if exc:
+                logger.error("Background task '%s' failed with exception: %s", task_name, exc, exc_info=exc)
+
+    task.add_done_callback(_on_complete)
+    return task
 
 
 @dataclass
@@ -244,7 +262,10 @@ class StateMachine:
                         )
                         rca_row = rca_check.fetchone()
                         if rca_row and getattr(rca_row, "enable_rca", True):
-                            asyncio.create_task(run_differential_rca(state.endpoint_id))
+                            safe_create_task(
+                                run_differential_rca(state.endpoint_id),
+                                "differential_rca",
+                            )
                     elif new_operational_state == "UP":
                         ep_check = await db.execute(
                             text("SELECT host(ip_address) AS ip_address FROM endpoints WHERE id = CAST(:id AS uuid)"),
@@ -252,8 +273,9 @@ class StateMachine:
                         )
                         ep_row = ep_check.fetchone()
                         if ep_row and ep_row.ip_address:
-                            asyncio.create_task(
-                                handle_endpoint_recovery(state.endpoint_id, str(ep_row.ip_address))
+                            safe_create_task(
+                                handle_endpoint_recovery(state.endpoint_id, str(ep_row.ip_address)),
+                                "endpoint_recovery",
                             )
 
         # Sub-case B2: No transition was pending, or the pending state has

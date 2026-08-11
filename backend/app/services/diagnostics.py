@@ -74,8 +74,17 @@ async def run_traceroute(target_ip: str) -> Dict[str, Any]:
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
-        stdout, _ = await proc.communicate()
-        stdout_str = stdout.decode("utf-8", errors="ignore")
+        try:
+            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=30.0)
+            stdout_str = stdout.decode("utf-8", errors="ignore")
+        except asyncio.TimeoutError:
+            logger.warning("Tracepath subprocess timed out after 30s for target IP %s", target_ip)
+            try:
+                proc.kill()
+                await proc.wait()
+            except Exception:
+                pass
+            stdout_str = ""
 
         seen_hops = set()
         for line in stdout_str.splitlines():

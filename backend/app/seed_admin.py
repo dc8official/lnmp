@@ -44,7 +44,7 @@ async def seed_admin(password: str = "admin"):
                 """),
                 {"p": hashed}
             )
-            logger.info("Successfully updated initial admin user password to '%s' and set must_change_password=TRUE.", password)
+            logger.info("Successfully updated initial admin user account (must_change_password=TRUE).")
         else:
             await db.execute(
                 text("""
@@ -56,7 +56,7 @@ async def seed_admin(password: str = "admin"):
                 """),
                 {"p": hashed, "r": str(role_id)}
             )
-            logger.info("Successfully created default admin user (username: admin, password: %s).", password)
+            logger.info("Successfully created default admin user account (username: admin).")
 
         await db.commit()
         return True

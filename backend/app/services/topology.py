@@ -377,7 +377,7 @@ class TopologyGraphManager:
                         node_info["state"] = "INFERRED_DOWN"
                         node_info["status"] = "INFERRED_DOWN"
 
-    def update_node_status(self, node_id: str, new_state: str) -> None:
+    async def update_node_status(self, node_id: str, new_state: str) -> None:
         """
         Incremental Event Mutation Hook:
         Updates target node's state in memory without re-parsing graph edges or querying DB.
@@ -385,17 +385,18 @@ class TopologyGraphManager:
         if node_id in self._disabled_topology_ep_ids:
             return
 
-        if node_id in self._nodes:
-            self._nodes[node_id]["state"] = new_state
-            self._nodes[node_id]["status"] = new_state
-            self._propagate_inferred_down(self._nodes, self._transit_children)
-            self._cached_graph = {
-                "nodes": list(self._nodes.values()),
-                "edges": [{"source": src, "target": tgt} for src, tgt in self._edges],
-            }
-            self._cached_graph_json = json.dumps(self._cached_graph)
+        async with self._lock:
+            if node_id in self._nodes:
+                self._nodes[node_id]["state"] = new_state
+                self._nodes[node_id]["status"] = new_state
+                self._propagate_inferred_down(self._nodes, self._transit_children)
+                self._cached_graph = {
+                    "nodes": list(self._nodes.values()),
+                    "edges": [{"source": src, "target": tgt} for src, tgt in self._edges],
+                }
+                self._cached_graph_json = json.dumps(self._cached_graph)
 
-    def update_endpoint_path(self, endpoint_id: UUID, new_hops: List[dict]) -> None:
+    async def update_endpoint_path(self, endpoint_id: UUID, new_hops: List[dict]) -> None:
         """
         Incremental Event Mutation Hook:
         Recalculates visual edges affected by a single refreshed baseline route
@@ -407,7 +408,9 @@ class TopologyGraphManager:
 
         from app.services.diagnostics import sanitize_traceroute_hops
         clean_hops = sanitize_traceroute_hops(new_hops)
-        self._baseline_routes[ep_id] = clean_hops
+
+        async with self._lock:
+            self._baseline_routes[ep_id] = clean_hops
 
         previous_node_id = "root"
         previous_hop_ip_tag = "root"

@@ -410,14 +410,12 @@ print_header "Step 14: Creating default admin user"
 
 if [ "$DRY_RUN" = false ]; then
     run "Seeding default admin user" \
-        sudo -H -u netmon bash -c "
-            export NETMON_DB_PASSWORD='$DB_PASS' &&
-            export NETMON_SECRET_KEY='$SECRET_KEY' &&
-            export DEFAULT_ADMIN_PASSWORD='$ADMIN_PASS' &&
-            export PYTHONPATH='$INSTALL_DIR/backend' &&
-            cd '$INSTALL_DIR/backend' &&
-            '$VENV_DIR/bin/python3' -m app.seed_admin
-        "
+        sudo -u netmon \
+            NETMON_DB_PASSWORD="$DB_PASS" \
+            NETMON_SECRET_KEY="$SECRET_KEY" \
+            DEFAULT_ADMIN_PASSWORD="$ADMIN_PASS" \
+            PYTHONPATH="$INSTALL_DIR/backend" \
+            "$VENV_DIR/bin/python3" -m app.seed_admin
 else
     echo "[DRY RUN] Would create default admin user (admin / $ADMIN_PASS)"
 fi
@@ -516,9 +514,8 @@ else
     echo "  You will be required to change this password"
     echo "  on your first login."
     echo "--------------------------------------------------------"
-    echo "  DATABASE CREDENTIALS (Auto-generated)"
+    echo "  DATABASE CREDENTIALS"
     echo "  Username: netmon_user"
-    echo "  Password: $DB_PASS"
     echo "  Database: netmon"
     echo "  Stored in: $ENV_FILE"
     echo "--------------------------------------------------------"

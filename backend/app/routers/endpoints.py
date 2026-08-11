@@ -6,7 +6,8 @@ from datetime import datetime, timedelta
 from typing import Literal, Optional
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel
+import ipaddress
+from pydantic import BaseModel, field_validator
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
@@ -51,6 +52,18 @@ class CreateEndpointRequest(BaseModel):
     enable_scheduled_discovery: bool = True
     is_l2_segment: bool = False
     manual_parent_id: Optional[UUID] = None
+
+    @field_validator("ip_address")
+    @classmethod
+    def validate_ip_format(cls, v: str) -> str:
+        if not v or not v.strip():
+            raise ValueError("IP address cannot be empty.")
+        clean_ip = v.strip()
+        try:
+            ipaddress.ip_address(clean_ip)
+        except ValueError:
+            raise ValueError(f"'{clean_ip}' is not a valid IPv4 or IPv6 address.")
+        return clean_ip
 
 class UpdateEndpointRequest(BaseModel):
     hostname: Optional[str] = None
@@ -214,9 +227,13 @@ async def list_endpoints(
         "now_utc": now_utc,
         "since_utc": since_utc,
     }
+    ALLOWED_STATUSES = {"ACTIVE", "DISABLED", "MONITORED", "UNMONITORED"}
     if status is not None:
+        clean_status = status.strip().upper()
+        if clean_status not in ALLOWED_STATUSES:
+            raise HTTPException(status_code=400, detail=f"Invalid status filter '{status}'. Must be one of: {', '.join(sorted(ALLOWED_STATUSES))}")
         query_str += " AND e.endpoint_status = :status"
-        params["status"] = status
+        params["status"] = clean_status
         
     query_str += " ORDER BY e.hostname ASC"
     

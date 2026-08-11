@@ -19,6 +19,23 @@ logger = logging.getLogger("netmon-engine")
 endpoint_states: dict[str, EndpointState] = {}
 states_lock = asyncio.Lock()
 
+_active_background_tasks: set[asyncio.Task] = set()
+
+def safe_create_task(coro, task_name: str = "background_task") -> asyncio.Task:
+    """Safely spawn a background asyncio task with error logging and lifetime tracking."""
+    task = asyncio.create_task(coro)
+    _active_background_tasks.add(task)
+
+    def _on_complete(t: asyncio.Task) -> None:
+        _active_background_tasks.discard(t)
+        if not t.cancelled():
+            exc = t.exception()
+            if exc:
+                logger.error("Background task '%s' failed with exception: %s", task_name, exc, exc_info=exc)
+
+    task.add_done_callback(_on_complete)
+    return task
+
 
 from app.services.diagnostics import run_throttled_traceroute, save_diagnostic_trace
 
@@ -128,7 +145,10 @@ async def monitor_endpoint(
                     )
                     row = allow_res.fetchone()
                     if row and getattr(row, "allow_incident_trace", True):
-                        asyncio.create_task(trigger_incident_diagnostic_trace(endpoint_id, ip_address))
+                        safe_create_task(
+                            trigger_incident_diagnostic_trace(endpoint_id, ip_address),
+                            "incident_diagnostic_trace",
+                        )
 
                 await db.commit()
 

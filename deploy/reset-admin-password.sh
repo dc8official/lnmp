@@ -31,16 +31,13 @@ if [ -z "$NEW_PASS" ]; then
     fi
 fi
 
-# Execute python reset script inside the virtual environment
-sudo -H -u netmon bash -c "
-    export NETMON_DB_PASSWORD='$DB_PASS' &&
-    export NETMON_SECRET_KEY='$SECRET_KEY' &&
-    export DEFAULT_ADMIN_PASSWORD='$NEW_PASS' &&
-    export FORCE_RESET_ADMIN='true' &&
-    export PYTHONPATH='/opt/netmon/noop/backend' &&
-    cd '/opt/netmon/noop/backend' &&
+sudo -u netmon \
+    NETMON_DB_PASSWORD="$DB_PASS" \
+    NETMON_SECRET_KEY="$SECRET_KEY" \
+    DEFAULT_ADMIN_PASSWORD="$NEW_PASS" \
+    FORCE_RESET_ADMIN="true" \
+    PYTHONPATH="/opt/netmon/noop/backend" \
     /opt/netmon/venv/bin/python3 -m app.seed_admin
-"
 
 echo ""
 echo "--------------------------------------------------------"

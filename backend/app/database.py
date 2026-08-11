@@ -62,15 +62,18 @@ class Base(DeclarativeBase):
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
     """Yield a managed async database session for use in FastAPI routes.
 
-    Commits on clean exit, rolls back on exception, and always closes
+    Commits on clean exit if an active transaction remains uncommitted,
+    rolls back on exception if a transaction is active, and always closes
     the session in the finally block.
     """
     async with AsyncSessionLocal() as session:
         try:
             yield session
-            await session.commit()
+            if session.is_active and session.in_transaction():
+                await session.commit()
         except Exception:
-            await session.rollback()
+            if session.is_active and session.in_transaction():
+                await session.rollback()
             raise
         finally:
             await session.close()

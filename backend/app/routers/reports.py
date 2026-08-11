@@ -3,7 +3,7 @@ import logging
 from datetime import date, datetime
 from app.services.timezone_utils import get_local_timezone
 from math import ceil
-from typing import Optional, List, Any
+from typing import Optional, List, Any, Union
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
@@ -24,36 +24,29 @@ from app.services.uptime_calculator import (
     get_unknown_seconds_for_period,
 )
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter(prefix="/reports", tags=["reports"])
 
 def parse_datetime_param(val: str, is_end: bool = False) -> datetime:
-    if not val or not isinstance(val, str):
-        raise HTTPException(status_code=400, detail=f"Invalid ISO 8601 date format: {val}")
     local_tz = get_local_timezone()
-    # Try parsing as ISO datetime
     try:
-        dt = datetime.fromisoformat(val.replace("Z", "+00:00"))
-        if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=local_tz)
+        if "T" in val or " " in val:
+            dt = datetime.fromisoformat(val)
+            if dt.tzinfo is None:
+                return dt.replace(tzinfo=local_tz)
+            return dt.astimezone(local_tz)
         else:
-            dt = dt.astimezone(local_tz)
-        return dt
-    except (ValueError, AttributeError, TypeError):
-        pass
-
-    # Try parsing as date
-    try:
-        d = date.fromisoformat(val)
-        if is_end:
-            return datetime(d.year, d.month, d.day, 23, 59, 59, tzinfo=local_tz)
-        else:
+            d = date.fromisoformat(val)
+            if is_end:
+                return datetime(d.year, d.month, d.day, 23, 59, 59, tzinfo=local_tz)
             return datetime(d.year, d.month, d.day, 0, 0, 0, tzinfo=local_tz)
     except (ValueError, AttributeError, TypeError):
         raise HTTPException(status_code=400, detail=f"Invalid ISO 8601 date format: {val}")
 
 def _build_period(
-    start_date: date,
-    end_date: date,
+    start_date: Union[date, datetime],
+    end_date: Union[date, datetime],
 ) -> tuple[datetime, datetime]:
     local_tz = get_local_timezone()
     period_start = datetime(start_date.year, start_date.month,
@@ -65,15 +58,16 @@ def _build_period(
     return period_start, period_end
 
 def _validate_date_range(
-    start_date: date,
-    end_date: date,
+    start_date: Union[date, datetime],
+    end_date: Union[date, datetime],
 ) -> None:
     if start_date > end_date:
         raise HTTPException(
             status_code=400,
             detail="start_date must be before or equal to end_date."
         )
-    if (end_date - start_date).days > 730:
+    diff_days = (end_date - start_date).total_seconds() / 86400.0
+    if diff_days > 730:
         raise HTTPException(
             status_code=400,
             detail="Date range cannot exceed 730 days."
