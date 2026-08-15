@@ -279,7 +279,7 @@ async def list_endpoints(
     meta = PaginationMeta(
         total=len(rows),
         page=1,
-        page_size=len(rows),
+        page_size=max(1, len(rows)),
         total_pages=1
     )
     

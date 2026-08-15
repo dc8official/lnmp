@@ -1,4 +1,5 @@
 import { createRouter, createWebHistory } from 'vue-router'
+import { loadUserFromStorage, isValidUserObject } from '../services/auth'
 
 const routes = [
   {
@@ -34,10 +35,13 @@ const router = createRouter({
 })
 
 router.beforeEach((to, from, next) => {
-  const userStr = localStorage.getItem('user')
-  
-  if (to.path !== '/login' && !userStr) {
+  const currentUserState = loadUserFromStorage()
+  const isAuthenticated = isValidUserObject(currentUserState)
+
+  if (to.path !== '/login' && !isAuthenticated) {
     next('/login')
+  } else if (to.path === '/login' && isAuthenticated) {
+    next('/')
   } else {
     next()
   }
