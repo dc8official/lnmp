@@ -106,6 +106,18 @@ if [[ ${DRY_RUN} -eq 0 ]]; then
         echo -e "${YELLOW}[INFO] Working directory is not a git repository. Skipping git pull.${NC}"
     fi
 
+    # Ensure system dependencies (traceroute, libcap2-bin)
+    if command -v apt-get &>/dev/null; then
+        if ! dpkg -l traceroute libcap2-bin 2>/dev/null | grep -q "^ii"; then
+            echo -e "${GREEN}[INFO] Installing missing system utilities (traceroute, libcap2-bin)...${NC}"
+            apt-get update -qq && apt-get install -y traceroute libcap2-bin || true
+        fi
+        TRACEROUTE_BIN=$(command -v traceroute || true)
+        if [[ -n "${TRACEROUTE_BIN}" ]] && command -v setcap &>/dev/null; then
+            setcap cap_net_raw+ep "${TRACEROUTE_BIN}" || true
+        fi
+    fi
+
     # Determine Python virtual environment path (/opt/netmon/venv preferred, fallback to .venv)
     VENV_PATH=""
     if [[ -d "/opt/netmon/venv" ]]; then
@@ -160,7 +172,7 @@ fi
 # 7. Database Migrations
 echo -e "\n${BLUE}--- Step 5/6: Executing Database Schema Migrations ---${NC}"
 if [[ ${DRY_RUN} -eq 0 ]]; then
-    cd "${PROJECT_ROOT}"
+    cd "${PROJECT_ROOT}/backend"
     ALEMBIC_BIN=""
     if [[ -n "${VENV_PATH:-}" && -f "${VENV_PATH}/bin/alembic" ]]; then
         ALEMBIC_BIN="${VENV_PATH}/bin/alembic"
@@ -172,7 +184,7 @@ if [[ ${DRY_RUN} -eq 0 ]]; then
 
     if [[ -d "${PROJECT_ROOT}/backend/migrations" && -n "${ALEMBIC_BIN}" ]]; then
         echo -e "${GREEN}[INFO] Running Alembic schema migration (alembic upgrade head)...${NC}"
-        PYTHONPATH="${PROJECT_ROOT}:${PROJECT_ROOT}/backend" "${ALEMBIC_BIN}" -c "${PROJECT_ROOT}/backend/alembic.ini" upgrade head
+        PYTHONPATH="${PROJECT_ROOT}:${PROJECT_ROOT}/backend" "${ALEMBIC_BIN}" -c "${PROJECT_ROOT}/backend/alembic.ini" upgrade head || true
         
         PYTHON_BIN="$(dirname "${ALEMBIC_BIN}")/python"
         if [[ -f "${PYTHON_BIN}" ]]; then
@@ -182,6 +194,7 @@ if [[ ${DRY_RUN} -eq 0 ]]; then
     else
         echo -e "${YELLOW}[INFO] Alembic migration configuration or binary not found. Skipping DB migration.${NC}"
     fi
+    cd "${PROJECT_ROOT}"
 else
     echo -e "[DRY-RUN] Would execute: alembic upgrade head"
 fi
