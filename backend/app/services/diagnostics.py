@@ -20,19 +20,26 @@ trace_semaphore = asyncio.Semaphore(5)
 discovery_queue: asyncio.Queue[tuple[UUID, str]] = asyncio.Queue()
 
 
-def sanitize_traceroute_hops(hops: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+def sanitize_traceroute_hops(
+    hops: List[Dict[str, Any]],
+    target_ip: Optional[str] = None,
+) -> List[Dict[str, Any]]:
     """
     Sanitizes traceroute hop list:
-    1. Strips trailing 'no reply' (ip is None) hops.
+    1. Strips trailing 'no reply' (ip is None) hops when no target_ip is provided.
     2. Collapses consecutive 'no reply' (ip is None) hops into a single anonymous hop.
+    3. Ensures the destination target_ip is preserved as the terminal hop if provided.
     """
     if not hops:
+        if target_ip:
+            return [{"hop": 1, "ip": target_ip, "rtt_ms": None}]
         return []
 
-    # Strip trailing no-reply hops
+    # If target_ip is not provided, strip trailing no-reply hops
     clean_hops = list(hops)
-    while clean_hops and clean_hops[-1].get("ip") is None:
-        clean_hops.pop()
+    if not target_ip:
+        while clean_hops and clean_hops[-1].get("ip") is None:
+            clean_hops.pop()
 
     collapsed_hops: List[Dict[str, Any]] = []
     prev_was_null = False
@@ -41,96 +48,158 @@ def sanitize_traceroute_hops(hops: List[Dict[str, Any]]) -> List[Dict[str, Any]]
         is_null = h.get("ip") is None
         if is_null:
             if not prev_was_null:
-                collapsed_hops.append(h)
+                collapsed_hops.append({"hop": h.get("hop"), "ip": None, "rtt_ms": None})
                 prev_was_null = True
         else:
             collapsed_hops.append(h)
             prev_was_null = False
 
+    # If target_ip is provided, ensure it is the terminal hop in the route
+    if target_ip:
+        last_hop = collapsed_hops[-1] if collapsed_hops else None
+        if not last_hop or last_hop.get("ip") != target_ip:
+            next_hop_num = ((last_hop.get("hop") or len(collapsed_hops)) + 1) if last_hop else 1
+            collapsed_hops.append({
+                "hop": next_hop_num,
+                "ip": target_ip,
+                "rtt_ms": None,
+            })
+
     return collapsed_hops
+
+
+def _parse_trace_output(stdout_str: str) -> List[Dict[str, Any]]:
+    """
+    Parses stdout from either traceroute or tracepath into structured hops.
+    """
+    hops: List[Dict[str, Any]] = []
+    seen_hops = set()
+
+    for line in stdout_str.splitlines():
+        line = line.strip()
+        if not line or line.startswith("traceroute"):
+            continue
+
+        # Match hop number for tracepath ('1:') or traceroute ('1 ')
+        hop_match = re.match(r"^\s*(\d+)[:\s]\s*(.*)$", line)
+        if not hop_match:
+            continue
+
+        try:
+            hop_num = int(hop_match.group(1))
+        except ValueError:
+            continue
+
+        if hop_num in seen_hops:
+            continue
+        seen_hops.add(hop_num)
+
+        remainder = hop_match.group(2).strip()
+
+        if "no reply" in remainder.lower() or remainder.startswith("*") or remainder == "* * *":
+            hops.append({"hop": hop_num, "ip": None, "rtt_ms": None})
+            continue
+
+        ip_match = re.search(r"(\d{1,3}(?:\.\d{1,3}){3})", remainder)
+        rtt_match = re.search(r"([\d\.]+)\s*ms", remainder)
+
+        hop_ip = ip_match.group(1) if ip_match else None
+        rtt_ms = float(rtt_match.group(1)) if rtt_match else None
+
+        hops.append({
+            "hop": hop_num,
+            "ip": hop_ip,
+            "rtt_ms": rtt_ms,
+        })
+
+    return hops
 
 
 async def run_traceroute(target_ip: str) -> Dict[str, Any]:
     """
-    Executes asynchronous route discovery using standard non-privileged `tracepath` utility.
-    Parses stdout into a structured list of hops:
-        [{"hop": 1, "ip": "192.168.1.1", "rtt_ms": 1.25}, ...]
-
-    Unresponsive / timed out hops are handled gracefully as:
-        {"hop": N, "ip": None, "rtt_ms": None}
+    Executes asynchronous route discovery:
+    1. Attempts ICMP Echo mode `traceroute -I` (best for WAN/carrier discovery).
+    2. Falls back to fast unprivileged UDP `traceroute`.
+    3. Falls back to `tracepath` if traceroute is not installed.
     """
     hops: List[Dict[str, Any]] = []
     timestamp = datetime.now(timezone.utc).isoformat()
+    stdout_str = ""
 
+    # 1. Try ICMP traceroute (-I) with 1 probe per hop, 1s timeout
     try:
-        # Standard non-privileged tracepath execution
         proc = await asyncio.create_subprocess_exec(
-            "tracepath",
+            "traceroute",
             "-n",
+            "-q",
+            "1",
+            "-w",
+            "1",
             "-m",
             "30",
+            "-I",
             "--",
             target_ip,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
-        try:
-            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=30.0)
+        stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=20.0)
+        if proc.returncode == 0:
             stdout_str = stdout.decode("utf-8", errors="ignore")
-        except asyncio.TimeoutError:
-            logger.warning("Tracepath subprocess timed out after 30s for target IP %s", target_ip)
-            try:
-                proc.kill()
-                await proc.wait()
-            except Exception:
-                pass
+    except Exception:
+        stdout_str = ""
+
+    # 2. Try standard fast unprivileged traceroute if ICMP mode returned empty/failed
+    if not stdout_str:
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "traceroute",
+                "-n",
+                "-q",
+                "1",
+                "-w",
+                "1",
+                "-m",
+                "30",
+                "--",
+                target_ip,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=20.0)
+            if proc.returncode == 0:
+                stdout_str = stdout.decode("utf-8", errors="ignore")
+        except Exception:
             stdout_str = ""
 
-        seen_hops = set()
-        for line in stdout_str.splitlines():
-            line = line.strip()
-            if not line or line.startswith("traceroute"):
-                continue
+    # 3. Fallback to tracepath if traceroute is unavailable
+    if not stdout_str:
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "tracepath",
+                "-n",
+                "-m",
+                "30",
+                "--",
+                target_ip,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=20.0)
+            stdout_str = stdout.decode("utf-8", errors="ignore")
+        except Exception as e:
+            logger.warning(
+                "Route discovery execution failed for target %s: %s: %s",
+                target_ip,
+                type(e).__name__,
+                e,
+            )
+            stdout_str = ""
 
-            # Match hop number for tracepath ('1:') or traceroute ('1 ')
-            hop_match = re.match(r"^\s*(\d+)[:\s]\s*(.*)$", line)
-            if not hop_match:
-                continue
+    if stdout_str:
+        hops = _parse_trace_output(stdout_str)
 
-            hop_num = int(hop_match.group(1))
-            if hop_num in seen_hops:
-                continue
-            seen_hops.add(hop_num)
-
-            remainder = hop_match.group(2).strip()
-
-            if "no reply" in remainder.lower() or remainder.startswith("*") or remainder == "* * *":
-                hops.append({"hop": hop_num, "ip": None, "rtt_ms": None})
-                continue
-
-            ip_match = re.search(r"(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})", remainder)
-            rtt_match = re.search(r"([\d\.]+)\s*ms", remainder)
-
-            hop_ip = ip_match.group(1) if ip_match else None
-            rtt_ms = float(rtt_match.group(1)) if rtt_match else None
-
-            hops.append({
-                "hop": hop_num,
-                "ip": hop_ip,
-                "rtt_ms": rtt_ms,
-            })
-
-    except Exception as e:
-        logger.warning(
-            "Standard tracepath execution failed for target %s: %s: %s. Using fallback trace.",
-            target_ip,
-            type(e).__name__,
-            e,
-        )
-        # Fallback trace entry
-        hops.append({"hop": 1, "ip": target_ip, "rtt_ms": None})
-
-    sanitized_hops = sanitize_traceroute_hops(hops)
+    sanitized_hops = sanitize_traceroute_hops(hops, target_ip=target_ip)
 
     return {
         "target_ip": target_ip,

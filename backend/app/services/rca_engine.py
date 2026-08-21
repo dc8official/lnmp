@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ipaddress
 import json
 import logging
 from typing import Any, Dict, List, Optional
@@ -46,6 +47,12 @@ async def run_differential_rca(
             logger.info("RCA disabled for endpoint %s. Skipping.", endpoint_id)
             return None
 
+        is_global = False
+        try:
+            is_global = ipaddress.ip_address(target_ip).is_global
+        except Exception:
+            pass
+
         # 2. Fetch baseline route snapshot
         bl_query = text("""
             SELECT total_hops, hops
@@ -70,16 +77,13 @@ async def run_differential_rca(
         failure_trace = await run_throttled_traceroute(target_ip)
         live_hops: List[Dict[str, Any]] = failure_trace.get("hops", [])
 
-        valid_live_hops = [h for h in live_hops if h.get("ip")]
-        live_hop_count = len(valid_live_hops)
-
         failed_hop_number: Optional[int] = None
         failed_hop_ip: Optional[str] = None
         last_known_good_hop_ip: Optional[str] = None
         rca_summary: str = ""
 
         # 4. Evaluation Logic (Layer 2 vs Layer 3)
-        if is_l2_segment or (len(live_hops) <= 1 and len(baseline_hops) <= 1):
+        if is_l2_segment or (not is_global and len(live_hops) <= 1 and len(baseline_hops) <= 1):
             failed_hop_number = 1
             failed_hop_ip = target_ip
             last_known_good_hop_ip = None
@@ -90,19 +94,23 @@ async def run_differential_rca(
             )
         else:
             # Layer 3 Multi-Hop: Compare live failure hops against baseline
+            live_hops_by_num = {
+                h["hop"]: h for h in live_hops if isinstance(h, dict) and h.get("hop") is not None
+            }
             diverged = False
+
             for idx, b_hop in enumerate(baseline_hops):
                 hop_num = b_hop.get("hop", idx + 1)
                 b_ip = b_hop.get("ip")
 
-                # Corresponding live hop
-                l_hop = live_hops[idx] if idx < len(live_hops) else None
+                # Corresponding live hop by physical hop number (fallback to idx)
+                l_hop = live_hops_by_num.get(hop_num, live_hops[idx] if idx < len(live_hops) else None)
                 l_ip = l_hop.get("ip") if l_hop else None
 
                 # Divergence / Timeout check
                 if l_hop is None or l_ip is None or l_ip != b_ip:
                     failed_hop_number = hop_num
-                    failed_hop_ip = b_ip
+                    failed_hop_ip = b_ip or target_ip
                     if idx > 0 and baseline_hops[idx - 1].get("ip"):
                         last_known_good_hop_ip = baseline_hops[idx - 1].get("ip")
                         rca_summary = (
@@ -111,27 +119,38 @@ async def run_differential_rca(
                         )
                     else:
                         last_known_good_hop_ip = None
-                        rca_summary = (
-                            f"Transit failure at Hop {hop_num} ({failed_hop_ip}). "
-                            f"No prior operational hop."
-                        )
+                        if is_global:
+                            rca_summary = (
+                                f"Remote L3 Routed Destination ({target_ip}). "
+                                f"Failure at Hop {hop_num} ({failed_hop_ip}). Path blocked across WAN/carrier network."
+                            )
+                        else:
+                            rca_summary = (
+                                f"Transit failure at Hop {hop_num} ({failed_hop_ip}). "
+                                f"No prior operational hop."
+                            )
                     diverged = True
                     break
 
-            if not diverged and baseline_hops:
-                # Target endpoint itself is the failure point
-                last_b_hop = baseline_hops[-1]
-                failed_hop_number = last_b_hop.get("hop", len(baseline_hops))
-                failed_hop_ip = last_b_hop.get("ip", target_ip)
+            if not diverged:
+                last_b_hop = baseline_hops[-1] if baseline_hops else {"hop": 1, "ip": target_ip}
+                failed_hop_number = last_b_hop.get("hop", 1)
+                failed_hop_ip = last_b_hop.get("ip", target_ip) or target_ip
                 if len(baseline_hops) > 1 and baseline_hops[-2].get("ip"):
                     last_known_good_hop_ip = baseline_hops[-2].get("ip")
                     rca_summary = (
-                        f"Transit failure at Hop {failed_hop_number} ({failed_hop_ip}). "
+                        f"Failure at destination endpoint {failed_hop_ip} (Hop {failed_hop_number}). "
                         f"Path confirmed operational through Hop {failed_hop_number - 1} ({last_known_good_hop_ip})."
                     )
                 else:
                     last_known_good_hop_ip = None
-                    rca_summary = f"Transit failure at Hop {failed_hop_number} ({failed_hop_ip})."
+                    if is_global:
+                        rca_summary = (
+                            f"Remote L3 Routed Destination ({target_ip}). "
+                            "Failure isolated to destination host or intermediate WAN carrier path."
+                        )
+                    else:
+                        rca_summary = f"Failure at Hop {failed_hop_number} ({failed_hop_ip})."
 
         # 5. Persist RCA Incident Record
         insert_incident_sql = text("""

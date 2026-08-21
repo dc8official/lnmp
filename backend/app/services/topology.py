@@ -274,7 +274,7 @@ class TopologyGraphManager:
                     hop_ip = hop.get("ip")
 
                     if hop_ip is None:
-                        current_node_id = f"anon_after_{previous_hop_ip_tag}"
+                        current_node_id = f"anon_{previous_hop_ip_tag}_to_{ep_id[:8]}"
                         if current_node_id not in nodes:
                             nodes[current_node_id] = {
                                 "id": current_node_id,
@@ -365,7 +365,9 @@ class TopologyGraphManager:
 
         for node_id, node_info in list(nodes.items()):
             node_type = node_info.get("type") or node_info.get("node_type")
-            if node_type == "transit" and node_info.get("state") != "FAILURE_POINT":
+            device_type = node_info.get("device_type")
+            # Only propagate inferred down for real physical transit routers with valid IP addresses
+            if node_type == "transit" and device_type == "TRANSIT_ROUTER" and node_info.get("state") != "FAILURE_POINT":
                 downstream = get_all_downstream_monitored(node_id, set())
                 if downstream:
                     all_down = all(
@@ -419,7 +421,7 @@ class TopologyGraphManager:
             hop_ip = hop.get("ip")
 
             if hop_ip is None:
-                current_node_id = f"anon_after_{previous_hop_ip_tag}"
+                current_node_id = f"anon_{previous_hop_ip_tag}_to_{ep_id[:8]}"
                 if current_node_id not in self._nodes:
                     self._nodes[current_node_id] = {
                         "id": current_node_id,
@@ -475,7 +477,7 @@ class TopologyGraphManager:
             for h in sanitize_traceroute_hops(a_hops):
                 h_ip = h.get("ip")
                 if h_ip is None:
-                    active_transit_nodes.add(f"anon_after_{prev_tag}")
+                    active_transit_nodes.add(f"anon_{prev_tag}_to_{active_id[:8]}")
                 else:
                     h_ep = self._monitored_by_ip.get(h_ip)
                     if not h_ep:

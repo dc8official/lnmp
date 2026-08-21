@@ -141,7 +141,7 @@ print_header "Step 4: Installing system packages"
 
 PACKAGES="postgresql-16 postgresql-client-16 \
 timescaledb-2-postgresql-16 timescaledb-tools \
-python3-venv python3-pip \
+python3-venv python3-pip traceroute iputils-tracepath iputils-ping libcap2-bin \
 nodejs nginx certbot python3-certbot-nginx"
 
 MISSING=""
@@ -155,6 +155,12 @@ if [ -n "$MISSING" ]; then
     run "Installing packages: $MISSING" apt-get install -y $MISSING
 else
     echo "All required packages already installed."
+fi
+
+# Enable unprivileged ICMP / raw socket capabilities for traceroute if available
+TRACEROUTE_BIN=$(command -v traceroute || true)
+if [ -n "$TRACEROUTE_BIN" ] && command -v setcap &>/dev/null; then
+    run "Setting network capabilities for traceroute" setcap cap_net_raw+ep "$TRACEROUTE_BIN" || true
 fi
 
 # ============================================================
