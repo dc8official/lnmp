@@ -20,10 +20,28 @@ from app.services.auth_service import (
     is_account_locked,
     record_failed_attempt,
     clear_failed_attempts,
+    is_session_active,
+    invalidate_session,
+    invalidate_all_user_sessions,
 )
 from app.config import settings
 
 cookie_name = "lnmp_access_token"
+
+def get_client_ip(request: Request) -> str:
+    """Extracts the client's source IP address, respecting X-Forwarded-For if behind a reverse proxy."""
+    try:
+        if hasattr(request, "headers") and hasattr(request.headers, "get"):
+            forwarded = request.headers.get("X-Forwarded-For")
+            if forwarded and isinstance(forwarded, str):
+                return str(forwarded.split(",")[0].strip())
+        if getattr(request, "client", None) and getattr(request.client, "host", None):
+            host = request.client.host
+            if isinstance(host, str):
+                return str(host.strip())
+    except Exception:
+        pass
+    return "127.0.0.1"
 
 class LoginRequest(BaseModel):
     username: str
@@ -44,10 +62,11 @@ async def login(
     http_request: Request,
     db: AsyncSession = Depends(get_db),
 ):
-    if is_account_locked(payload.username):
+    client_ip = get_client_ip(http_request)
+    if is_account_locked(client_ip, payload.username):
         raise HTTPException(
             status_code=403,
-            detail="Account temporarily locked due to failed login attempts."
+            detail="Account temporarily locked for 15 minutes due to multiple failed login attempts from this location."
         )
 
     query = text("""
@@ -62,14 +81,14 @@ async def login(
     row = result.fetchone()
 
     if not row or not row.is_active:
-        record_failed_attempt(payload.username)
+        record_failed_attempt(client_ip, payload.username)
         raise HTTPException(status_code=401, detail="Invalid username or password.")
 
     if not verify_password(payload.password, row.password_hash):
-        record_failed_attempt(payload.username)
+        record_failed_attempt(client_ip, payload.username)
         raise HTTPException(status_code=401, detail="Invalid username or password.")
 
-    clear_failed_attempts(payload.username)
+    clear_failed_attempts(client_ip, payload.username)
 
     now = datetime.now(get_local_timezone())
     update_query = text("""
@@ -91,7 +110,7 @@ async def login(
     """)
     await db.execute(audit_query, {
         "user_id": str(row.id),
-        "details": json.dumps({"username": payload.username})
+        "details": json.dumps({"username": payload.username, "ip": client_ip})
     })
     await db.commit()
 
@@ -124,6 +143,16 @@ async def login(
 
 @router.post("/logout")
 async def logout(request: Request, response: Response):
+    token = request.cookies.get(cookie_name)
+    if not token:
+        auth_header = request.headers.get("Authorization")
+        if auth_header and auth_header.startswith("Bearer "):
+            token = auth_header.split(" ", 1)[1]
+    if token:
+        payload = decode_access_token(token)
+        if payload and payload.get("sub") and payload.get("jti"):
+            invalidate_session(payload.get("sub"), payload.get("jti"))
+
     is_secure = request.url.scheme == "https" or getattr(settings.security, "hsts_enabled", False)
     response.delete_cookie(
         key=cookie_name,
@@ -151,8 +180,15 @@ async def get_current_user(
         raise HTTPException(status_code=401, detail="Session expired or invalid.")
 
     user_id = payload.get("sub")
+    jti = payload.get("jti")
     if not user_id:
         raise HTTPException(status_code=401, detail="Invalid token claims.")
+
+    if not is_session_active(str(user_id), jti):
+        raise HTTPException(
+            status_code=401,
+            detail="Session terminated: maximum active sessions reached or session expired."
+        )
 
     user_query = text("""
         SELECT is_active, must_change_password

@@ -92,7 +92,23 @@ const handleLogin = async () => {
     })
     router.push('/')
   } catch (err) {
-    error.value = err.response?.data?.detail || 'Invalid username or password. Please try again.'
+    if (err.response) {
+      const status = err.response.status
+      const detail = err.response.data?.detail
+      if (status === 403) {
+        error.value = detail || 'Account temporarily locked for 15 minutes due to multiple failed login attempts from this location.'
+      } else if (status === 401) {
+        error.value = detail || 'Invalid username or password. Please verify your credentials.'
+      } else if (status === 429) {
+        error.value = 'Too many requests. Please wait a moment before trying again.'
+      } else if (status >= 500) {
+        error.value = 'Server connection error. Please ensure the LNMP backend service is running.'
+      } else {
+        error.value = detail || 'Authentication failed. Please check your credentials and try again.'
+      }
+    } else {
+      error.value = 'Unable to connect to LNMP server. Please check your network connection.'
+    }
   } finally {
     loading.value = false
   }

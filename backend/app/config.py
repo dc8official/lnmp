@@ -30,7 +30,8 @@ class ApiSettings(BaseModel):
 
 
 class SecuritySettings(BaseModel):
-    session_timeout_minutes: int = Field(..., ge=1, le=1440)
+    session_timeout_minutes: int = Field(default=120, ge=1, le=1440)
+    max_active_sessions_per_user: int = Field(default=2, ge=1, le=10)
     hsts_enabled: bool
     secret_key: str
 

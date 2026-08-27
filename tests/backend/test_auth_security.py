@@ -120,6 +120,52 @@ class TestSecurityAuditFixes(unittest.TestCase):
             called_sql = str(mock_db.execute.call_args[0][0])
             self.assertIn("WHERE id = CAST(:user_id AS uuid)", called_sql)
 
+    def test_concurrent_session_fifo_rotation(self) -> None:
+        from app.services.auth_service import register_session, is_session_active, invalidate_session, _active_user_sessions
+        user_id = str(uuid4())
+        _active_user_sessions.clear()
+
+        # Session 1 & Session 2 registered
+        register_session(user_id, "jti_session_1", max_sessions=2)
+        register_session(user_id, "jti_session_2", max_sessions=2)
+
+        self.assertTrue(is_session_active(user_id, "jti_session_1"))
+        self.assertTrue(is_session_active(user_id, "jti_session_2"))
+
+        # Session 3 registered -> FIFO evicts Session 1
+        register_session(user_id, "jti_session_3", max_sessions=2)
+        self.assertFalse(is_session_active(user_id, "jti_session_1"))
+        self.assertTrue(is_session_active(user_id, "jti_session_2"))
+        self.assertTrue(is_session_active(user_id, "jti_session_3"))
+
+        # Logout session 2
+        invalidate_session(user_id, "jti_session_2")
+        self.assertFalse(is_session_active(user_id, "jti_session_2"))
+        self.assertTrue(is_session_active(user_id, "jti_session_3"))
+
+    def test_ip_scoped_failed_attempt_lockout(self) -> None:
+        _failed_attempts.clear()
+
+        ip_a = "192.168.1.100"
+        ip_b = "10.0.0.5"
+
+        # Record 5 failed attempts from IP A for user 'admin'
+        for _ in range(5):
+            record_failed_attempt(ip_a, "admin")
+
+        # IP A is locked for 'admin'
+        self.assertTrue(is_account_locked(ip_a, "admin"))
+
+        # IP B is NOT locked for 'admin' (legitimate user at different location)
+        self.assertFalse(is_account_locked(ip_b, "admin"))
+
+        # IP A is NOT locked for user 'bob'
+        self.assertFalse(is_account_locked(ip_a, "bob"))
+
+        # Clear IP A lockout upon successful login
+        clear_failed_attempts(ip_a, "admin")
+        self.assertFalse(is_account_locked(ip_a, "admin"))
+
 
 if __name__ == "__main__":
     unittest.main()
