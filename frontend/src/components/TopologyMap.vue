@@ -7,10 +7,13 @@
           <span class="icon">🕸</span> Live Network Topology Map
         </h2>
         <span class="status-badge" :class="stabilized ? 'badge-stabilized' : 'badge-stabilizing'">
-          {{ stabilized ? '● Layout Fixed (Physics Off)' : '◌ Stabilizing Hierarchical Layout...' }}
+          {{ stabilized ? (layoutDirection === 'UD' ? '● Layout Fixed (Vertical)' : '● Layout Fixed (Horizontal)') : '◌ Stabilizing Hierarchical Layout...' }}
         </span>
       </div>
       <div class="toolbar-right">
+        <button class="btn-secondary" @click="toggleLayoutDirection" :title="layoutDirection === 'UD' ? 'Switch to Horizontal (Left-to-Right) view' : 'Switch to Vertical (Top-to-Bottom) view'">
+          {{ layoutDirection === 'UD' ? '↔ Horizontal View' : '↕ Vertical View' }}
+        </button>
         <button class="btn-secondary" @click="resetView" title="Center and zoom map to fit all nodes">
           🔍 Reset View
         </button>
@@ -120,6 +123,7 @@ const loading = ref(true)
 const error = ref(null)
 const networkInitialized = ref(false)
 const stabilized = ref(false)
+const layoutDirection = ref('UD')
 
 const selectedNode = ref(null)
 
@@ -266,10 +270,58 @@ function formatVisData(nodesData, edgesData) {
     to: edge.target,
     color: { color: '#4B5563', highlight: '#3B82F6' },
     arrows: { to: { enabled: true, scaleFactor: 0.7 } },
-    smooth: { type: 'cubicBezier' }
+    smooth: {
+      type: 'cubicBezier',
+      forceDirection: layoutDirection.value === 'UD' ? 'vertical' : 'horizontal',
+      roundness: 0.4
+    }
   }))
 
   return { visNodes, visEdges }
+}
+
+function toggleLayoutDirection() {
+  layoutDirection.value = layoutDirection.value === 'UD' ? 'LR' : 'UD'
+  if (network) {
+    stabilized.value = false
+    const opts = {
+      layout: {
+        hierarchical: {
+          enabled: true,
+          direction: layoutDirection.value,
+          sortMethod: 'directed',
+          edgeMinimization: true,
+          blockShifting: true,
+          parentCentralization: true,
+          nodeSpacing: 220,
+          levelSeparation: 180
+        }
+      },
+      edges: {
+        smooth: {
+          type: 'cubicBezier',
+          forceDirection: layoutDirection.value === 'UD' ? 'vertical' : 'horizontal',
+          roundness: 0.4
+        }
+      },
+      physics: {
+        enabled: true,
+        hierarchicalRepulsion: {
+          centralGravity: 0.0,
+          springLength: 140,
+          springConstant: 0.01,
+          nodeDistance: 180,
+          damping: 0.09
+        },
+        stabilization: {
+          enabled: true,
+          iterations: 200
+        }
+      }
+    }
+    network.setOptions(opts)
+    network.stabilize(200)
+  }
 }
 
 async function fetchTopology() {
@@ -295,19 +347,22 @@ async function fetchTopology() {
         layout: {
           hierarchical: {
             enabled: true,
-            direction: 'UD',
+            direction: layoutDirection.value,
             sortMethod: 'directed',
-            nodeSpacing: 150,
-            levelSeparation: 120
+            edgeMinimization: true,
+            blockShifting: true,
+            parentCentralization: true,
+            nodeSpacing: 220,
+            levelSeparation: 180
           }
         },
         physics: {
           enabled: true,
           hierarchicalRepulsion: {
             centralGravity: 0.0,
-            springLength: 100,
+            springLength: 140,
             springConstant: 0.01,
-            nodeDistance: 120,
+            nodeDistance: 180,
             damping: 0.09
           },
           stabilization: {

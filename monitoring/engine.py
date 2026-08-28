@@ -10,14 +10,18 @@ from monitoring.gap_handler import resolve_startup_state
 from monitoring.ping import run_ping_cycle
 from monitoring.state_machine import EndpointState, StateMachine
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+from app.logging_config import setup_logging
+from app.config import settings
+
+logger = setup_logging(
+    service_name="netmon-engine",
+    log_dir=getattr(settings.logging, "log_dir", "/var/log/netmon"),
+    log_level=getattr(settings.logging, "level", "INFO"),
 )
-logger = logging.getLogger("netmon-engine")
 
 endpoint_states: dict[str, EndpointState] = {}
 states_lock = asyncio.Lock()
+db_write_semaphore = asyncio.Semaphore(15)
 
 _active_background_tasks: set[asyncio.Task] = set()
 
@@ -125,32 +129,33 @@ async def monitor_endpoint(
 
             baseline = baseline_cache.get_baseline(endpoint_id)
 
-            async with AsyncSessionLocal() as db:
-                current_state = endpoint_states.get(str(endpoint_id))
+            async with db_write_semaphore:
+                async with AsyncSessionLocal() as db:
+                    current_state = endpoint_states.get(str(endpoint_id))
 
-                if current_state is None:
-                    new_state = await state_machine.create_initial_event(
-                        endpoint_id, result, db, baseline=baseline
-                    )
-                else:
-                    new_state = await state_machine.process_cycle(
-                        current_state, result, db, baseline=baseline
-                    )
-
-                # Down-State Trigger Hook: Fire incident diagnostic trace on first failed ping sub-cycle
-                if result.failed_count > 0:
-                    allow_res = await db.execute(
-                        text("SELECT allow_incident_trace FROM endpoints WHERE id = CAST(:id AS uuid)"),
-                        {"id": str(endpoint_id)},
-                    )
-                    row = allow_res.fetchone()
-                    if row and getattr(row, "allow_incident_trace", True):
-                        safe_create_task(
-                            trigger_incident_diagnostic_trace(endpoint_id, ip_address),
-                            "incident_diagnostic_trace",
+                    if current_state is None:
+                        new_state = await state_machine.create_initial_event(
+                            endpoint_id, result, db, baseline=baseline
+                        )
+                    else:
+                        new_state = await state_machine.process_cycle(
+                            current_state, result, db, baseline=baseline
                         )
 
-                await db.commit()
+                    # Down-State Trigger Hook: Fire incident diagnostic trace on first failed ping sub-cycle
+                    if result.failed_count > 0:
+                        allow_res = await db.execute(
+                            text("SELECT allow_incident_trace FROM endpoints WHERE id = CAST(:id AS uuid)"),
+                            {"id": str(endpoint_id)},
+                        )
+                        row = allow_res.fetchone()
+                        if row and getattr(row, "allow_incident_trace", True):
+                            safe_create_task(
+                                trigger_incident_diagnostic_trace(endpoint_id, ip_address),
+                                "incident_diagnostic_trace",
+                            )
+
+                    await db.commit()
 
             async with states_lock:
                 endpoint_states[str(endpoint_id)] = new_state

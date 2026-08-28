@@ -260,26 +260,51 @@ async def save_diagnostic_trace(
 async def cleanup_old_diagnostic_traces(
     db: AsyncSession,
     retention_days: int = 14,
+    audit_retention_days: int = 90,
 ) -> int:
     """
-    Purges diagnostic trace records older than specified retention_days (default 14 days).
+    Purges diagnostic trace records older than specified retention_days (default 14 days),
+    audit logs older than audit_retention_days (default 90 days), and resolved RCA incidents (default 90 days).
     """
+    total_purged = 0
     try:
-        query = text("""
+        # 1. Purge diagnostic traces
+        query_traces = text("""
             DELETE FROM endpoint_diagnostic_traces
             WHERE timestamp < NOW() - (INTERVAL '1 day' * :retention_days)
         """)
-        result = await db.execute(query, {"retention_days": retention_days})
-        deleted_count = result.rowcount
-        logger.info(
-            "Purged %d diagnostic traces older than %d days.",
-            deleted_count,
-            retention_days,
-        )
-        return deleted_count
+        res_traces = await db.execute(query_traces, {"retention_days": retention_days})
+        traces_count = res_traces.rowcount or 0
+        total_purged += traces_count
+        if traces_count > 0:
+            logger.info("Purged %d diagnostic traces older than %d days.", traces_count, retention_days)
+
+        # 2. Purge old audit logs
+        query_audit = text("""
+            DELETE FROM audit_logs
+            WHERE timestamp < NOW() - (INTERVAL '1 day' * :audit_days)
+        """)
+        res_audit = await db.execute(query_audit, {"audit_days": audit_retention_days})
+        audit_count = res_audit.rowcount or 0
+        total_purged += audit_count
+        if audit_count > 0:
+            logger.info("Purged %d audit logs older than %d days.", audit_count, audit_retention_days)
+
+        # 3. Purge old resolved RCA incidents
+        query_rca = text("""
+            DELETE FROM endpoint_rca_incidents
+            WHERE is_resolved = TRUE AND incident_timestamp < NOW() - (INTERVAL '1 day' * :rca_days)
+        """)
+        res_rca = await db.execute(query_rca, {"rca_days": audit_retention_days})
+        rca_count = res_rca.rowcount or 0
+        total_purged += rca_count
+        if rca_count > 0:
+            logger.info("Purged %d resolved RCA incidents older than %d days.", rca_count, audit_retention_days)
+
+        return total_purged
     except Exception as e:
-        logger.error("Failed to purge old diagnostic traces: %s", e)
-        return 0
+        logger.error("Failed to execute database retention cleanup: %s", e)
+        return total_purged
 
 
 async def start_discovery_worker(db_session_factory) -> asyncio.Task:

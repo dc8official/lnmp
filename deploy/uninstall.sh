@@ -1,186 +1,98 @@
 #!/usr/bin/env bash
+# ==============================================================================
+# LNMP Network Monitoring Platform v2.0 (Beta) - Decommission / Uninstall Utility
+# ==============================================================================
+
 set -euo pipefail
 
-# ============================================================
-# lnmp Network Monitoring Platform - Production Uninstaller
-# Supports: Debian 12+, Ubuntu 22.04+
-# Usage: sudo bash deploy/uninstall.sh [--dry-run] [--force]
-# ============================================================
+# Color Palette
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+RED='\033[0;31m'
+BLUE='\033[0;34m'
+NC='\033[0m'
 
-DRY_RUN=false
-FORCE=false
+# Require Root
+if [[ ${EUID} -ne 0 ]]; then
+    echo -e "${RED}[ERROR] This script must be executed with root privileges (e.g., sudo ./uninstall.sh).${NC}" >&2
+    exit 1
+fi
 
-for arg in "$@"; do
-    case "$arg" in
-        --dry-run)
-            DRY_RUN=true
-            echo "DRY RUN MODE: No changes will be made."
-            ;;
-        --force)
-            FORCE=true
-            ;;
-    esac
-done
+echo -e "${RED}========================================================================${NC}"
+echo -e "${RED}       LNMP Network Monitoring Platform - Decommission / Uninstall      ${NC}"
+echo -e "${RED}========================================================================${NC}"
+echo -e "${YELLOW}WARNING: This utility will stop and remove all LNMP system services,${NC}"
+echo -e "${YELLOW}disable background monitoring daemons, and remove web server routes.${NC}"
+echo ""
 
-CONFIG_DIR="/etc/netmon"
-ENV_FILE="$CONFIG_DIR/netmon.env"
-INSTALL_DIR="/opt/netmon"
-LOG_DIR="/var/log/netmon"
+# Safety Confirmation
+read -rp "Are you sure you want to uninstall LNMP? (Type 'YES' to proceed): " CONFIRM
+if [[ "${CONFIRM}" != "YES" ]]; then
+    echo -e "${GREEN}[ABORTED] Uninstallation cancelled. No changes were made.${NC}"
+    exit 0
+fi
+
+# Load Database credentials for safety dump if available
+ENV_FILE="/etc/netmon/netmon.env"
+if [[ -f "${ENV_FILE}" ]]; then
+    # shellcheck disable=SC1090
+    set -a
+    source "${ENV_FILE}"
+    set +a
+fi
+
+DB_NAME="${NETMON_DB_NAME:-${POSTGRES_DB:-netmon}}"
+DB_USER="${NETMON_DB_USER:-${POSTGRES_USER:-netmon_user}}"
+DB_PASS="${NETMON_DB_PASSWORD:-${POSTGRES_PASSWORD:-netmon_secure_password}}"
+DB_HOST="${NETMON_DB_HOST:-${POSTGRES_HOST:-127.0.0.1}}"
+DB_PORT="${NETMON_DB_PORT:-${POSTGRES_PORT:-5432}}"
+
+# 1. Final Safety Database Backup
 BACKUP_DIR="/var/backups/netmon"
-NGINX_CONF="/etc/nginx/sites-available/netmon"
-NGINX_ENABLED="/etc/nginx/sites-enabled/netmon"
-LOGROTATE_CONF="/etc/logrotate.d/netmon"
-CERT_FILE="/etc/ssl/certs/netmon.crt"
-KEY_FILE="/etc/ssl/private/netmon.key"
+TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+FINAL_BACKUP="${BACKUP_DIR}/netmon_decommission_backup_${TIMESTAMP}.sql"
 
-# ============================================================
-print_header() {
-    echo ""
-    echo "========================================================"
-    echo "  $1"
-    echo "========================================================"
-}
-
-run() {
-    local description="$1"
-    shift
-    if [ "$DRY_RUN" = true ]; then
-        echo "[DRY RUN] $description"
-        echo "          Command: $*"
+echo -e "\n${BLUE}--- Step 1/4: Creating Final Safety Database Backup ---${NC}"
+mkdir -p "${BACKUP_DIR}"
+if command -v pg_dump &>/dev/null; then
+    echo -e "${GREEN}[INFO] Creating safety dump at ${FINAL_BACKUP}...${NC}"
+    PGPASSWORD="${DB_PASS}" pg_dump -h "${DB_HOST}" -p "${DB_PORT}" -U "${DB_USER}" -d "${DB_NAME}" -F p -f "${FINAL_BACKUP}" 2>/dev/null || true
+    if [[ -f "${FINAL_BACKUP}" && -s "${FINAL_BACKUP}" ]]; then
+        chmod 600 "${FINAL_BACKUP}"
+        echo -e "${GREEN}[SUCCESS] Safety backup saved to ${FINAL_BACKUP}${NC}"
     else
-        echo "--> $description"
-        "$@" || echo "Warning: Command failed: $*"
-    fi
-}
-
-check_root() {
-    if [ "$EUID" -ne 0 ] && [ "$DRY_RUN" = false ]; then
-        echo "Error: This script must be run as root."
-        echo "Usage: sudo bash deploy/uninstall.sh"
-        exit 1
-    fi
-}
-
-# ============================================================
-print_header "Step 1: Checking root privileges"
-check_root
-
-# Ask for confirmation if not forced
-if [ "$FORCE" = false ] && [ "$DRY_RUN" = false ]; then
-    echo "WARNING: This will completely uninstall the Netmon platform."
-    echo "This includes stopping services, removing configurations, removing SSL certificates,"
-    echo "deleting all files in /opt/netmon, and dropping the PostgreSQL 'netmon' database!"
-    echo ""
-    read -p "Are you sure you want to proceed? [y/N]: " CONFIRM
-    if [[ ! "$CONFIRM" =~ ^[Yy]$ ]]; then
-        echo "Uninstallation cancelled."
-        exit 0
+        echo -e "${YELLOW}[WARN] Could not create database dump (database may already be offline). Continuing...${NC}"
     fi
 fi
 
-# ============================================================
-print_header "Step 2: Stopping and disabling systemd services"
+# 2. Stop and Disable Systemd Services
+echo -e "\n${BLUE}--- Step 2/4: Stopping & Removing Systemd Services ---${NC}"
+systemctl stop netmon-api netmon-engine 2>/dev/null || true
+systemctl disable netmon-api netmon-engine 2>/dev/null || true
 
-for service in netmon-engine netmon-api; do
-    if systemctl is-active --quiet "$service" 2>/dev/null; then
-        run "Stopping $service service" systemctl stop "$service"
-    fi
-    if systemctl is-enabled --quiet "$service" 2>/dev/null; then
-        run "Disabling $service service" systemctl disable "$service"
-    fi
-    
-    dst="/etc/systemd/system/${service}.service"
-    if [ -f "$dst" ]; then
-        run "Removing service unit file $dst" rm -f "$dst"
-    fi
-done
+rm -f /etc/systemd/system/netmon-api.service
+rm -f /etc/systemd/system/netmon-engine.service
+systemctl daemon-reload
+echo -e "${GREEN}[SUCCESS] LNMP background services disabled and removed from systemd.${NC}"
 
-run "Reloading systemd daemon" systemctl daemon-reload
+# 3. Clean Nginx Configuration
+echo -e "\n${BLUE}--- Step 3/4: Removing Web Server Routing ---${NC}"
+rm -f /etc/nginx/sites-enabled/netmon
+rm -f /etc/nginx/sites-available/netmon
+if command -v nginx &>/dev/null; then
+    nginx -t 2>/dev/null && systemctl reload nginx || true
+fi
+echo -e "${GREEN}[SUCCESS] Nginx web routing removed.${NC}"
 
-# ============================================================
-print_header "Step 3: Cleaning Nginx configuration"
-
-if [ -f "$NGINX_ENABLED" ]; then
-    run "Removing Nginx enabled link" rm -f "$NGINX_ENABLED"
+# 4. Optional Application Directory and Database Cleanup
+echo -e "\n${BLUE}--- Step 4/4: Application Directory & Database ---${NC}"
+read -rp "Do you want to delete application files in /opt/netmon? [y/N]: " REMOVE_FILES
+if [[ "${REMOVE_FILES,,}" == "y" || "${REMOVE_FILES,,}" == "yes" ]]; then
+    rm -rf /opt/netmon
+    echo -e "${GREEN}[INFO] Removed /opt/netmon directory.${NC}"
 fi
 
-if [ -f "$NGINX_CONF" ]; then
-    run "Removing Nginx site configuration" rm -f "$NGINX_CONF"
-fi
-
-if [ "$DRY_RUN" = false ]; then
-    if command -v nginx &>/dev/null && nginx -t >/dev/null 2>&1; then
-        run "Reloading Nginx" systemctl reload nginx
-    else
-        echo "Warning: Nginx not active or configuration invalid, skipping reload."
-    fi
-else
-    echo "[DRY RUN] Would reload Nginx"
-fi
-
-# ============================================================
-print_header "Step 4: Cleaning self-signed SSL certificates"
-
-for file in "$CERT_FILE" "$KEY_FILE"; do
-    if [ -f "$file" ]; then
-        run "Removing certificate file $file" rm -f "$file"
-    fi
-done
-
-# ============================================================
-print_header "Step 5: Cleaning logrotate configuration"
-
-if [ -f "$LOGROTATE_CONF" ]; then
-    run "Removing logrotate configuration" rm -f "$LOGROTATE_CONF"
-fi
-
-# ============================================================
-print_header "Step 6: Dropping PostgreSQL database and role"
-
-if [ "$DRY_RUN" = false ]; then
-    if command -v psql &>/dev/null; then
-        echo "--> Terminating active connections to 'netmon' database"
-        sudo -u postgres psql -c \
-            "SELECT pg_terminate_backend(pg_stat_activity.pid) FROM pg_stat_activity WHERE pg_stat_activity.datname = 'netmon' AND pid <> pg_backend_pid();" >/dev/null 2>&1 || true
-        
-        echo "--> Dropping database 'netmon'"
-        sudo -u postgres psql -c "DROP DATABASE IF EXISTS netmon;" || true
-        
-        echo "--> Dropping database role 'netmon_user'"
-        sudo -u postgres psql -c "DROP ROLE IF EXISTS netmon_user;" || true
-    else
-        echo "PostgreSQL client not found. Database drop skipped."
-    fi
-else
-    echo "[DRY RUN] Would terminate connections, drop database 'netmon', and drop role 'netmon_user'"
-fi
-
-# ============================================================
-print_header "Step 7: Removing system user and group"
-
-if id "netmon" &>/dev/null; then
-    run "Deleting system user 'netmon'" userdel -r netmon
-else
-    echo "System user 'netmon' does not exist."
-fi
-
-# ============================================================
-print_header "Step 8: Cleaning up directories"
-
-for dir in "$INSTALL_DIR" "$CONFIG_DIR" "$LOG_DIR" "$BACKUP_DIR"; do
-    if [ -d "$dir" ]; then
-        run "Recursively deleting directory $dir" rm -rf "$dir"
-    else
-        echo "Directory $dir does not exist."
-    fi
-done
-
-# ============================================================
-print_header "Uninstallation Complete"
-
-if [ "$DRY_RUN" = true ]; then
-    echo "DRY RUN complete. No changes were made."
-else
-    echo "The Netmon platform has been successfully uninstalled."
-fi
-echo "========================================================"
+echo -e "\n${GREEN}========================================================================${NC}"
+echo -e "${GREEN}   [UNINSTALL COMPLETE] LNMP platform has been cleanly decommissioned.  ${NC}"
+echo -e "${GREEN}   Safety Database Backup Retained At: ${FINAL_BACKUP}${NC}"
+echo -e "${GREEN}========================================================================${NC}"

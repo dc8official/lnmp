@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# LNMP Network Monitoring Platform v1.5 - Automated Zero-Downtime Upgrade Utility
+# LNMP Network Monitoring Platform v2.0 (Beta) - Automated Upgrade Utility
 # ==============================================================================
 
 set -euo pipefail
@@ -14,12 +14,12 @@ NC='\033[0m' # No Color
 
 # 1. Require Root / Administrative Privileges
 if [[ ${EUID} -ne 0 ]]; then
-    echo -e "${RED}[ERROR] This script must be executed with root privileges (e.g., sudo -i or ./upgrade.sh as root).${NC}" >&2
+    echo -e "${RED}[ERROR] This script must be executed with root privileges (e.g., sudo ./upgrade.sh).${NC}" >&2
     exit 1
 fi
 
 echo -e "${BLUE}========================================================================${NC}"
-echo -e "${BLUE}       LNMP Network Monitoring Platform v1.5 - System Upgrade Utility    ${NC}"
+echo -e "${BLUE}    LNMP Network Monitoring Platform v2.0 (Beta) - Upgrade Utility      ${NC}"
 echo -e "${BLUE}========================================================================${NC}"
 
 # Resolve Script and Project Root Directory
@@ -60,7 +60,7 @@ BACKUP_DIR="/var/backups/netmon"
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 BACKUP_FILE="${BACKUP_DIR}/netmon_backup_${TIMESTAMP}.sql"
 
-echo -e "\n${BLUE}--- Step 1/6: Executing Pre-Upgrade Database Backup ---${NC}"
+echo -e "\n${BLUE}--- Step 1/7: Executing Pre-Upgrade Database Backup ---${NC}"
 if [[ ${DRY_RUN} -eq 0 ]]; then
     if ! command -v pg_dump &> /dev/null; then
         echo -e "${RED}[ERROR] pg_dump command not found. Please install postgresql-client.${NC}" >&2
@@ -82,8 +82,27 @@ else
     echo -e "[DRY-RUN] Would generate SQL dump to ${BACKUP_FILE}"
 fi
 
-# 4. Service Pause
-echo -e "\n${BLUE}--- Step 2/6: Gracefully Pausing Platform Background Daemons ---${NC}"
+# 4. Smart Config Migration (In-Place Upgrade)
+CONFIG_FILE="/etc/netmon/config.toml"
+echo -e "\n${BLUE}--- Step 2/7: Migrating System Configuration Defaults ---${NC}"
+if [[ ${DRY_RUN} -eq 0 && -f "${CONFIG_FILE}" ]]; then
+    echo -e "${GREEN}[INFO] Verifying configuration settings in ${CONFIG_FILE}...${NC}"
+    
+    # Update session_timeout_minutes to 120 if currently 30
+    if grep -q "session_timeout_minutes = 30" "${CONFIG_FILE}"; then
+        sed -i 's/session_timeout_minutes = 30/session_timeout_minutes = 120/' "${CONFIG_FILE}"
+        echo -e "${GREEN}[INFO] Updated session_timeout_minutes to 120 (2 hours).${NC}"
+    fi
+
+    # Add max_active_sessions_per_user if missing
+    if ! grep -q "max_active_sessions_per_user" "${CONFIG_FILE}"; then
+        sed -i '/\[security\]/a max_active_sessions_per_user = 2' "${CONFIG_FILE}"
+        echo -e "${GREEN}[INFO] Added max_active_sessions_per_user = 2 to [security].${NC}"
+    fi
+fi
+
+# 5. Service Pause
+echo -e "\n${BLUE}--- Step 3/7: Gracefully Pausing Platform Background Daemons ---${NC}"
 if [[ ${DRY_RUN} -eq 0 ]]; then
     if systemctl is-active --quiet netmon-engine || systemctl is-active --quiet netmon-api; then
         echo -e "${GREEN}[INFO] Stopping netmon-engine and netmon-api systemd services...${NC}"
@@ -95,8 +114,8 @@ else
     echo -e "[DRY-RUN] Would run: systemctl stop netmon-engine netmon-api"
 fi
 
-# 5. Dependency Update & Code Compilation
-echo -e "\n${BLUE}--- Step 3/6: Updating Python Dependencies & Building Frontend ---${NC}"
+# 6. Dependency Update & Code Compilation
+echo -e "\n${BLUE}--- Step 4/7: Updating Python Dependencies & Building Frontend ---${NC}"
 if [[ ${DRY_RUN} -eq 0 ]]; then
     cd "${PROJECT_ROOT}"
     if [[ -d ".git" ]]; then
@@ -118,7 +137,7 @@ if [[ ${DRY_RUN} -eq 0 ]]; then
         fi
     fi
 
-    # Determine Python virtual environment path (/opt/netmon/venv preferred, fallback to .venv)
+    # Determine Python virtual environment path
     VENV_PATH=""
     if [[ -d "/opt/netmon/venv" ]]; then
         VENV_PATH="/opt/netmon/venv"
@@ -147,8 +166,8 @@ else
     echo -e "[DRY-RUN] Would pull git updates, upgrade pip requirements, and execute npm run build in frontend/"
 fi
 
-# 6. Synchronize Production Files
-echo -e "\n${BLUE}--- Step 4/6: Synchronizing Codebase & Enforcing Production Exclusions ---${NC}"
+# 7. Synchronize Production Files
+echo -e "\n${BLUE}--- Step 5/7: Synchronizing Codebase & Enforcing Production Structure ---${NC}"
 if [[ ${DRY_RUN} -eq 0 ]]; then
     INSTALL_DIR="/opt/netmon/noop"
     if [[ -d "${INSTALL_DIR}" && "${PROJECT_ROOT}" != "${INSTALL_DIR}" ]]; then
@@ -166,11 +185,11 @@ if [[ ${DRY_RUN} -eq 0 ]]; then
         chown -R netmon:netmon "${INSTALL_DIR}"
     fi
 else
-    echo -e "[DRY-RUN] Would rsync compiled codebase to /opt/netmon/noop excluding tests/, pytest.ini, scratch/"
+    echo -e "[DRY-RUN] Would rsync compiled codebase to /opt/netmon/noop"
 fi
 
-# 7. Database Migrations
-echo -e "\n${BLUE}--- Step 5/6: Executing Database Schema Migrations ---${NC}"
+# 8. Database Migrations
+echo -e "\n${BLUE}--- Step 6/7: Executing Database Schema Migrations ---${NC}"
 if [[ ${DRY_RUN} -eq 0 ]]; then
     cd "${PROJECT_ROOT}/backend"
     ALEMBIC_BIN=""
@@ -191,37 +210,40 @@ if [[ ${DRY_RUN} -eq 0 ]]; then
             echo -e "${GREEN}[INFO] Verifying default admin account seeding...${NC}"
             PYTHONPATH="${PROJECT_ROOT}:${PROJECT_ROOT}/backend" "${PYTHON_BIN}" -m app.seed_admin || true
         fi
-    else
-        echo -e "${YELLOW}[INFO] Alembic migration configuration or binary not found. Skipping DB migration.${NC}"
     fi
     cd "${PROJECT_ROOT}"
 else
     echo -e "[DRY-RUN] Would execute: alembic upgrade head"
 fi
 
-# 8. Service Restart & Verification
-echo -e "\n${BLUE}--- Step 6/6: Restarting & Verifying Platform Services ---${NC}"
+# 9. Service Unit Refresh, Auto-Start Enablement & Restart
+echo -e "\n${BLUE}--- Step 7/7: Refreshing Systemd Units, Enabling Auto-Start & Starting Services ---${NC}"
 if [[ ${DRY_RUN} -eq 0 ]]; then
-    if systemctl list-unit-files | grep -q "netmon-api.service"; then
-        echo -e "${GREEN}[INFO] Reloading systemd daemons and restarting services...${NC}"
-        systemctl daemon-reload
-        systemctl restart netmon-api netmon-engine
-        systemctl restart nginx || true
+    # Refresh systemd unit files if available in deploy/
+    if [[ -f "${PROJECT_ROOT}/deploy/netmon-api.service" ]]; then
+        cp "${PROJECT_ROOT}/deploy/netmon-api.service" /etc/systemd/system/
+    fi
+    if [[ -f "${PROJECT_ROOT}/deploy/netmon-engine.service" ]]; then
+        cp "${PROJECT_ROOT}/deploy/netmon-engine.service" /etc/systemd/system/
+    fi
 
-        sleep 2
-        if systemctl is-active --quiet netmon-api && systemctl is-active --quiet netmon-engine; then
-            echo -e "${GREEN}[SUCCESS] All systemd services (netmon-api, netmon-engine) are active and healthy.${NC}"
-        else
-            echo -e "${YELLOW}[WARN] One or more services failed to start cleanly. Check systemctl status netmon-api netmon-engine.${NC}"
-        fi
+    echo -e "${GREEN}[INFO] Reloading systemd daemons and enabling auto-start on boot...${NC}"
+    systemctl daemon-reload
+    systemctl enable netmon-api netmon-engine || true
+    systemctl restart netmon-api netmon-engine
+    systemctl restart nginx || true
+
+    sleep 2
+    if systemctl is-active --quiet netmon-api && systemctl is-active --quiet netmon-engine; then
+        echo -e "${GREEN}[SUCCESS] All systemd services (netmon-api, netmon-engine) are active, enabled on boot, and healthy.${NC}"
     else
-        echo -e "${YELLOW}[INFO] Systemd services not registered. Please start services manually if using non-systemd setup.${NC}"
+        echo -e "${YELLOW}[WARN] Check service status via: systemctl status netmon-api netmon-engine${NC}"
     fi
 else
-    echo -e "[DRY-RUN] Would run: systemctl restart netmon-api netmon-engine"
+    echo -e "[DRY-RUN] Would run: systemctl enable & restart netmon-api netmon-engine"
 fi
 
 echo -e "\n${GREEN}========================================================================${NC}"
-echo -e "${GREEN}   [UPGRADE COMPLETE] LNMP v1.5 Platform upgraded successfully!          ${NC}"
+echo -e "${GREEN}   [UPGRADE COMPLETE] LNMP v2.0 (Beta) Platform upgraded successfully!   ${NC}"
 echo -e "${GREEN}   Pre-Upgrade Database Backup Saved At: ${BACKUP_FILE}${NC}"
 echo -e "${GREEN}========================================================================${NC}"

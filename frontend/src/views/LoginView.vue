@@ -4,9 +4,8 @@
       <Card class="login-card">
         <template #title>
           <div class="brand-header">
-            <i class="pi pi-shield brand-icon"></i>
             <h2>lnmp Platform</h2>
-            <p class="brand-subtitle">Network Uptime Monitoring</p>
+            <p class="brand-subtitle">Network Uptime Monitoring v2.0(beta)</p>
           </div>
         </template>
         <template #content>
@@ -21,6 +20,8 @@
                 <i class="pi pi-user field-icon"></i>
                 <InputText 
                   id="username" 
+                  name="username"
+                  autocomplete="username"
                   v-model="username" 
                   placeholder="Enter your username" 
                   required 
@@ -36,6 +37,9 @@
                 <i class="pi pi-lock field-icon"></i>
                 <Password 
                   id="password" 
+                  name="password"
+                  autocomplete="current-password"
+                  :inputProps="{ name: 'password', autocomplete: 'current-password' }"
                   v-model="password" 
                   placeholder="Enter your password" 
                   required 

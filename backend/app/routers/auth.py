@@ -167,24 +167,29 @@ async def get_current_user(
     request: Request,
     db: AsyncSession = Depends(get_db),
 ) -> dict:
+    client_ip = get_client_ip(request)
     token = request.cookies.get(cookie_name)
     if not token:
         auth_header = request.headers.get("Authorization")
         if auth_header and auth_header.startswith("Bearer "):
             token = auth_header.split(" ", 1)[1]
     if not token:
+        logger.warning("Auth failure on %s %s from IP %s: Missing authentication token (cookie or header)", request.method, request.url.path, client_ip)
         raise HTTPException(status_code=401, detail="Not authenticated.")
         
     payload = decode_access_token(token)
     if payload is None:
+        logger.warning("Auth failure on %s %s from IP %s: JWT token is expired, tampered, or invalid", request.method, request.url.path, client_ip)
         raise HTTPException(status_code=401, detail="Session expired or invalid.")
 
     user_id = payload.get("sub")
     jti = payload.get("jti")
     if not user_id:
+        logger.warning("Auth failure on %s %s from IP %s: Token missing subject claims", request.method, request.url.path, client_ip)
         raise HTTPException(status_code=401, detail="Invalid token claims.")
 
     if not is_session_active(str(user_id), jti):
+        logger.warning("Auth eviction on %s %s from IP %s: User %s session (JTI: %s) evicted by newer login or session limit", request.method, request.url.path, client_ip, user_id, jti)
         raise HTTPException(
             status_code=401,
             detail="Session terminated: maximum active sessions reached or session expired."
@@ -198,6 +203,7 @@ async def get_current_user(
     res = await db.execute(user_query, {"user_id": str(user_id)})
     row = res.fetchone()
     if not row or not row.is_active:
+        logger.warning("Auth rejection on %s %s from IP %s: User %s is disabled or inactive in database", request.method, request.url.path, client_ip, user_id)
         raise HTTPException(status_code=401, detail="User account is inactive or disabled.")
 
     payload["must_change_password"] = row.must_change_password
