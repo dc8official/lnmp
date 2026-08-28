@@ -46,7 +46,10 @@
           <div class="form-group">
             <label>Current Password *</label>
             <input 
+              id="current-password"
+              name="current-password"
               type="password"
+              autocomplete="current-password"
               v-model="changePasswordForm.old_password" 
               placeholder="Enter current password" 
               required 
@@ -56,7 +59,10 @@
           <div class="form-group">
             <label>New Password *</label>
             <input 
+              id="new-password"
+              name="new-password"
               type="password"
+              autocomplete="new-password"
               v-model="changePasswordForm.new_password" 
               placeholder="Enter new password (min 8 chars)" 
               required 
@@ -66,7 +72,10 @@
           <div class="form-group">
             <label>Confirm New Password *</label>
             <input 
+              id="confirm-password"
+              name="confirm-password"
               type="password"
+              autocomplete="new-password"
               v-model="changePasswordForm.confirm_password" 
               placeholder="Confirm new password" 
               required 

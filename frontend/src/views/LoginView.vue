@@ -9,7 +9,7 @@
           </div>
         </template>
         <template #content>
-          <form @submit.prevent="handleLogin" action="#" method="post" autocomplete="on" class="login-form">
+          <form @submit.prevent="handleLogin" method="post" action="" autocomplete="on" class="login-form">
             <div v-if="error" class="error-container">
               <Message severity="error" :closable="false">{{ error }}</Message>
             </div>
@@ -24,6 +24,9 @@
                   type="text"
                   autocomplete="username"
                   v-model="username" 
+                  @input="syncValues"
+                  @change="syncValues"
+                  @blur="syncValues"
                   placeholder="Enter your username" 
                   required 
                   class="p-inputtext p-component full-width"
@@ -42,6 +45,9 @@
                   :type="showPassword ? 'text' : 'password'"
                   autocomplete="current-password"
                   v-model="password" 
+                  @input="syncValues"
+                  @change="syncValues"
+                  @blur="syncValues"
                   placeholder="Enter your password" 
                   required 
                   class="p-inputtext p-component full-width password-input"
@@ -56,13 +62,15 @@
               </div>
             </div>
 
-            <Button 
+            <button 
               type="submit" 
-              label="Sign In" 
-              icon="pi pi-sign-in" 
-              :loading="loading" 
-              class="submit-button"
-            />
+              class="submit-button p-button p-component" 
+              :disabled="loading"
+            >
+              <i v-if="loading" class="pi pi-spin pi-spinner" style="margin-right: 0.5rem;"></i>
+              <i v-else class="pi pi-sign-in" style="margin-right: 0.5rem;"></i>
+              <span>{{ loading ? 'Signing In...' : 'Sign In' }}</span>
+            </button>
           </form>
         </template>
       </Card>
@@ -71,12 +79,11 @@
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { login } from '../services/api.js'
 import { setUserState } from '../services/auth.js'
 import Card from 'primevue/card'
-import Button from 'primevue/button'
 import Message from 'primevue/message'
 
 const router = useRouter()
@@ -86,11 +93,39 @@ const showPassword = ref(false)
 const loading = ref(false)
 const error = ref(null)
 
+const syncValues = () => {
+  const uEl = document.getElementById('username')
+  const pEl = document.getElementById('password')
+  if (uEl && uEl.value) username.value = uEl.value
+  if (pEl && pEl.value) password.value = pEl.value
+}
+
+onMounted(() => {
+  // Sync in case browser password manager auto-populates the fields without triggering Vue events
+  syncValues()
+  setTimeout(syncValues, 200)
+  setTimeout(syncValues, 600)
+  setTimeout(syncValues, 1200)
+})
+
 const handleLogin = async () => {
   loading.value = true
   error.value = null
+  
+  // Directly extract values from DOM elements as fallback if browser autofill didn't fire Vue reactive input events
+  const uEl = document.getElementById('username')
+  const pEl = document.getElementById('password')
+  const userInput = (uEl?.value || username.value || '').trim()
+  const passInput = pEl?.value || password.value || ''
+
+  if (!userInput || !passInput) {
+    error.value = 'Please enter both username and password.'
+    loading.value = false
+    return
+  }
+
   try {
-    const response = await login(username.value, password.value)
+    const response = await login(userInput, passInput)
     const payloadData = response.data?.data || response.data
     setUserState({
       username: payloadData.username,
