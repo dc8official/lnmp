@@ -12,7 +12,7 @@ The platform is decoupled into independent, modular layers to guarantee continuo
 * **The Hybrid Adaptive Alert Engine:** A dual-layer evaluation engine combining an in-memory state machine for transient jitter suppression with dynamic statistical baseline tracking. By evaluating live latency against historical time-series bounds via Z-score calculations ($Z = \frac{x - \mu}{\sigma}$), the engine dynamically identifies performance degradation without requiring static thresholds.
 * **The Diagnostic & Traceroute Subsystem:** An asynchronous, non-blocking background task worker that triggers immediate path diagnostics on the first detected drop sub-cycle. Executions are throttled via an `asyncio.Semaphore` queue to protect system resources.
 * **The Topology & Root Cause Analysis (RCA) Engine:** A sequential discovery pipeline that runs during device onboarding and scheduled midnight passes to build a parent-child network adjacency map. Differentiates monitored targets from intermediate transit hops and performs topological RCA (`INFERRED_DOWN`) to suppress cascading alert storms.
-* **Interactive Crossing-Free Topology Map:** A Vue 3 Vis-Network visualizer implementing the **Sugiyama (1981)** barycenter crossing reduction framework and **Gansner / DOT (1993)** coordinate heuristics (`edgeMinimization`, `blockShifting`, `parentCentralization`, directional tangent channeling) with dynamic **Horizontal (LR) ⇄ Vertical (UD)** layout switching.
+* **Interactive Crossing-Free Topology Map:** A Vue 3 Vis-Network visualizer implementing **BFS DAG Longest-Path Layering** ($L(v) = \max(L(u) + 1)$) combined with the **Sugiyama (1981)** barycenter crossing reduction framework and **Gansner / DOT (1993)** coordinate heuristics (`edgeMinimization`, `blockShifting`, `parentCentralization`, directional tangent channeling) with dynamic **Horizontal (LR) ⇄ Vertical (UD)** layout switching.
 * **The Telemetry & Diagnostic Datastore:** A hybrid storage design pairing TimescaleDB hypertables with **7-day chunk compression** (90%+ disk savings) and **automated continuous aggregate refresh policies** for sub-millisecond query performance over multi-year deployments.
 * **Security & Session Governance:** Features **sliding 2-hour inactivity timeouts**, **token-based concurrent session quotas** (max 2 active sessions with FIFO rotation), and **IP-scoped failed login lockouts** (`<Client_IP>:<Username>`) to protect corporate NATs and VPNs from credential brute-force attacks.
 * **Observability & Logging Suite:** Dual console (`systemd journalctl`) and **150MB auto-rotating log files** (`/var/log/netmon/api.log`, `engine.log`, `error.log`) with global FastAPI request latency and security diagnostic middleware.
@@ -23,7 +23,8 @@ The platform is decoupled into independent, modular layers to guarantee continuo
 
 For a deeper dive into specific components of the platform, please refer to the comprehensive guides in the `docs/` directory:
 
-* **[Architecture Overview](docs/architecture.md):** In-depth explanation of decoupled engines, TimescaleDB compression, Sugiyama topology routing, and RCA inference logic.
+* **[Architecture Overview](docs/architecture.md):** In-depth explanation of decoupled engines, TimescaleDB compression, BFS & Sugiyama topology routing, and RCA inference logic.
+* **[Changelog & Technical Evolution](docs/changelog.md):** Complete version history and evolutionary milestones from Version 1.0 to 1.5 to 2.0 (Beta).
 * **[User & Operator Guide](docs/user-guide.md):** Instructions for onboarding devices, browser autofill, horizontal/vertical topology views, and interpreting Z-Score baselines.
 * **[API Reference](docs/api-reference.md):** Complete guide to FastAPI REST endpoints, JSON payloads, and RBAC token claims.
 * **[Deployment & Operations](docs/deployment.md):** Step-by-step production installation, systemd auto-start configuration, log rotation, and zero-downtime upgrades.
@@ -35,7 +36,7 @@ For a deeper dive into specific components of the platform, please refer to the 
 
 * **Backend:** Python 3.10+, FastAPI, SQLAlchemy, Alembic (Migrations), Native `asyncio`
 * **Database Layer:** PostgreSQL 14+ with TimescaleDB Extension (Hypertables, 7-Day Chunk Compression, Continuous Aggregates)
-* **Frontend:** Vue 3 (Composition API), Vite, PrimeVue (Aura Theme Preset), Chart.js, `vis-network` (Sugiyama Crossing Reduction)
+* **Frontend:** Vue 3 (Composition API), Vite, PrimeVue (Aura Theme Preset), Chart.js, `vis-network` (BFS + Sugiyama Crossing Reduction)
 * **System Layer:** Linux `systemd` (with Auto-Start Enablement), Native Raw Sockets (`CAP_NET_RAW` capability), System `traceroute`
 * **Logging:** Python `RotatingFileHandler` (~150MB bounded footprint) + `systemd-journald`
 
@@ -45,7 +46,7 @@ For a deeper dive into specific components of the platform, please refer to the 
 
 | Feature Module | Technical Mechanism | Operational Benefit |
 | --- | --- | --- |
-| **Crossing-Free Topology Map** | Sugiyama (1981) Barycenter Reduction + Gansner (1993) Block Shifting | Completely eliminates tangled, crossing wires; centers parent routers above child nodes. |
+| **Crossing-Free Topology Map** | BFS DAG Longest-Path Layering + Sugiyama (1981) Barycenter Reduction + Gansner (1993) Block Shifting | Assigns physical hop depth tiers, consolidates shared routes, and eliminates crossed wires; centers parent routers above child nodes. |
 | **Horizontal ⇄ Vertical Switcher** | Dynamic `layout.hierarchical.direction` (`LR` vs `UD`) toggle | Allows operators to switch between top-to-bottom and widescreen left-to-right layouts with smooth animation. |
 | **Browser Password Autofill** | Standard HTML `name` and `autocomplete` attributes | Enables 1-click login and credential saving across Chrome, Edge, Safari, Firefox, and Bitwarden. |
 | **Sliding 2-Hour Session Timeout** | Sliding window token & cookie renewal | Active operators are never logged out in the middle of monitoring, while idle tabs expire safely after 120 minutes. |

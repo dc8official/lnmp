@@ -31,7 +31,7 @@ The topology map visualizes the network hierarchy and root cause dependencies:
 * **Horizontal (LR) ⇄ Vertical (UD) Layout Switcher:** Use the toolbar button to toggle between:
   - **Vertical View (Top-to-Bottom):** Root engine at the top, transit routers in the middle, endpoints at the bottom.
   - **Horizontal View (Left-to-Right):** Wide-screen layout flowing from left to right.
-* **Crossing-Free Edge Routing:** Built with Sugiyama barycenter reduction and Gansner block shifting, eliminating tangled, overlapping link wires.
+* **Crossing-Free Edge Routing:** Built with **BFS DAG Hop Layering**, Sugiyama barycenter reduction, and Gansner block shifting, automatically organizing devices into discrete hop tiers and eliminating tangled, overlapping link wires.
 * **Node Categories & States:**
   - 🟦 **Square (Blue):** LNMP Engine (Root)
   - 🟩 **Circle (Green):** Monitored Endpoint `UP`

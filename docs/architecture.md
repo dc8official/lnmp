@@ -23,8 +23,12 @@ The Network Monitoring Platform (LNMP) v2.0 (Beta) is designed with a decoupled,
 * **Topological Inference:** If a transit router fails, 100% of downstream children become unreachable. The RCA engine marks the transit node `DOWN`, marks dependent children `INFERRED_DOWN`, and suppresses downstream alert storms.
 
 ### 5. Interactive Crossing-Free Topology Map
-* **Sugiyama & Gansner Graph Engine:** Implements the **Sugiyama (1981)** 4-phase framework and **Gansner / DOT (1993)** coordinate heuristics (`edgeMinimization: true`, `blockShifting: true`, `parentCentralization: true`).
-* **Layout Switcher:** Dynamic **Horizontal (Left-to-Right `LR`) ⇄ Vertical (Top-to-Bottom `UD`)** orientation with directional tangent channeling to eliminate crossed and tangled link wires.
+* **4-Phase Sugiyama & Gansner Framework**:
+  1. **Phase 1: BFS DAG Longest-Path Layering ($L(v) = \max(L(u) + 1)$)**: Assigns every node to its exact discrete traceroute hop depth, consolidating shared gateways and eliminating backward/diagonal cross-tier links.
+  2. **Phase 2: Crossing Reduction (`edgeMinimization: true`)**: Sugiyama barycenter reordering of sibling nodes on each level to ensure parallel, non-overlapping downward edge channels.
+  3. **Phase 3: Coordinate Assignment (`blockShifting: true`, `parentCentralization: true`)**: Gansner subtree separation to prevent branch collision and center routers directly over downstream child clusters.
+  4. **Phase 4: Directional Spline Routing (`cubicBezier`)**: Dynamic tangent constraint channeling aligned with the active layout orientation.
+* **Layout Switcher:** Dynamic **Horizontal (Left-to-Right `LR`) ⇄ Vertical (Top-to-Bottom `UD`)** orientation with animated canvas transitions.
 
 ### 6. Telemetry Datastore & TimescaleDB Optimization
 * **7-Day Chunk Compression:** Native TimescaleDB hypertable compression on `endpoint_events` older than 7 days, reducing disk storage by 90%+ while keeping all historical data 100% queryable.
