@@ -1,12 +1,16 @@
-# LNMP Deployment & Operations Guide
+# LNMP Deployment & Operations Guide — Version 2.0 (Beta)
 
-This guide details the procedures for installing, maintaining, and upgrading the Network Monitoring Platform (LNMP) v1.5 on a production Linux server.
+This guide details the procedures for installing, maintaining, and upgrading the Network Monitoring Platform (LNMP) v2.0 (Beta) on a production Linux server.
+
+---
 
 ## 1. System Requirements
 
 - **OS:** Ubuntu 22.04 LTS or 24.04 LTS
-- **Hardware (Minimum for Production):** 2 vCPUs, 2 GB RAM, 25 GB SSD. (2 GB RAM is required to prevent OOM errors during `npm run build` and TimescaleDB caching).
+- **Hardware (Minimum for Production):** 2 vCPUs, 2 GB RAM, 10–25 GB SSD. (TimescaleDB 7-day chunk compression reduces storage growth by 90%+).
 - **Network Permissions:** The `netmon-engine` daemon requires `CAP_NET_RAW` capability to construct and send raw ICMP packets.
+
+---
 
 ## 2. Initial Installation
 
@@ -20,70 +24,105 @@ cd lnmp/deploy
 ```
 
 **What the installer does:**
-1. Installs system dependencies (Python 3.10+, Node.js 18+, PostgreSQL 14, Nginx).
-2. Installs and configures the **TimescaleDB** PostgreSQL extension.
-3. Sets up the Python virtual environment and installs `backend/requirements.txt`.
-4. Executes `npm install` and `npm run build` in the `frontend/` directory.
-5. Deploys the Nginx reverse proxy configuration (`nginx.conf.template`).
-6. Configures log rotation via `/etc/logrotate.d/netmon`.
-7. Installs and enables the `netmon-api` and `netmon-engine` systemd services.
+1. Installs system dependencies (Python 3.10+, Node.js 18+, PostgreSQL 14+, TimescaleDB, Nginx).
+2. Sets up Python virtual environment (`/opt/netmon/venv`) and installs dependencies.
+3. Builds the Vue 3 production bundle (`npm run build`).
+4. Generates `/etc/netmon/config.toml` (configured with 120-minute session timeout and 2 concurrent session limit).
+5. Deploys Nginx reverse proxy configuration.
+6. Installs and **enables** `netmon-api` and `netmon-engine` systemd services (`systemctl enable`) to guarantee auto-start on server boot.
 
-## 3. Systemd Services
+---
+
+## 3. Systemd Services & Auto-Start
 
 LNMP runs as two separate background services:
 
 ### API Service (`netmon-api.service`)
-- **Role:** Serves the FastAPI application using Uvicorn.
+- **Role:** Serves the FastAPI application with async access latency logging and security diagnostics.
 - **Port:** Binds locally to `127.0.0.1:8000` (Nginx proxies port 80/443 to this).
 - **Restart Command:** `sudo systemctl restart netmon-api`
 
 ### Engine Service (`netmon-engine.service`)
-- **Role:** The infinite-loop daemon that performs the ICMP polling on the absolute minute boundary.
+- **Role:** High-density ICMP polling daemon aligned to absolute minute boundaries with `asyncio.Semaphore(15)` write throttling.
 - **Restart Command:** `sudo systemctl restart netmon-engine`
 
-### Checking Service Logs
-Logs are output to `syslog` and `/var/log/netmon/`. You can view live daemon logs using `journalctl`:
+### Auto-Start Verification:
 ```bash
-# View live API logs
-sudo journalctl -u netmon-api -f
-
-# View live Engine polling logs
-sudo journalctl -u netmon-engine -f
+sudo systemctl is-enabled netmon-api netmon-engine
+# Should output: enabled
 ```
 
-## 4. Upgrading the Platform
+---
 
-To upgrade an existing installation to the latest version on the `main` branch, use the zero-data-loss upgrade script:
+## 4. Comprehensive Logging & Inspection
+
+Application logs are written simultaneously to **systemd journal** and **150MB auto-rotating log files**:
+
+| Log Target | Path | Rotation Bounds |
+|---|---|---|
+| **API Server Logs** | `/var/log/netmon/api.log` | 10 MB per file (5 backups = 60 MB max) |
+| **Monitoring Engine Logs** | `/var/log/netmon/engine.log` | 10 MB per file (5 backups = 60 MB max) |
+| **Dedicated Error Logs** | `/var/log/netmon/error.log` | 10 MB per file (3 backups = 30 MB max) |
+
+### Live Log Commands:
+```bash
+# Live API request and latency logs
+sudo journalctl -u netmon-api -f
+
+# Live monitoring engine state transitions & ping logs
+sudo journalctl -u netmon-engine -f
+
+# View errors only across the platform
+sudo journalctl -u netmon-api -p err -e
+tail -f /var/log/netmon/error.log
+```
+
+---
+
+## 5. Upgrading the Platform (Zero-Downtime)
+
+You can run the upgrade utility from your git clone directory or directly in `/opt/netmon/noop`:
 
 ```bash
-sudo -i
-cd /opt/netmon/deploy
-./upgrade.sh
+# From git clone
+cd ~/noop
+sudo ./deploy/upgrade.sh
+
+# Or directly in /opt/netmon/noop
+cd /opt/netmon/noop
+sudo git pull
+sudo ./deploy/upgrade.sh
 ```
 
 **The upgrade sequence:**
-1. Generates a full `pg_dump` of the PostgreSQL database to `/var/backups/netmon/`.
-2. Gracefully stops the `systemd` daemons.
-3. Pulls the latest git repository changes.
-4. Upgrades Python and Node.js dependencies.
-5. Runs Alembic database migrations (`alembic upgrade head`).
-6. Restarts the daemons and Nginx.
+1. Generates a timestamped `pg_dump` of the PostgreSQL database to `/var/backups/netmon/`.
+2. Smartly patches `/etc/netmon/config.toml` (migrating `session_timeout_minutes = 120` and `max_active_sessions_per_user = 2`) without touching database credentials.
+3. Gracefully pauses `systemd` daemons.
+4. Upgrades Python dependencies and rebuilds the Vue 3 frontend bundle.
+5. Runs Alembic database migrations (`alembic upgrade head`) including TimescaleDB compression policies.
+6. Refreshes systemd unit files, enables auto-start (`systemctl enable`), and restarts services.
+7. Executes a health check to verify live API status.
 
-## 5. Uninstall & Cleanup
+---
 
-To completely remove the platform from the server (including dropping the database):
+## 6. Decommissioning & Uninstallation
+
+To cleanly remove LNMP, disable background daemons, and remove web routes:
 
 ```bash
 sudo -i
 cd /opt/netmon/deploy
-./uninstall.sh --force
+./uninstall.sh
 ```
 
-## 6. Password Resets (CLI)
+The script prompts for confirmation, saves a safety database backup, stops/disables systemd services, and removes Nginx configurations.
 
-If you lose access to the Admin account, you can force a password reset directly from the server CLI using the provided script:
+---
+
+## 7. Password Resets (CLI)
+
+If you lose access to the Admin account, force a password reset directly from the CLI:
 
 ```bash
-cd /opt/netmon/deploy
-sudo ./reset-admin-password.sh <username> <new_password>
+sudo /opt/netmon/noop/deploy/reset-admin-password.sh <username> <new_password>
 ```

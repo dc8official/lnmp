@@ -1,6 +1,6 @@
-# LNMP API Reference
+# LNMP API Reference — Version 2.0 (Beta)
 
-The LNMP (Network Monitoring Platform) v1.5 exposes a RESTful API built on FastAPI. The API is located under the `/api/v1` base path and requires JWT Bearer authentication for most endpoints.
+The LNMP (Network Monitoring Platform) v2.0 (Beta) exposes a RESTful API built on FastAPI. The API is located under the `/api/v1` base path and requires JWT Bearer authentication or HttpOnly session cookies for protected endpoints.
 
 ## Base URL
 `http(s)://<server-ip>:<port>/api/v1`
