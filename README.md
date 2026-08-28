@@ -24,7 +24,11 @@ The platform is decoupled into independent, modular layers to guarantee continuo
 For a deeper dive into specific components of the platform, please refer to the comprehensive guides in the `docs/` directory:
 
 * **[Architecture Overview](docs/architecture.md):** In-depth explanation of decoupled engines, TimescaleDB compression, BFS & Sugiyama topology routing, and RCA inference logic.
-* **[Changelog & Technical Evolution](docs/changelog.md):** Complete version history and evolutionary milestones from Version 1.0 to 1.5 to 2.0 (Beta).
+* **[Changelog & Technical Evolution](docs/changelog.md):** Complete version history, feature tables, and evolutionary milestones from Version 1.0 to 1.5 to 2.0 (Beta).
+* **[Troubleshooting & Disaster Recovery](docs/troubleshooting.md):** Step-by-step diagnostic workflows, permission fixes, log tailing, and database restore procedures.
+* **[Security Model & Threat Hardening](docs/security.md):** Complete authentication matrix, sliding sessions, lockout defense, and Linux capability isolation.
+* **[Database & TimescaleDB Deep-Dive](docs/database.md):** Full schema dictionary, hypertable partitioning, 7-day chunk compression, and continuous aggregate policies.
+* **[SLA Calculation Methodology](docs/sla-calculation.md):** Mathematical formulation of uptime availability, flap suppression, and blackout neutralization.
 * **[User & Operator Guide](docs/user-guide.md):** Instructions for onboarding devices, browser autofill, horizontal/vertical topology views, and interpreting Z-Score baselines.
 * **[API Reference](docs/api-reference.md):** Complete guide to FastAPI REST endpoints, JSON payloads, and RBAC token claims.
 * **[Deployment & Operations](docs/deployment.md):** Step-by-step production installation, systemd auto-start configuration, log rotation, and zero-downtime upgrades.
@@ -42,21 +46,20 @@ For a deeper dive into specific components of the platform, please refer to the 
 
 ---
 
-## Key Features in v2.0 (Beta)
+## Key Platform Features
 
-| Feature Module | Technical Mechanism | Operational Benefit |
-| --- | --- | --- |
-| **Crossing-Free Topology Map** | BFS DAG Longest-Path Layering + Sugiyama (1981) Barycenter Reduction + Gansner (1993) Block Shifting | Assigns physical hop depth tiers, consolidates shared routes, and eliminates crossed wires; centers parent routers above child nodes. |
-| **Horizontal ⇄ Vertical Switcher** | Dynamic `layout.hierarchical.direction` (`LR` vs `UD`) toggle | Allows operators to switch between top-to-bottom and widescreen left-to-right layouts with smooth animation. |
-| **Browser Password Autofill** | Standard HTML `name` and `autocomplete` attributes | Enables 1-click login and credential saving across Chrome, Edge, Safari, Firefox, and Bitwarden. |
-| **Sliding 2-Hour Session Timeout** | Sliding window token & cookie renewal | Active operators are never logged out in the middle of monitoring, while idle tabs expire safely after 120 minutes. |
-| **Token-Based Session Limits** | JWT `jti` tracking with in-memory FIFO rotation (Max 2 sessions) | Limits concurrent device logins per user without conflicting with colleagues behind shared office NAT/VPN gateways. |
-| **IP-Scoped Lockout Protection** | Isolated failed attempt tracker keyed by `f"{client_ip}:{username}"` | External internet bot scans or single-device glitches only lock out their own IP, leaving legitimate admins unaffected. |
-| **TimescaleDB 7-Day Compression** | Native columnar hypertable chunk compression | Reduces disk storage by 90%+ while keeping years of historical telemetry 100% queryable for charts. |
-| **Continuous Aggregate Policies** | Automated hourly background refresh with crash catch-up | Accelerates historical baseline queries and saves server RAM during live dashboard usage. |
-| **DB Write Semaphore** | `asyncio.Semaphore(15)` in monitoring engine | Eliminates top-of-the-minute connection pool exhaustion when polling 100+ endpoints. |
-| **Comprehensive Logging Suite** | Global latency middleware + 150MB auto-rotating files | Full diagnostic transparency into API calls, latency, auth rejections, and state transitions with zero disk bloat. |
-| **Bulletproof Lifecycle Scripts** | `install.sh`, `upgrade.sh`, `uninstall.sh` with `systemctl enable` | Zero-downtime upgrades, automatic `config.toml` migrations, and guaranteed auto-start on server boot. |
+* **High-Precision ICMP Polling**: Sub-minute multi-packet scanning aligned to absolute minute boundaries via asynchronous concurrency.
+* **Adaptive Baseline Anomaly Detection**: Dynamic time-of-day statistical bounds (Z-Score $Z > 3.0$) eliminating static threshold alert fatigue.
+* **Crossing-Free Topology Map**: Breadth-First Search (BFS) DAG Longest-Path Layering paired with the Sugiyama (1981) Barycenter framework and Gansner (1993) coordinate alignment.
+* **Orientation Switcher**: Interactive toolbar toggle between Vertical (Top-to-Bottom) and Horizontal (Left-to-Right) topology views.
+* **Topological Root Cause Analysis (RCA)**: Automated upstream failure detection with downstream alert suppression (`INFERRED_DOWN`).
+* **Concurrent Background Diagnostics**: Microsecond-precision traceroutes triggered on first sub-cycle packet drops.
+* **Native Browser Password Autofill**: 100% compliant HTML forms supporting 1-click login and credential managers (Chrome, Safari, Bitwarden, etc.).
+* **Enterprise Session Governance**: Sliding 2-hour inactivity timeouts, token-based 2-session quotas, and IP-scoped brute-force lockout protection.
+* **TimescaleDB Compression & Retention**: 7-day native chunk compression (90%+ disk savings) and automated continuous aggregate refresh policies.
+
+> [!TIP]
+> For an exhaustive, version-by-version breakdown of technical mechanisms and operational benefits across versions 1.0, 1.5, and 2.0 (Beta), refer to the **[Changelog & Evolutionary Architecture](docs/changelog.md)**.
 
 ---
 
