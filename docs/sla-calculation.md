@@ -7,10 +7,10 @@ This document outlines the mathematical principles, state machine transitions, a
 ## 1. High-Density 10-Ping Sub-Cycle Polling
 
 Within every 60-second window aligned to the absolute minute mark, the LNMP monitoring daemon sends:
-* **10 ICMP echo requests** spaced 6 seconds apart ($I = 6.0\text{s}$).
+* **10 ICMP echo requests** spaced 6 seconds apart (`Interval = 6.0s`).
 * **Packet Loss & Latency Metrics**:
-  - `failed_count` ($0 \le k \le 10$)
-  - `packet_loss_percent` = $(k / 10) \times 100\%$
+  - `failed_count` (`0 <= k <= 10`)
+  - `packet_loss_percent` = `(k / 10) * 100%`
   - `avg_rtt_ms`, `min_rtt_ms`, `max_rtt_ms` (calculated across successful pings).
 
 ---
@@ -33,7 +33,7 @@ To prevent momentary packet jitter from skewing SLA uptime, LNMP separates opera
 
 ---
 
-## 3. In-Memory Flap Suppression ($N=3$)
+## 3. In-Memory Flap Suppression (N=3)
 
 State transitions require **3 consecutive cycles (180 seconds)** of sustained condition before the operational state switches from `UP` to `DOWN` or `DOWN` to `UP`:
 
@@ -60,11 +60,13 @@ If the monitoring server itself loses power or undergoes scheduled maintenance, 
 ### The LNMP Blackout Neutralization Formula
 LNMP computes availability exclusively over monitored lifetime intervals:
 
-$$\text{SLA Availability (\%)} = \left( \frac{T_{\text{online}}}{T_{\text{monitored\_lifetime}} - T_{\text{blackout\_neutralized}}} \right) \times 100$$
+```
+SLA Availability (%) = [ T_online / (T_monitored_lifetime - T_blackout_neutralized) ] * 100
+```
 
 Where:
-* $T_{\text{online}}$: Cumulative minutes where `operational_state = 'UP'`.
-* $T_{\text{monitored\_lifetime}}$: Total elapsed minutes since the endpoint was onboarded.
-* $T_{\text{blackout\_neutralized}}$: Server downtime or excluded maintenance periods during which the monitoring engine was offline.
+* `T_online`: Cumulative minutes where `operational_state = 'UP'`.
+* `T_monitored_lifetime`: Total elapsed minutes since the endpoint was onboarded.
+* `T_blackout_neutralized`: Server downtime or excluded maintenance periods during which the monitoring engine was offline.
 
 This guarantees mathematically sound SLA compliance reports for client reporting, audits, and executive reviews.

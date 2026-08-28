@@ -12,7 +12,7 @@ The versioning format follows [Semantic Versioning](https://semver.org/).
 
 | Feature Module | Technical Mechanism | Operational Benefit |
 | :--- | :--- | :--- |
-| **Crossing-Free Topology Map** | BFS DAG Longest-Path Layering ($L(v) = \max(L(u) + 1)$) + Sugiyama (1981) Barycenter Reduction | Assigns exact physical hop depth tiers to every node; consolidates shared routes and completely eliminates false diagonal wire crossings. |
+| **Crossing-Free Topology Map** | BFS DAG Longest-Path Layering (`Level(v) = max(Level(u) + 1)`) + Sugiyama (1981) Barycenter Reduction | Assigns exact physical hop depth tiers to every node; consolidates shared routes and completely eliminates false diagonal wire crossings. |
 | **Gansner Coordinate Alignment** | Gansner / DOT (1993) heuristic (`blockShifting: true`, `parentCentralization: true`) | Centers parent routers directly above child clusters and provides spatial corridor shifting between distinct subtrees to avoid branch overlap. |
 | **Horizontal ⇄ Vertical Switcher** | Dynamic `layout.hierarchical.direction` (`LR` vs `UD`) toggle with directional tangent constraints | Allows operators to switch between top-to-bottom and widescreen left-to-right layouts with animated, smooth transitions. |
 | **Native Browser Password Autofill** | Standard HTML `name`, `autocomplete`, and unnested native input architecture | Enables instant 1-click autofill and credential saving across Chrome, Edge, Safari, Firefox, and password managers (Bitwarden, 1Password). |
@@ -46,8 +46,8 @@ The versioning format follows [Semantic Versioning](https://semver.org/).
 
 | Feature Module | Technical Mechanism | Operational Benefit |
 | :--- | :--- | :--- |
-| **Adaptive Statistical Baselines** | TimescaleDB continuous aggregates across 168 weekly hourly bins ($7\text{ days} \times 24\text{ hours}$) | Automatically captures diurnal and weekend network traffic variations without manual threshold configuration. |
-| **1D In-Memory Z-Score Baseline Cache** | Compact $O(1)$ RAM cache calculating dynamic bounds ($Z = \frac{x - \mu}{\sigma} > 3.0$) | Eliminates static alert fatigue by triggering alarms only when latency statistically deviates from normal time-of-day baselines. |
+| **Adaptive Statistical Baselines** | TimescaleDB continuous aggregates across 168 weekly hourly bins (7 days × 24 hours) | Automatically captures diurnal and weekend network traffic variations without manual threshold configuration. |
+| **1D In-Memory Z-Score Baseline Cache** | Compact $O(1)$ RAM cache calculating dynamic bounds (`Z = (x - μ) / σ > 3.0`) | Eliminates static alert fatigue by triggering alarms only when latency statistically deviates from normal time-of-day baselines. |
 | **Concurrent Background Diagnostics** | Non-blocking `asyncio.Semaphore(5)` queue triggered on first sub-cycle packet drop | Captures microsecond-level transit path snapshots before dynamic routing protocols (OSPF, BGP) can reconverge. |
 | **Differential Root Cause Analysis (RCA)** | Automated side-by-side comparison of live failure traces against baseline snapshots | Instantly isolates whether an outage is caused by a local broadcast drop or an upstream carrier/transit link failure. |
 | **In-Memory Directed Acyclic Graph (DAG)** | Sequential discovery pipeline with single-vertex Trie/Tree deduplication and orphan pruning | Builds an exact parent-child network topology map with zero duplicate transit nodes. |
@@ -79,7 +79,7 @@ The versioning format follows [Semantic Versioning](https://semver.org/).
 | :--- | :--- | :--- |
 | **The 10-Ping Sub-Cycle Poller** | 10 ICMP packets spaced 6 seconds apart within every 60-second window | Provides high-density sampling aligned precisely to absolute minute boundaries. |
 | **Dual-State Operational Engine** | Decoupled `operational_state` (macro availability) from `detailed_state` (minute-level health) | Separates transient packet drops from true production outage incidents. |
-| **Honest SLA Mathematics** | Lifespan alignment and server blackout neutralization ($D_{\text{sla}} = T_{\text{total}} - U$) | Eliminates administrative downtime windows and prevents false SLA calculation penalties. |
+| **Honest SLA Mathematics** | Lifespan alignment and server blackout neutralization (`D_sla = T_total - U`) | Eliminates administrative downtime windows and prevents false SLA calculation penalties. |
 | **RESTful Service API & Web Dashboard** | FastAPI backend with Vue 3 / Chart.js real-time telemetry charting | Delivers real-time network visibility and RTT latency visualization. |
 | **Endpoint CRUD Management** | Relational data model for target IP addresses, hostnames, and site tags | Centralizes network endpoint inventory management. |
 
@@ -87,7 +87,7 @@ The versioning format follows [Semantic Versioning](https://semver.org/).
 
 | Hardening Module | Technical Mechanism | Operational Benefit |
 | :--- | :--- | :--- |
-| **In-Memory Flap Suppression ($N=3$)** | State machine requiring 3 consecutive cycles (180s) of sustained change | Prevents alert flapping and notification spam caused by momentary packet jitter. |
+| **In-Memory Flap Suppression (N=3)** | State machine requiring 3 consecutive cycles (180s) of sustained change | Prevents alert flapping and notification spam caused by momentary packet jitter. |
 | **Raw Socket ICMP Polling** | Linux `CAP_NET_RAW` capability on binary execution | Achieves high-efficiency packet crafting without spawning resource-heavy external sub-processes. |
 | **Asynchronous Engine Architecture** | Single-threaded Python `asyncio` event loop | Prevents OS thread exhaustion while concurrently monitoring multiple endpoints. |
 | **Baseline PostgreSQL Migrations** | Initial Alembic migration framework and relational schemas | Establishes structured, version-controlled database schema management. |

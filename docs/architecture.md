@@ -12,7 +12,7 @@ The Network Monitoring Platform (LNMP) v2.0 (Beta) is designed with a decoupled,
 
 ### 2. Hybrid Adaptive Alert Engine (Baseline & Z-Score)
 * **In-Memory State Machine:** Suppresses transient jitter and minor anomalies to prevent alert fatigue.
-* **Statistical Baselines:** Evaluates live latency against historical time-series bounds via Z-Score ($Z = \frac{x - \mu}{\sigma}$). Alerts are triggered only when $Z > 3.0$, indicating a true statistical deviation.
+* **Statistical Baselines:** Evaluates live latency against historical time-series bounds via Z-Score (`Z = (x - μ) / σ`). Alerts are triggered only when `Z > 3.0`, indicating a true statistical deviation.
 
 ### 3. Diagnostic & Traceroute Subsystem
 * **Trigger:** Initiated on the first detected drop sub-cycle of any endpoint.
@@ -24,7 +24,7 @@ The Network Monitoring Platform (LNMP) v2.0 (Beta) is designed with a decoupled,
 
 ### 5. Interactive Crossing-Free Topology Map
 * **4-Phase Sugiyama & Gansner Framework**:
-  1. **Phase 1: BFS DAG Longest-Path Layering ($L(v) = \max(L(u) + 1)$)**: Assigns every node to its exact discrete traceroute hop depth, consolidating shared gateways and eliminating backward/diagonal cross-tier links.
+  1. **Phase 1: BFS DAG Longest-Path Layering (`Level(v) = max(Level(u) + 1)`)**: Assigns every node to its exact discrete traceroute hop depth, consolidating shared gateways and eliminating backward/diagonal cross-tier links.
   2. **Phase 2: Crossing Reduction (`edgeMinimization: true`)**: Sugiyama barycenter reordering of sibling nodes on each level to ensure parallel, non-overlapping downward edge channels.
   3. **Phase 3: Coordinate Assignment (`blockShifting: true`, `parentCentralization: true`)**: Gansner subtree separation to prevent branch collision and center routers directly over downstream child clusters.
   4. **Phase 4: Directional Spline Routing (`cubicBezier`)**: Dynamic tangent constraint channeling aligned with the active layout orientation.
@@ -46,33 +46,33 @@ The Network Monitoring Platform (LNMP) v2.0 (Beta) is designed with a decoupled,
 ## Architectural Diagram
 
 ```mermaid
-graph TD
-    subgraph UI & API Layer
-    A["Vue 3 Dashboard (Vite / PrimeVue)"] -->|REST / JSON / JWT Cookie| B["FastAPI Service API (v2.0)"]
-    A -->|Sugiyama Graph Layout| T["Interactive Topology Map (LR / UD)"]
+flowchart TD
+    subgraph UI_API["UI & API Layer"]
+        A["Vue 3 Dashboard (Vite / PrimeVue)"] -->|REST / JSON / JWT Cookie| B["FastAPI Service API (v2.0)"]
+        A -->|Sugiyama Graph Layout| T["Interactive Topology Map (LR / UD)"]
     end
 
-    subgraph Security & Logging
-    B --> M["Access & Latency Middleware"]
-    M --> L["150MB Rotating Log Handlers (/var/log/netmon/)"]
-    B --> S["Sliding Session & IP Lockout Manager"]
+    subgraph Security_Logging["Security & Observability"]
+        B --> M["Access & Latency Middleware"]
+        M --> L["150MB Rotating Log Handlers (/var/log/netmon/)"]
+        B --> S["Sliding Session & IP Lockout Manager"]
     end
 
-    subgraph Core Engines
-    B --> C{PostgreSQL 14+ / TimescaleDB}
-    D["Monitoring Engine (asyncio)"] -->|Write Semaphore (15)| C
-    E["Adaptive Baseline Engine"] <-->|Z-Score Baselines| C
-    F["Diagnostic Subsystem"] -->|Async Traceroutes| C
-    G["RCA Topology Engine"] <-->|Parent-Child Inference| C
+    subgraph Core_Engines["Core Telemetry Engines"]
+        B --> C["PostgreSQL 14+ / TimescaleDB"]
+        D["Monitoring Engine (asyncio)"] -->|Write Semaphore (15)| C
+        E["Adaptive Baseline Engine"] -->|Z-Score Baselines| C
+        F["Diagnostic Subsystem"] -->|Async Traceroutes| C
+        G["RCA Topology Engine"] -->|Parent-Child Inference| C
     end
 
-    subgraph Optimized Storage
-    C --> H[("TimescaleDB Hypertables (7-Day Compression)")]
-    C --> K[("Continuous Aggregates (Hourly Refresh)")]
-    C --> I[("JSONB Diagnostic Traces (14-Day Retention)")]
-    C --> J[("Audit Logs & RCA Incidents (90-Day Retention)")]
+    subgraph Storage_Layer["Optimized Storage Subsystems"]
+        C --> H[("TimescaleDB Hypertables (7-Day Compression)")]
+        C --> K[("Continuous Aggregates (Hourly Refresh)")]
+        C --> I[("JSONB Diagnostic Traces (14-Day Retention)")]
+        C --> J[("Audit Logs & RCA Incidents (90-Day Retention)")]
     end
-    
+
     D -.->|Triggers on Drop| F
     F -.->|Informs| G
 ```

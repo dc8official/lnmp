@@ -43,7 +43,7 @@ Stores high-frequency 1-minute telemetry poll results.
 * `max_rtt_ms` (NUMERIC)
 
 ### `node_historical_baselines` (Continuous Aggregate Materialized View)
-Precomputes hourly baseline distributions across 168 weekly bins ($7\text{ days} \times 24\text{ hours}$).
+Precomputes hourly baseline distributions across 168 weekly bins (7 days × 24 hours).
 * `endpoint_id` (UUID)
 * `day_of_week` (INTEGER, 0–6)
 * `hour_of_day` (INTEGER, 0–23)

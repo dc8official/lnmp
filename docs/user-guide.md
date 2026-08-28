@@ -19,7 +19,7 @@ LNMP employs enterprise-grade session and authentication security:
 
 The main dashboard provides a real-time overview of the monitored network:
 * **Global Health Metrics:** Displays active endpoints, uptime percentages, and active incidents.
-* **Telemetry Charts:** RTT latency curves plotted against dynamic historical baselines ($Z > 3.0$ triggers).
+* **Telemetry Charts:** RTT latency curves plotted against dynamic historical baselines (`Z > 3.0` triggers).
 * **Active Incidents Table:** Sorted list of all currently failing or anomalous endpoints with direct links to root-cause diagnostics.
 
 ---
