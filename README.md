@@ -136,4 +136,4 @@ Core Architecture designed and authored by **Kenneth Nnorom**.
 
 Website: [kennethnnorom.com](https://kennethnnorom.com) | LinkedIn: [linkedin.com/in/kennethnnorom](https://www.google.com/search?q=https://linkedin.com/in/kennethnnorom)
 
-This project is licensed under the terms of the **Apache License 2.0**. See the [LICENSE] file for complete details.
+This project is licensed under the terms of the **Apache License 2.0**. See the [LICENSE](LICENSE) file for complete details.
