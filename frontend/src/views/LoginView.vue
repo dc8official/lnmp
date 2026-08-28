@@ -9,7 +9,7 @@
           </div>
         </template>
         <template #content>
-          <form @submit.prevent="handleLogin" class="login-form">
+          <form @submit.prevent="handleLogin" action="#" method="post" autocomplete="on" class="login-form">
             <div v-if="error" class="error-container">
               <Message severity="error" :closable="false">{{ error }}</Message>
             </div>
@@ -18,14 +18,15 @@
               <label for="username">Username</label>
               <div class="input-with-icon">
                 <i class="pi pi-user field-icon"></i>
-                <InputText 
+                <input 
                   id="username" 
                   name="username"
+                  type="text"
                   autocomplete="username"
                   v-model="username" 
                   placeholder="Enter your username" 
                   required 
-                  class="full-width"
+                  class="p-inputtext p-component full-width"
                   :disabled="loading"
                 />
               </div>
@@ -33,22 +34,25 @@
 
             <div class="form-group">
               <label for="password">Password</label>
-              <div class="input-with-icon">
+              <div class="input-with-icon password-wrapper">
                 <i class="pi pi-lock field-icon"></i>
-                <Password 
+                <input 
                   id="password" 
                   name="password"
+                  :type="showPassword ? 'text' : 'password'"
                   autocomplete="current-password"
-                  :inputProps="{ name: 'password', autocomplete: 'current-password' }"
                   v-model="password" 
                   placeholder="Enter your password" 
                   required 
-                  :feedback="false"
-                  toggleMask
-                  class="full-width-password"
-                  inputClass="full-width"
+                  class="p-inputtext p-component full-width password-input"
                   :disabled="loading"
                 />
+                <i 
+                  class="pi toggle-icon"
+                  :class="showPassword ? 'pi-eye-slash' : 'pi-eye'"
+                  @click="showPassword = !showPassword"
+                  title="Toggle password visibility"
+                ></i>
               </div>
             </div>
 
@@ -72,14 +76,13 @@ import { useRouter } from 'vue-router'
 import { login } from '../services/api.js'
 import { setUserState } from '../services/auth.js'
 import Card from 'primevue/card'
-import InputText from 'primevue/inputtext'
-import Password from 'primevue/password'
 import Button from 'primevue/button'
 import Message from 'primevue/message'
 
 const router = useRouter()
 const username = ref('')
 const password = ref('')
+const showPassword = ref(false)
 const loading = ref(false)
 const error = ref(null)
 
@@ -202,19 +205,31 @@ label {
   width: 100%;
   padding-left: 2.25rem !important;
 }
-.full-width-password {
-  width: 100%;
+.password-input {
+  padding-right: 2.5rem !important;
 }
-:deep(.full-width-password input) {
-  width: 100%;
-  padding-left: 2.25rem !important;
+.toggle-icon {
+  position: absolute;
+  right: 0.75rem;
+  color: #888888;
+  cursor: pointer;
+  z-index: 10;
+  padding: 0.25rem;
+  font-size: 1rem;
 }
+.toggle-icon:hover {
+  color: #FFFFFF;
+}
+.p-inputtext,
 :deep(.p-inputtext) {
   background-color: #000000 !important;
   border: 1px solid #262626 !important;
   color: #FFFFFF !important;
   border-radius: 4px !important;
+  font-size: 0.95rem;
+  padding: 0.65rem 0.75rem 0.65rem 2.25rem;
 }
+.p-inputtext:focus,
 :deep(.p-inputtext:focus) {
   border-color: #049f6c !important;
 }
