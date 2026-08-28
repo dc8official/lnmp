@@ -226,12 +226,67 @@ function getStatusClass(status) {
   }
 }
 
+function computeDagLevels(nodesData, edgesData) {
+  const nodeIds = new Set(nodesData.map(n => n.id))
+  const adj = {}
+  const inDegree = {}
+
+  nodeIds.forEach(id => {
+    adj[id] = []
+    inDegree[id] = 0
+  })
+
+  edgesData.forEach(edge => {
+    if (nodeIds.has(edge.source) && nodeIds.has(edge.target)) {
+      adj[edge.source].push(edge.target)
+      inDegree[edge.target] = (inDegree[edge.target] || 0) + 1
+    }
+  })
+
+  const levels = {}
+  const queue = []
+
+  nodeIds.forEach(id => {
+    if (inDegree[id] === 0 || id === 'root') {
+      levels[id] = 0
+      queue.push(id)
+    }
+  })
+
+  while (queue.length > 0) {
+    const u = queue.shift()
+    const uLevel = levels[u] || 0
+    const children = adj[u] || []
+    for (const v of children) {
+      const candLevel = uLevel + 1
+      if (levels[v] === undefined || candLevel > levels[v]) {
+        levels[v] = candLevel
+      }
+      inDegree[v] -= 1
+      if (inDegree[v] <= 0) {
+        queue.push(v)
+      }
+    }
+  }
+
+  nodeIds.forEach(id => {
+    if (levels[id] === undefined) {
+      levels[id] = id === 'root' ? 0 : 1
+    }
+  })
+
+  return levels
+}
+
 function formatVisData(nodesData, edgesData) {
+  const dagLevels = computeDagLevels(nodesData, edgesData)
+
   const visNodes = nodesData.map(node => {
     const nodeType = node.node_type || node.type
     const nodeStatus = node.status || node.state
     const colors = getNodeColors(nodeStatus, nodeType)
     const isL2 = node.is_l2_segment || node.device_type === 'L2_SEGMENT'
+    const computedLevel = node.level !== undefined ? node.level : (dagLevels[node.id] ?? 0)
 
     let shape = 'dot'
     let size = 24
@@ -257,6 +312,7 @@ function formatVisData(nodesData, edgesData) {
       label: labelText.trim(),
       shape: shape,
       size: size,
+      level: computedLevel,
       color: colors,
       group: node.subnet || 'default',
       font: { color: isDark.value ? '#F3F4F6' : '#111111', size: 12, face: 'Inter, sans-serif' },

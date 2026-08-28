@@ -330,6 +330,34 @@ class TopologyGraphManager:
             # 5. RCA Status Propagation - Inferred Down
             self._propagate_inferred_down(nodes, transit_children)
 
+            # 6. Compute DAG Topological Longest-Path Levels
+            adj: Dict[str, List[str]] = {nid: [] for nid in nodes}
+            in_degrees: Dict[str, int] = {nid: 0 for nid in nodes}
+            for src, tgt in edges:
+                if src in adj and tgt in in_degrees:
+                    adj[src].append(tgt)
+                    in_degrees[tgt] += 1
+
+            levels: Dict[str, int] = {}
+            from collections import deque
+            queue = deque([nid for nid, deg in in_degrees.items() if deg == 0 or nid == root_node_id])
+            for nid in queue:
+                levels[nid] = 0
+
+            while queue:
+                u = queue.popleft()
+                u_level = levels.get(u, 0)
+                for v in adj.get(u, []):
+                    cand_level = u_level + 1
+                    if v not in levels or cand_level > levels[v]:
+                        levels[v] = cand_level
+                    in_degrees[v] -= 1
+                    if in_degrees[v] <= 0:
+                        queue.append(v)
+
+            for nid, node_data in nodes.items():
+                node_data["level"] = levels.get(nid, 1 if nid != root_node_id else 0)
+
             self._nodes = nodes
             self._edges = edges
             self._transit_children = transit_children
