@@ -1,45 +1,56 @@
-# LNMP Architecture Overview — Version 2.0 (Beta)
+# LNMP Architecture Overview — Version 3.0.0
 
-The Network Monitoring Platform (LNMP) v2.0 (Beta) is designed with a decoupled, modular architecture to guarantee continuous telemetry collection, crossing-free topology visualization, resilient 24/7 database operations, and zero-downtime upgrades.
+The Network Monitoring Platform (LNMP) v3.0.0 is architected with a decoupled, asynchronous design engineered for high-concurrency telemetry collection, real-time Server-Sent Events (SSE), dual-driver storage acceleration, crossing-free topology visualization, and enterprise security governance.
 
 ---
 
-## Core Components
+## Core System Components
 
-### 1. Monitoring Engine (The Poller)
-* **Concurrency Model:** Uses native Python `asyncio` to perform high-density ICMP telemetry scans.
-* **Precision & Protection:** Execution is aligned precisely to absolute minute boundaries. Database writes are protected by an `asyncio.Semaphore(15)` to eliminate top-of-minute connection pool exhaustion.
+### 1. Data Access & Repository Layer
+* **SQLAlchemy 2.0 Async ORM:** All database interactions are mediated by strongly-typed declarative models inheriting from `DeclarativeBase` (`backend/app/models/`).
+* **Repository Pattern:** Business logic is decoupled from data persistence through dedicated repositories (`EndpointRepository`, `EventRepository`, `IncidentRepository`, `UserRepository`, `SettingRepository`).
+* **SQL-Level Pagination:** All listing endpoints enforce SQL `LIMIT` and `OFFSET` queries, preventing memory bloat on large fleets.
+* **Pydantic Settings:** System configuration is centrally validated through typed Pydantic models.
 
-### 2. Hybrid Adaptive Alert Engine (Baseline & Z-Score)
-* **In-Memory State Machine:** Suppresses transient jitter and minor anomalies to prevent alert fatigue.
-* **Statistical Baselines:** Evaluates live latency against historical time-series bounds via Z-Score (`Z = (x - μ) / σ`). Alerts are triggered only when `Z > 3.0`, indicating a true statistical deviation.
+### 2. Concurrency Sweeper & Timing Budget (The Poller)
+* **Cycle Timing Budget (5 pings @ 8.0s):** Monitoring probes are tuned to execute 5 pings with an 8.0-second timeout, guaranteeing probe pass completion in ~32 seconds.
+* **28-Second Headroom Window:** Leaves 28 seconds of idle headroom before the minute boundary, eliminating thundering herds and connection pool contention.
+* **Startup Jitter:** Workers inject 0–2000ms randomized offset at cycle initialization to disperse network bursts.
+* **Dynamic In-Memory Registry:** `EndpointRegistry` maintains a thread-safe, concurrent registry allowing sub-minute endpoint additions, updates, and removals with zero engine downtime.
 
-### 3. Diagnostic & Traceroute Subsystem
-* **Trigger:** Initiated on the first detected drop sub-cycle of any endpoint.
-* **Concurrency:** Operates asynchronously via an `asyncio.Semaphore` queue, capturing the path state at the exact moment of failure.
+### 3. Dual-Driver Storage Architecture
+The platform supports pluggable, dual-driver storage via `StorageDriverManager`:
+* **PostgreSQL-Native Driver:**
+  - `PostgresSessionStore`: Manages authenticated sessions within the `user_sessions` PostgreSQL table.
+  - `PostgresEventBroker`: Uses PostgreSQL `LISTEN / NOTIFY` asynchronous channels to publish and broadcast telemetry events.
+* **Redis Acceleration Driver:**
+  - `RedisSessionStore`: Caches active sessions in Redis key-value storage with automatic TTL expiry.
+  - `RedisEventBroker`: Uses Redis Pub/Sub channels for high-throughput, low-latency inter-process messaging.
 
-### 4. Topology & Root Cause Analysis (RCA) Engine
-* **Discovery Pipeline:** Runs sequentially during device onboarding and scheduled midnight passes.
-* **Topological Inference:** If a transit router fails, 100% of downstream children become unreachable. The RCA engine marks the transit node `DOWN`, marks dependent children `INFERRED_DOWN`, and suppresses downstream alert storms.
+### 4. Real-Time Telemetry & Server-Sent Events (SSE)
+* **SSE Endpoint (`GET /api/v1/events/stream`):** Delivers continuous telemetry directly to web browsers using `text/event-stream`.
+* **Event Envelopes:** Emits structured JSON events on every monitoring transition (`STATE_TRANSITION`, `NODE_STATE_CHANGE`, `RCA_INCIDENT`).
+* **Connection Heartbeat:** Emits a 15-second heartbeat comment (`: heartbeat\n\n`) to keep proxy and reverse-proxy connections alive.
 
-### 5. Interactive Crossing-Free Topology Map
+### 5. Multi-Protocol Synthetic Monitoring & SSRF Defense
+* **Synthetic Probes:**
+  - `TCP_PORT`: Validates service port reachability and TCP 3-way handshake latency.
+  - `HTTP_STATUS`: Validates HTTP/HTTPS response codes and round-trip time.
+  - `SSL_EXPIRY`: Inspects remote TLS certificates and computes days until expiration.
+* **SSRF Protection:** `validate_probe_target()` enforces strict IP filtering, blocking loopback (`127.0.0.0/8`, `::1`) and cloud metadata (`169.254.169.254`, `169.254.0.0/16`) targets.
+
+### 6. High-Fidelity Route Diagnostics & RCA Engine
+* **High-Fidelity Traceroute:** Uses `traceroute -n -q 2 -w 3 -m 30 -I` with `CAP_NET_RAW` capability for accurate ICMP route tracing and multi-probe latency parsing.
+* **Layer-2 Auto-Bypass:** Automatically skips redundant multi-hop traceroutes for devices located on the same direct Layer-2 subnet broadcast domain.
+* **Topological RCA (`INFERRED_DOWN`):** When an upstream aggregation node fails, downstream dependent devices are marked `INFERRED_DOWN`, preventing cascading alert storms.
+
+### 7. Interactive Crossing-Free Topology Map
 * **4-Phase Sugiyama & Gansner Framework**:
-  1. **Phase 1: BFS DAG Longest-Path Layering (`Level(v) = max(Level(u) + 1)`)**: Assigns every node to its exact discrete traceroute hop depth, consolidating shared gateways and eliminating backward/diagonal cross-tier links.
-  2. **Phase 2: Crossing Reduction (`edgeMinimization: true`)**: Sugiyama barycenter reordering of sibling nodes on each level to ensure parallel, non-overlapping downward edge channels.
-  3. **Phase 3: Coordinate Assignment (`blockShifting: true`, `parentCentralization: true`)**: Gansner subtree separation to prevent branch collision and center routers directly over downstream child clusters.
-  4. **Phase 4: Directional Spline Routing (`cubicBezier`)**: Dynamic tangent constraint channeling aligned with the active layout orientation.
-* **Layout Switcher:** Dynamic **Horizontal (Left-to-Right `LR`) ⇄ Vertical (Top-to-Bottom `UD`)** orientation with animated canvas transitions.
-
-### 6. Telemetry Datastore & TimescaleDB Optimization
-* **7-Day Chunk Compression:** Native TimescaleDB hypertable compression on `endpoint_events` older than 7 days, reducing disk storage by 90%+ while keeping all historical data 100% queryable.
-* **Continuous Aggregate Policies:** Hourly background refresh on `node_historical_baselines` with automatic crash catch-up on server reboot.
-* **Automated Retention Purging:** Daily background cleanup task purges resolved RCA incidents and audit logs older than 90 days.
-
-### 7. Security, Auth & Logging Infrastructure
-* **Sliding 2-Hour Sessions:** Active dashboard usage continuously slides session expiration forward.
-* **Token-Based Concurrent Limits:** Limits user accounts to 2 active sessions (FIFO rotation) via JWT `jti` tracking.
-* **IP-Scoped Lockouts:** Failed attempts isolated by `client_ip:username` to prevent shared NAT lockouts.
-* **150MB Auto-Rotating Logs:** Dual output to systemd console and bounded rotating files (`api.log`, `engine.log`, `error.log`).
+  1. **Phase 1: BFS DAG Longest-Path Layering (`Level(v) = max(Level(u) + 1)`)**: Assigns every node to its exact discrete hop depth tier.
+  2. **Phase 2: Crossing Reduction (`edgeMinimization: true`)**: Sugiyama barycenter reordering of sibling nodes to eliminate overlapping diagonal links.
+  3. **Phase 3: Coordinate Assignment (`blockShifting: true`, `parentCentralization: true`)**: Gansner coordinate alignment centering parents directly over child clusters.
+  4. **Phase 4: Directional Spline Routing (`cubicBezier`)**: Tangent-constrained spline channels with Horizontal (`LR`) ⇄ Vertical (`UD`) switching.
+* **Frozen Physics Real-Time Recoloring:** Updates node state colors in place on SSE `NODE_STATE_CHANGE` events with `physics: { enabled: false }` to prevent canvas shaking.
 
 ---
 
@@ -47,32 +58,58 @@ The Network Monitoring Platform (LNMP) v2.0 (Beta) is designed with a decoupled,
 
 ```mermaid
 flowchart TD
-    subgraph UI_API["UI & API Layer"]
-        A["Vue 3 Dashboard (Vite / PrimeVue)"] -->|REST / JSON / JWT Cookie| B["FastAPI Service API (v2.0)"]
-        A -->|Sugiyama Graph Layout| T["Interactive Topology Map (LR / UD)"]
+    subgraph UI_Layer["Frontend & UI Layer (Vue 3 / Vite)"]
+        A["Dashboard View (KPI Strip & Dual View)"]
+        T["Topology Canvas (Frozen Physics)"]
+        S["Admin Settings Console (/settings)"]
     end
 
-    subgraph Security_Logging["Security & Observability"]
-        B --> M["Access & Latency Middleware"]
-        M --> L["150MB Rotating Log Handlers (/var/log/netmon/)"]
-        B --> S["Sliding Session & IP Lockout Manager"]
+    subgraph SSE_Stream["Real-Time Event Streaming"]
+        E_STREAM["SSE Stream (/api/v1/events/stream)"]
+        A -.->|Subscribes| E_STREAM
+        T -.->|Subscribes| E_STREAM
     end
 
-    subgraph Core_Engines["Core Telemetry Engines"]
-        B --> C["PostgreSQL 14+ / TimescaleDB"]
-        D["Monitoring Engine (asyncio)"] -->|Write Semaphore (15)| C
-        E["Adaptive Baseline Engine"] -->|Z-Score Baselines| C
-        F["Diagnostic Subsystem"] -->|Async Traceroutes| C
-        G["RCA Topology Engine"] -->|Parent-Child Inference| C
+    subgraph API_Layer["FastAPI Service Layer"]
+        B["FastAPI REST & SSE Router"]
+        AUTH["Async Argon2id Auth & Session Guard"]
+        REPO["Repository Layer (SQLAlchemy 2.0)"]
     end
 
-    subgraph Storage_Layer["Optimized Storage Subsystems"]
-        C --> H[("TimescaleDB Hypertables (7-Day Compression)")]
-        C --> K[("Continuous Aggregates (Hourly Refresh)")]
-        C --> I[("JSONB Diagnostic Traces (14-Day Retention)")]
-        C --> J[("Audit Logs & RCA Incidents (90-Day Retention)")]
+    subgraph Storage_Drivers["Pluggable Storage Drivers"]
+        MGR["StorageDriverManager"]
+        PS["PostgresSessionStore / PostgresEventBroker"]
+        RS["RedisSessionStore / RedisEventBroker"]
+        MGR --> PS
+        MGR --> RS
     end
 
-    D -.->|Triggers on Drop| F
-    F -.->|Informs| G
+    subgraph Monitoring_Core["Monitoring & Diagnostic Engines"]
+        ENG["Monitoring Engine (5 pings @ 8s / 28s Headroom)"]
+        REG["Dynamic EndpointRegistry"]
+        SYN["Synthetic Probes (TCP / HTTP / SSL + SSRF)"]
+        TR["High-Fidelity Traceroute & L2 Auto-Bypass"]
+        RCA["RCA Topology & Inference Engine"]
+    end
+
+    subgraph Database_Layer["PostgreSQL & TimescaleDB"]
+        DB[("PostgreSQL 14+ with TimescaleDB")]
+        HT[("Hypertables (7-Day Compression)")]
+        CAG[("Continuous Aggregates (Hourly Refresh)")]
+        DB --> HT
+        DB --> CAG
+    end
+
+    E_STREAM --> B
+    B --> AUTH
+    B --> REPO
+    REPO --> DB
+    B --> MGR
+
+    ENG --> REG
+    ENG --> SYN
+    ENG -.->|Triggers on Drop| TR
+    TR -.->|Informs| RCA
+    ENG --> REPO
+    ENG --> MGR
 ```

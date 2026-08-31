@@ -1,20 +1,21 @@
-# LNMP Deployment & Operations Guide — Version 2.0 (Beta)
+# LNMP Deployment & Operations Guide — Version 3.0.0
 
-This guide details the procedures for installing, maintaining, and upgrading the Network Monitoring Platform (LNMP) v2.0 (Beta) on a production Linux server.
+This guide details the procedures for installing, maintaining, and upgrading the Network Monitoring Platform (LNMP) v3.0.0 on a production Linux server.
 
 ---
 
 ## 1. System Requirements
 
-- **OS:** Ubuntu 22.04 LTS or 24.04 LTS
-- **Hardware (Minimum for Production):** 2 vCPUs, 2 GB RAM, 10–25 GB SSD. (TimescaleDB 7-day chunk compression reduces storage growth by 90%+).
-- **Network Permissions:** The `netmon-engine` daemon requires `CAP_NET_RAW` capability to construct and send raw ICMP packets.
+- **OS:** Ubuntu 22.04 LTS or 24.04 LTS (Debian 12+ also supported)
+- **Hardware (Minimum for Production):** 2 vCPUs, 2 GB RAM, 10–25 GB SSD.
+- **Dependencies:** PostgreSQL 14+ with TimescaleDB, Redis 6+ (for Memory Acceleration mode), Node.js 18+, Python 3.10+, Nginx.
+- **Network Permissions:** The `netmon-engine` daemon requires `CAP_NET_RAW` capability to send raw ICMP packets.
 
 ---
 
 ## 2. Initial Installation
 
-The deployment is fully automated via the `install.sh` script located in the `deploy/` directory.
+The initial installation is fully automated via `install.sh`:
 
 ```bash
 sudo -i
@@ -23,106 +24,85 @@ cd lnmp/deploy
 ./install.sh
 ```
 
-**What the installer does:**
-1. Installs system dependencies (Python 3.10+, Node.js 18+, PostgreSQL 14+, TimescaleDB, Nginx).
-2. Sets up Python virtual environment (`/opt/netmon/venv`) and installs dependencies.
-3. Builds the Vue 3 production bundle (`npm run build`).
-4. Generates `/etc/netmon/config.toml` (configured with 120-minute session timeout and 2 concurrent session limit).
-5. Deploys Nginx reverse proxy configuration.
-6. Installs and **enables** `netmon-api` and `netmon-engine` systemd services (`systemctl enable`) to guarantee auto-start on server boot.
+**What the installer executes:**
+1. Installs system packages: `python3-pip`, `postgresql`, `timescaledb`, `redis-server`, `nginx`, `traceroute`, `libcap2-bin`.
+2. Creates dedicated system user `netmon` and virtual environment at `/opt/netmon/venv`.
+3. Compiles the Vue 3 production bundle (`npm run build`).
+4. Generates `/etc/netmon/netmon.env` and `/etc/netmon/config.toml` with v3.0.0 defaults.
+5. Sets network capabilities: `setcap cap_net_raw+ep $(command -v traceroute)`.
+6. Enables and starts systemd units (`netmon-api`, `netmon-engine`, `redis-server`, `nginx`).
 
 ---
 
-## 3. Systemd Services & Auto-Start
+## 3. Upgrading to Version 3.0.0 (Zero Historical Data Loss)
 
-LNMP runs as two separate background services:
+To perform an in-place upgrade from v2.x to v3.0.0:
 
-### API Service (`netmon-api.service`)
-- **Role:** Serves the FastAPI application with async access latency logging and security diagnostics.
-- **Port:** Binds locally to `127.0.0.1:8000` (Nginx proxies port 80/443 to this).
-- **Restart Command:** `sudo systemctl restart netmon-api`
-
-### Engine Service (`netmon-engine.service`)
-- **Role:** High-density ICMP polling daemon aligned to absolute minute boundaries with `asyncio.Semaphore(15)` write throttling.
-- **Restart Command:** `sudo systemctl restart netmon-engine`
-
-### Auto-Start Verification:
 ```bash
-sudo systemctl is-enabled netmon-api netmon-engine
-# Should output: enabled
+cd /opt/netmon/noop/deploy
+sudo ./upgrade.sh
+```
+
+### Automated Upgrade Lifecycle Steps:
+1. **Pre-Upgrade Database Backup**: Automatically creates a timestamped SQL backup at `/var/backups/netmon/netmon_backup_<TIMESTAMP>.sql` before any changes. If the backup fails, the upgrade aborts immediately.
+2. **System Dependencies & Redis**: Installs missing packages (`redis-server`, `traceroute`, `libcap2-bin`) and ensures Redis is enabled and started (`systemctl enable --now redis-server`).
+3. **Network Capabilities**: Sets `CAP_NET_RAW` capabilities on `traceroute` for unprivileged ICMP discovery.
+4. **Smart Config Migration**: Patches `/etc/netmon/config.toml` with v3.0 defaults (5 pings @ 8s, 120-minute session timeout, 2-session limit, `[redis]` section).
+5. **Daemon Pause**: Gracefully stops `netmon-engine` and `netmon-api`.
+6. **Code & Dependency Sync**: Pulls latest codebase, updates Python dependencies, and compiles frontend assets.
+7. **Forward Alembic Migrations**: Runs `alembic upgrade head` to add v3.0 tables (`system_settings`, indexes) while preserving all historical TimescaleDB chunks.
+8. **Unit Refresh & Daemon Restart**: Reloads systemd daemon, enables auto-start on boot, and starts `redis-server`, `netmon-api`, `netmon-engine`, and `nginx`.
+9. **Health Verification**: Verifies API health and version endpoints.
+
+---
+
+## 4. Disaster Recovery & Backup Restoration
+
+For complete database restoration procedures from timestamped backups, refer to the **[Disaster Recovery & Database Restoration Runbook](deploy/RESTORE.md)**.
+
+Quick restore summary:
+```bash
+sudo systemctl stop netmon-engine netmon-api
+set -a && source /etc/netmon/netmon.env && set +a
+PGPASSWORD="${NETMON_DB_PASSWORD}" psql -h 127.0.0.1 -U netmon_user -d netmon -f /var/backups/netmon/netmon_backup_<TIMESTAMP>.sql
+cd /opt/netmon/noop/backend && /opt/netmon/venv/bin/alembic upgrade head
+sudo systemctl restart redis-server netmon-api netmon-engine nginx
 ```
 
 ---
 
-## 4. Comprehensive Logging & Inspection
+## 5. Storage Driver Configuration
 
-Application logs are written simultaneously to **systemd journal** and **150MB auto-rotating log files**:
+In `/etc/netmon/config.toml`:
 
-| Log Target | Path | Rotation Bounds |
-|---|---|---|
-| **API Server Logs** | `/var/log/netmon/api.log` | 10 MB per file (5 backups = 60 MB max) |
-| **Monitoring Engine Logs** | `/var/log/netmon/engine.log` | 10 MB per file (5 backups = 60 MB max) |
-| **Dedicated Error Logs** | `/var/log/netmon/error.log` | 10 MB per file (3 backups = 30 MB max) |
+```toml
+[redis]
+host = "127.0.0.1"
+port = 6379
+db = 0
+enabled = true
+performance_mode = false  # Set to true for Redis in-memory acceleration
+```
 
-### Live Log Commands:
+* **Standard Mode (`performance_mode = false`):** Uses PostgreSQL for session storage and `LISTEN / NOTIFY` for event broadcasting.
+* **Memory Acceleration Mode (`performance_mode = true`):** Uses Redis for sub-millisecond session validation and Redis Pub/Sub for high-throughput event broadcasting.
+
+---
+
+## 6. Service Management & Logging
+
 ```bash
-# Live API request and latency logs
+# Check service status
+sudo systemctl status netmon-api netmon-engine redis-server
+
+# Live stream API server logs
 sudo journalctl -u netmon-api -f
 
-# Live monitoring engine state transitions & ping logs
+# Live stream monitoring engine logs
 sudo journalctl -u netmon-engine -f
 
-# View errors only across the platform
-sudo journalctl -u netmon-api -p err -e
+# View rotating log files
+tail -f /var/log/netmon/api.log
+tail -f /var/log/netmon/engine.log
 tail -f /var/log/netmon/error.log
-```
-
----
-
-## 5. Upgrading the Platform (Zero-Downtime)
-
-You can run the upgrade utility from your git clone directory or directly in `/opt/netmon/noop`:
-
-```bash
-# From git clone
-cd ~/noop
-sudo ./deploy/upgrade.sh
-
-# Or directly in /opt/netmon/noop
-cd /opt/netmon/noop
-sudo git pull
-sudo ./deploy/upgrade.sh
-```
-
-**The upgrade sequence:**
-1. Generates a timestamped `pg_dump` of the PostgreSQL database to `/var/backups/netmon/`.
-2. Smartly patches `/etc/netmon/config.toml` (migrating `session_timeout_minutes = 120` and `max_active_sessions_per_user = 2`) without touching database credentials.
-3. Gracefully pauses `systemd` daemons.
-4. Upgrades Python dependencies and rebuilds the Vue 3 frontend bundle.
-5. Runs Alembic database migrations (`alembic upgrade head`) including TimescaleDB compression policies.
-6. Refreshes systemd unit files, enables auto-start (`systemctl enable`), and restarts services.
-7. Executes a health check to verify live API status.
-
----
-
-## 6. Decommissioning & Uninstallation
-
-To cleanly remove LNMP, disable background daemons, and remove web routes:
-
-```bash
-sudo -i
-cd /opt/netmon/deploy
-./uninstall.sh
-```
-
-The script prompts for confirmation, saves a safety database backup, stops/disables systemd services, and removes Nginx configurations.
-
----
-
-## 7. Password Resets (CLI)
-
-If you lose access to the Admin account, force a password reset directly from the CLI:
-
-```bash
-sudo /opt/netmon/noop/deploy/reset-admin-password.sh <username> <new_password>
 ```
