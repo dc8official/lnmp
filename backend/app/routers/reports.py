@@ -234,14 +234,14 @@ async def get_endpoint_events(
         for ev in event_rows
     ]
 
-    total_pages = ceil(total / size) if total > 0 else 1
+    total_pages = ceil(total / effective_size) if total > 0 else 1
 
     return APIResponse.success(
         data=events,
         meta=PaginationMeta(
             total=total,
             page=page,
-            page_size=size,
+            page_size=effective_size,
             total_pages=total_pages,
         ),
     )
