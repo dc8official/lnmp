@@ -195,8 +195,17 @@ if [[ ${DRY_RUN} -eq 0 ]]; then
             exit 1
         fi
     fi
+    # Rebuild Vue 3 frontend in SOURCE_DIR
+    FRONTEND_DIR="${SOURCE_DIR}/frontend"
+    if [[ -d "${FRONTEND_DIR}" && -f "${FRONTEND_DIR}/package.json" ]]; then
+        echo -e "${GREEN}[INFO] Rebuilding production Vue 3 frontend bundle in ${FRONTEND_DIR}...${NC}"
+        cd "${FRONTEND_DIR}"
+        npm install
+        npm run build
+        cd "${PROJECT_ROOT}"
+    fi
 else
-    echo -e "[DRY-RUN] Would fetch latest code from ${REPO_URL} (${UPGRADE_BRANCH}) and ensure system packages (redis-server, traceroute, libcap2-bin)"
+    echo -e "[DRY-RUN] Would fetch latest code from ${REPO_URL} (${UPGRADE_BRANCH}), build Vue 3 frontend, and ensure system packages (redis-server, traceroute, libcap2-bin)"
 fi
 
 # 7. Synchronize Production Files to Target Directory
@@ -226,8 +235,8 @@ else
     echo -e "[DRY-RUN] Would rsync codebase to ${INSTALL_DIR} and set ownership to netmon:netmon"
 fi
 
-# 8. Dependency Installation & Frontend Compilation
-echo -e "\n${BLUE}--- Step 6/7: Upgrading Python Dependencies & Building Frontend ---${NC}"
+# 8. Dependency Installation & Database Migrations
+echo -e "\n${BLUE}--- Step 6/7: Upgrading Python Dependencies & Database Migrations ---${NC}"
 if [[ ${DRY_RUN} -eq 0 ]]; then
     # Determine Python virtual environment path
     VENV_PATH=""
@@ -245,16 +254,6 @@ if [[ ${DRY_RUN} -eq 0 ]]; then
         "${VENV_PATH}/bin/pip" install -r "${INSTALL_DIR}/backend/requirements.txt" --upgrade
     else
         echo -e "${YELLOW}[WARN] Virtual environment not found at /opt/netmon/venv. Skipping pip upgrade.${NC}"
-    fi
-
-    # Rebuild Vue 3 frontend in INSTALL_DIR
-    FRONTEND_DIR="${INSTALL_DIR}/frontend"
-    if [[ -d "${FRONTEND_DIR}" && -f "${FRONTEND_DIR}/package.json" ]]; then
-        echo -e "${GREEN}[INFO] Rebuilding production Vue 3 frontend bundle in ${FRONTEND_DIR}...${NC}"
-        cd "${FRONTEND_DIR}"
-        npm install
-        npm run build
-        chown -R netmon:netmon "${FRONTEND_DIR}/dist" 2>/dev/null || true
     fi
 
     # Database Schema Migrations

@@ -36,17 +36,20 @@ router = APIRouter(prefix="/reports", tags=["reports"])
 
 def parse_datetime_param(val: str, is_end: bool = False) -> datetime:
     try:
-        if "T" in val or " " in val:
-            dt = datetime.fromisoformat(val)
+        val_str = str(val).strip()
+        if "T" in val_str or " " in val_str:
+            clean_val = val_str.replace("Z", "+00:00")
+            dt = datetime.fromisoformat(clean_val)
             if dt.tzinfo is None:
                 return dt.replace(tzinfo=timezone.utc)
             return dt.astimezone(timezone.utc)
         else:
-            d = date.fromisoformat(val)
+            d = date.fromisoformat(val_str)
             if is_end:
                 return datetime(d.year, d.month, d.day, 23, 59, 59, tzinfo=timezone.utc)
             return datetime(d.year, d.month, d.day, 0, 0, 0, tzinfo=timezone.utc)
-    except (ValueError, AttributeError, TypeError):
+    except (ValueError, AttributeError, TypeError) as e:
+        logger.error(f"Failed to parse datetime parameter '{val}': {e}")
         raise HTTPException(
             status_code=400, detail=f"Invalid ISO 8601 date format: {val}"
         )
@@ -190,7 +193,8 @@ async def get_endpoint_events(
     start_date: str = Query(...),
     end_date: str = Query(...),
     page: int = Query(default=1, ge=1),
-    size: int = Query(default=100, ge=1, le=1500),
+    size: Optional[int] = Query(default=None, ge=1, le=1500),
+    page_size: Optional[int] = Query(default=None, ge=1, le=1500),
     current_user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -198,9 +202,10 @@ async def get_endpoint_events(
     end_dt = parse_datetime_param(end_date, is_end=True)
     _validate_date_range(start_dt, end_dt)
 
+    effective_size = page_size or size or 100
     rep_repo = ReportRepository(db)
-    limit = size
-    offset = (page - 1) * size
+    limit = effective_size
+    offset = (page - 1) * effective_size
 
     event_rows, total = await rep_repo.get_events(
         endpoint_id=endpoint_id,
