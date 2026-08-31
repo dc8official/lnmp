@@ -1,19 +1,21 @@
 from __future__ import annotations
+
 import asyncio
-import json
+import ipaddress
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Literal, Optional
 from uuid import UUID
+
 from fastapi import APIRouter, Depends, HTTPException, Query
-import ipaddress
-from pydantic import BaseModel, field_validator
-from sqlalchemy import text
+from pydantic import BaseModel, ConfigDict, field_validator
 from sqlalchemy.ext.asyncio import AsyncSession
+
 from app.database import get_db
+from app.repositories.auth_repo import AuthRepository
+from app.repositories.endpoint_repo import EndpointRepository
 from app.routers.auth import get_current_user, require_admin
 from app.schemas import APIResponse, PaginationMeta
-from app.services.timezone_utils import get_local_timezone
 from app.services.uptime_calculator import (
     calculate_uptime_denominator_and_percentage,
     get_unknown_seconds_for_period,
@@ -23,11 +25,7 @@ logger = logging.getLogger(__name__)
 
 
 async def _bg_run_initial_discovery(endpoint_id: UUID, ip_address: str) -> None:
-    try:
-        from app.database import AsyncSessionLocal
-    except ImportError:
-        from app.db.session import AsyncSessionLocal
-
+    from app.database import AsyncSessionLocal
     from app.services.baseline_route import refresh_baseline_route
     from app.services.topology import topology_manager
 
@@ -37,7 +35,12 @@ async def _bg_run_initial_discovery(endpoint_id: UUID, ip_address: str) -> None:
             await bg_db.commit()
             await topology_manager.full_rebuild(bg_db)
         except Exception as exc:
-            logger.error("Background initial discovery failed for endpoint %s: %s", endpoint_id, exc)
+            logger.error(
+                "Background initial discovery failed for endpoint %s: %s",
+                endpoint_id,
+                exc,
+            )
+
 
 class CreateEndpointRequest(BaseModel):
     ip_address: str
@@ -53,6 +56,8 @@ class CreateEndpointRequest(BaseModel):
     is_l2_segment: bool = False
     manual_parent_id: Optional[UUID] = None
 
+    model_config = ConfigDict(from_attributes=True)
+
     @field_validator("ip_address")
     @classmethod
     def validate_ip_format(cls, v: str) -> str:
@@ -64,6 +69,7 @@ class CreateEndpointRequest(BaseModel):
         except ValueError:
             raise ValueError(f"'{clean_ip}' is not a valid IPv4 or IPv6 address.")
         return clean_ip
+
 
 class UpdateEndpointRequest(BaseModel):
     hostname: Optional[str] = None
@@ -79,7 +85,11 @@ class UpdateEndpointRequest(BaseModel):
     manual_parent_id: Optional[UUID] = None
     endpoint_status: Optional[Literal["ACTIVE", "DISABLED"]] = None
 
+    model_config = ConfigDict(from_attributes=True)
+
+
 router = APIRouter(prefix="/endpoints", tags=["endpoints"])
+
 
 @router.get("/{id}/traces", response_model=APIResponse)
 async def get_endpoint_traces(
@@ -87,31 +97,22 @@ async def get_endpoint_traces(
     current_user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    query = text("""
-        SELECT id, endpoint_id, timestamp, trigger_reason, trace_data
-        FROM endpoint_diagnostic_traces
-        WHERE endpoint_id = CAST(:id AS uuid)
-        ORDER BY timestamp DESC
-        LIMIT 10
-    """)
-    result = await db.execute(query, {"id": str(id)})
-    rows = result.fetchall()
-    traces = []
-    for r in rows:
-        t_data = r.trace_data
-        if isinstance(t_data, str):
-            try:
-                t_data = json.loads(t_data)
-            except Exception:
-                pass
-        traces.append({
-            "id": str(r.id),
-            "endpoint_id": str(r.endpoint_id),
-            "timestamp": r.timestamp.isoformat() if r.timestamp else None,
-            "trigger_reason": r.trigger_reason,
+    repo = EndpointRepository(db)
+    traces = await repo.get_traces(id, limit=10)
+
+    trace_list = []
+    for t in traces:
+        t_data = t.trace_data
+        ts_str = t.timestamp.isoformat() if t.timestamp else None
+        trace_list.append({
+            "id": str(t.id),
+            "endpoint_id": str(t.endpoint_id),
+            "timestamp": ts_str,
+            "trigger_reason": t.trigger_reason,
             "trace_data": t_data,
         })
-    return APIResponse.success(data=traces)
+    return APIResponse.success(data=trace_list)
+
 
 @router.get("/{id}/rca", response_model=APIResponse)
 async def get_endpoint_rca(
@@ -119,58 +120,30 @@ async def get_endpoint_rca(
     current_user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    query = text("""
-        SELECT
-            id,
-            endpoint_id,
-            incident_timestamp,
-            status_at_execution,
-            failed_hop_number,
-            failed_hop_ip,
-            last_known_good_hop_ip,
-            rca_summary,
-            baseline_snapshot,
-            failure_trace_snapshot,
-            is_resolved
-        FROM endpoint_rca_incidents
-        WHERE endpoint_id = CAST(:id AS uuid)
-        ORDER BY incident_timestamp DESC
-        LIMIT 1
-    """)
-    result = await db.execute(query, {"id": str(id)})
-    row = result.fetchone()
-
-    if not row:
+    repo = EndpointRepository(db)
+    rca = await repo.get_latest_rca(id)
+    if not rca:
         return APIResponse.success(data=None)
 
-    b_snap = row.baseline_snapshot
-    if isinstance(b_snap, str):
-        try:
-            b_snap = json.loads(b_snap)
-        except Exception:
-            pass
-
-    f_snap = row.failure_trace_snapshot
-    if isinstance(f_snap, str):
-        try:
-            f_snap = json.loads(f_snap)
-        except Exception:
-            pass
-
     incident_data = {
-        "id": str(row.id),
-        "endpoint_id": str(row.endpoint_id),
-        "incident_timestamp": row.incident_timestamp.isoformat() if row.incident_timestamp else None,
-        "status_at_execution": row.status_at_execution,
-        "failed_hop_number": row.failed_hop_number,
-        "failed_hop_ip": row.failed_hop_ip,
-        "last_known_good_hop_ip": row.last_known_good_hop_ip,
-        "rca_summary": row.rca_summary,
-        "baseline_snapshot": b_snap,
-        "failure_trace_snapshot": f_snap,
-        "is_resolved": row.is_resolved,
+        "id": str(rca.id),
+        "endpoint_id": str(rca.endpoint_id),
+        "incident_timestamp": (
+            rca.incident_timestamp.isoformat()
+            if rca.incident_timestamp
+            else None
+        ),
+        "status_at_execution": rca.status_at_execution,
+        "failed_hop_number": rca.failed_hop_number,
+        "failed_hop_ip": rca.failed_hop_ip,
+        "last_known_good_hop_ip": rca.last_known_good_hop_ip,
+        "rca_summary": rca.rca_summary,
+        "baseline_snapshot": rca.baseline_snapshot,
+        "failure_trace_snapshot": rca.failure_trace_snapshot,
+        "is_resolved": rca.is_resolved,
     }
     return APIResponse.success(data=incident_data)
+
 
 @router.get("/", response_model=APIResponse)
 async def list_endpoints(
@@ -178,112 +151,71 @@ async def list_endpoints(
     current_user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    local_tz = get_local_timezone()
-    now_utc = datetime.now(local_tz)
+    now_utc = datetime.now(timezone.utc)
     since_utc = now_utc - timedelta(hours=24)
-    
-    query_str = """
-        SELECT
-            e.id,
-            e.hostname,
-            host(e.ip_address) AS ip_address,
-            e.device_type,
-            e.location,
-            e.endpoint_status,
-            e.monitoring_enabled,
-            e.allow_incident_trace,
-            e.allow_topology_discovery,
-            e.enable_rca,
-            e.enable_scheduled_discovery,
-            e.is_l2_segment,
-            e.manual_parent_id,
-            e.created_at,
-            e.updated_at,
-            ev.operational_state  AS current_operational_state,
-            ev.detailed_state     AS current_detailed_state,
-            ev.health_score       AS current_health_score,
-            ev.start_time         AS last_seen,
-            COALESCE(up_counts.up_events_count, 0)::integer AS up_events_count
-        FROM endpoints e
-        LEFT JOIN LATERAL (
-            SELECT operational_state, detailed_state, health_score, start_time
-            FROM endpoint_events
-            WHERE endpoint_id = e.id
-            ORDER BY start_time DESC
-            LIMIT 1
-        ) ev ON TRUE
-        LEFT JOIN (
-            SELECT endpoint_id, COUNT(*)::integer AS up_events_count
-            FROM endpoint_events
-            WHERE start_time >= :since_utc
-              AND start_time <= :now_utc
-              AND operational_state = 'UP'
-            GROUP BY endpoint_id
-        ) up_counts ON up_counts.endpoint_id = e.id
-        WHERE e.endpoint_status != 'DELETED'
-    """
-    
-    params = {
-        "now_utc": now_utc,
-        "since_utc": since_utc,
-    }
+
     ALLOWED_STATUSES = {"ACTIVE", "DISABLED", "MONITORED", "UNMONITORED"}
+    clean_status = None
     if status is not None:
         clean_status = status.strip().upper()
         if clean_status not in ALLOWED_STATUSES:
-            raise HTTPException(status_code=400, detail=f"Invalid status filter '{status}'. Must be one of: {', '.join(sorted(ALLOWED_STATUSES))}")
-        query_str += " AND e.endpoint_status = :status"
-        params["status"] = clean_status
-        
-    query_str += " ORDER BY e.hostname ASC"
-    
-    query = text(query_str)
-    result = await db.execute(query, params)
-    rows = result.fetchall()
-    
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid status filter '{status}'. Must be one of: {', '.join(sorted(ALLOWED_STATUSES))}",
+            )
+
+    repo = EndpointRepository(db)
+    rows = await repo.list_with_stats(
+        status=clean_status,
+        since_utc=since_utc,
+        now_utc=now_utc,
+    )
     unknown_seconds = await get_unknown_seconds_for_period(db, since_utc, now_utc)
-    
+
     data = []
     for row in rows:
+        created_at = row["created_at"]
         uptime_percentage = calculate_uptime_denominator_and_percentage(
-            created_at=row.created_at,
+            created_at=created_at,
             start_time=since_utc,
             end_time=now_utc,
             now_utc=now_utc,
-            up_events_count=row.up_events_count,
-            unknown_seconds=unknown_seconds
+            up_events_count=row["up_events_count"],
+            unknown_seconds=unknown_seconds,
         )
         data.append({
-            "id": str(row.id),
-            "hostname": row.hostname,
-            "ip_address": row.ip_address,
-            "device_type": row.device_type,
-            "location": row.location,
-            "endpoint_status": row.endpoint_status,
-            "monitoring_enabled": row.monitoring_enabled,
-            "allow_incident_trace": row.allow_incident_trace,
-            "allow_topology_discovery": row.allow_topology_discovery,
-            "enable_rca": row.enable_rca,
-            "enable_scheduled_discovery": row.enable_scheduled_discovery,
-            "is_l2_segment": row.is_l2_segment,
-            "manual_parent_id": str(row.manual_parent_id) if row.manual_parent_id else None,
-            "created_at": row.created_at,
-            "updated_at": row.updated_at,
-            "current_operational_state": row.current_operational_state if row.current_operational_state else "DOWN",
-            "current_detailed_state": row.current_detailed_state if row.current_detailed_state else "DOWN",
-            "current_health_score": row.current_health_score if row.current_health_score is not None else 0.0,
-            "last_seen": row.last_seen,
+            "id": str(row["id"]),
+            "hostname": row["hostname"],
+            "ip_address": row["ip_address"],
+            "device_type": row["device_type"],
+            "location": row["location"],
+            "endpoint_status": row["endpoint_status"],
+            "monitoring_enabled": row["monitoring_enabled"],
+            "allow_incident_trace": row["allow_incident_trace"],
+            "allow_topology_discovery": row["allow_topology_discovery"],
+            "enable_rca": row["enable_rca"],
+            "enable_scheduled_discovery": row["enable_scheduled_discovery"],
+            "is_l2_segment": row["is_l2_segment"],
+            "manual_parent_id": (
+                str(row["manual_parent_id"]) if row["manual_parent_id"] else None
+            ),
+            "created_at": row["created_at"],
+            "updated_at": row["updated_at"],
+            "current_operational_state": row["current_operational_state"],
+            "current_detailed_state": row["current_detailed_state"],
+            "current_health_score": row["current_health_score"],
+            "last_seen": row["last_seen"],
             "uptime_percentage_24h": uptime_percentage,
         })
-        
+
     meta = PaginationMeta(
         total=len(rows),
         page=1,
         page_size=max(1, len(rows)),
-        total_pages=1
+        total_pages=1,
     )
-    
     return APIResponse.success(data=data, meta=meta)
+
 
 @router.get("/{endpoint_id}", response_model=APIResponse)
 async def get_endpoint(
@@ -291,100 +223,56 @@ async def get_endpoint(
     current_user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    local_tz = get_local_timezone()
-    now_utc = datetime.now(local_tz)
+    now_utc = datetime.now(timezone.utc)
     since_utc = now_utc - timedelta(hours=24)
-    query = text("""
-        SELECT
-            e.id,
-            e.hostname,
-            host(e.ip_address) AS ip_address,
-            e.device_type,
-            e.location,
-            e.description,
-            e.monitoring_enabled,
-            e.allow_incident_trace,
-            e.allow_topology_discovery,
-            e.enable_rca,
-            e.enable_scheduled_discovery,
-            e.is_l2_segment,
-            e.manual_parent_id,
-            e.endpoint_status,
-            e.created_by,
-            e.created_at,
-            e.updated_at,
-            ev.operational_state  AS current_operational_state,
-            ev.detailed_state     AS current_detailed_state,
-            ev.health_score       AS current_health_score,
-            ev.start_time         AS last_seen,
-            COALESCE(
-                (
-                    SELECT COUNT(*)
-                    FROM endpoint_events sub_ev
-                    WHERE sub_ev.endpoint_id = e.id
-                      AND sub_ev.start_time >= :since_utc
-                      AND sub_ev.start_time <= :now_utc
-                      AND sub_ev.operational_state = 'UP'
-                ),
-                0
-            )::integer AS up_events_count
-        FROM endpoints e
-        LEFT JOIN LATERAL (
-            SELECT operational_state, detailed_state, health_score, start_time
-            FROM endpoint_events
-            WHERE endpoint_id = e.id
-            ORDER BY start_time DESC
-            LIMIT 1
-        ) ev ON TRUE
-        WHERE e.id = CAST(:endpoint_id AS uuid)
-          AND e.endpoint_status != 'DELETED'
-    """)
-    result = await db.execute(query, {
-        "endpoint_id": str(endpoint_id),
-        "now_utc": now_utc,
-        "since_utc": since_utc,
-    })
-    row = result.fetchone()
-    
+
+    repo = EndpointRepository(db)
+    row = await repo.get_detail_with_stats(
+        endpoint_id=endpoint_id,
+        since_utc=since_utc,
+        now_utc=now_utc,
+    )
     if not row:
         raise HTTPException(status_code=404, detail="Endpoint not found.")
-        
+
     unknown_seconds = await get_unknown_seconds_for_period(db, since_utc, now_utc)
     uptime_percentage = calculate_uptime_denominator_and_percentage(
-        created_at=row.created_at,
+        created_at=row["created_at"],
         start_time=since_utc,
         end_time=now_utc,
         now_utc=now_utc,
-        up_events_count=row.up_events_count,
-        unknown_seconds=unknown_seconds
+        up_events_count=row["up_events_count"],
+        unknown_seconds=unknown_seconds,
     )
-    
+
     data = {
-        "id": str(row.id),
-        "hostname": row.hostname,
-        "ip_address": row.ip_address,
-        "device_type": row.device_type,
-        "location": row.location,
-        "description": row.description,
-        "monitoring_enabled": row.monitoring_enabled,
-        "allow_incident_trace": row.allow_incident_trace,
-        "allow_topology_discovery": row.allow_topology_discovery,
-        "enable_rca": row.enable_rca,
-        "enable_scheduled_discovery": row.enable_scheduled_discovery,
-        "is_l2_segment": row.is_l2_segment,
-        "manual_parent_id": str(row.manual_parent_id) if row.manual_parent_id else None,
-        "endpoint_status": row.endpoint_status,
-        "created_by": str(row.created_by) if row.created_by else None,
-        "created_at": row.created_at,
-        "updated_at": row.updated_at,
-        "current_operational_state": row.current_operational_state if row.current_operational_state else "DOWN",
-        "current_detailed_state": row.current_detailed_state if row.current_detailed_state else "DOWN",
-        "current_health_score": row.current_health_score if row.current_health_score is not None else 0.0,
-        "last_seen": row.last_seen,
+        "id": str(row["id"]),
+        "hostname": row["hostname"],
+        "ip_address": row["ip_address"],
+        "device_type": row["device_type"],
+        "location": row["location"],
+        "description": row["description"],
+        "monitoring_enabled": row["monitoring_enabled"],
+        "allow_incident_trace": row["allow_incident_trace"],
+        "allow_topology_discovery": row["allow_topology_discovery"],
+        "enable_rca": row["enable_rca"],
+        "enable_scheduled_discovery": row["enable_scheduled_discovery"],
+        "is_l2_segment": row["is_l2_segment"],
+        "manual_parent_id": (
+            str(row["manual_parent_id"]) if row["manual_parent_id"] else None
+        ),
+        "endpoint_status": row["endpoint_status"],
+        "created_by": str(row["created_by"]) if row["created_by"] else None,
+        "created_at": row["created_at"],
+        "updated_at": row["updated_at"],
+        "current_operational_state": row["current_operational_state"],
+        "current_detailed_state": row["current_detailed_state"],
+        "current_health_score": row["current_health_score"],
+        "last_seen": row["last_seen"],
         "uptime_percentage_24h": uptime_percentage,
     }
-    
     return APIResponse.success(data=data)
+
 
 @router.post("/", response_model=APIResponse, status_code=201)
 async def create_endpoint(
@@ -392,137 +280,104 @@ async def create_endpoint(
     current_user: dict = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
-    check_query = text("""
-        SELECT id FROM endpoints
-        WHERE ip_address = :ip_address
-          AND endpoint_status != 'DELETED'
-    """)
-    check_result = await db.execute(check_query, {"ip_address": request.ip_address})
-    if check_result.fetchone():
-        raise HTTPException(status_code=409, detail="An endpoint with this IP address already exists.")
-        
-    deleted_query = text("""
-        SELECT id FROM endpoints
-        WHERE ip_address = :ip_address
-          AND endpoint_status = 'DELETED'
-    """)
-    deleted_result = await db.execute(deleted_query, {"ip_address": request.ip_address})
-    deleted_row = deleted_result.fetchone()
-    
-    if deleted_row:
-        restore_query = text("""
-            UPDATE endpoints
-            SET hostname = :hostname,
-                device_type = :device_type,
-                location = :location,
-                description = :description,
-                monitoring_enabled = :monitoring_enabled,
-                allow_incident_trace = :allow_incident_trace,
-                allow_topology_discovery = :allow_topology_discovery,
-                enable_rca = :enable_rca,
-                enable_scheduled_discovery = :enable_scheduled_discovery,
-                is_l2_segment = :is_l2_segment,
-                manual_parent_id = :manual_parent_id,
-                endpoint_status = 'ACTIVE',
-                deleted_at = NULL,
-                updated_at = NOW()
-            WHERE id = CAST(:endpoint_id AS uuid)
-        """)
-        await db.execute(restore_query, {
-            "hostname": request.hostname,
-            "device_type": request.device_type,
-            "location": request.location,
-            "description": request.description,
-            "monitoring_enabled": request.monitoring_enabled,
-            "allow_incident_trace": request.allow_incident_trace,
-            "allow_topology_discovery": request.allow_topology_discovery,
-            "enable_rca": request.enable_rca,
-            "enable_scheduled_discovery": request.enable_scheduled_discovery,
-            "is_l2_segment": request.is_l2_segment,
-            "manual_parent_id": str(request.manual_parent_id) if request.manual_parent_id else None,
-            "endpoint_id": str(deleted_row.id)
-        })
-        
-        audit_query = text("""
-            INSERT INTO audit_logs (
-                user_id, action, target_type, target_id, details
-            ) VALUES (
-                CAST(:user_id AS uuid), 'ENDPOINT:RESTORE', 'endpoints',
-                CAST(:target_id AS uuid), :details
-            )
-        """)
-        await db.execute(audit_query, {
-            "user_id": current_user.get("sub"),
-            "target_id": str(deleted_row.id),
-            "details": json.dumps({
+    repo = EndpointRepository(db)
+    auth_repo = AuthRepository(db)
+
+    admin_uuid = None
+    if current_user.get("sub"):
+        try:
+            admin_uuid = UUID(str(current_user.get("sub")))
+        except Exception:
+            pass
+
+    # Check for active existing endpoint
+    existing_active = await repo.get_by_ip(request.ip_address, include_deleted=False)
+    if existing_active:
+        raise HTTPException(
+            status_code=409,
+            detail="An endpoint with this IP address already exists.",
+        )
+
+    # Check for soft-deleted endpoint to restore
+    existing_deleted = await repo.get_by_ip(request.ip_address, include_deleted=True)
+    if existing_deleted and getattr(existing_deleted, "endpoint_status", "") == "DELETED":
+        restored = await repo.restore_endpoint(
+            endpoint_id=existing_deleted.id,
+            hostname=request.hostname,
+            device_type=request.device_type,
+            location=request.location,
+            description=request.description,
+            monitoring_enabled=request.monitoring_enabled,
+            allow_incident_trace=request.allow_incident_trace,
+            allow_topology_discovery=request.allow_topology_discovery,
+            enable_rca=request.enable_rca,
+            enable_scheduled_discovery=request.enable_scheduled_discovery,
+            is_l2_segment=request.is_l2_segment,
+            manual_parent_id=request.manual_parent_id,
+        )
+        await auth_repo.create_audit_log(
+            user_id=admin_uuid,
+            action="ENDPOINT:RESTORE",
+            target_type="endpoints",
+            target_id=existing_deleted.id,
+            details={
                 "ip_address": request.ip_address,
                 "hostname": request.hostname,
-                "note": "Restored soft-deleted endpoint"
-            })
-        })
-        
+                "note": "Restored soft-deleted endpoint",
+            },
+        )
         await db.commit()
-        asyncio.create_task(_bg_run_initial_discovery(UUID(str(deleted_row.id)), request.ip_address))
+        asyncio.create_task(
+            _bg_run_initial_discovery(existing_deleted.id, request.ip_address)
+        )
         return APIResponse.success(
-            data={"id": str(deleted_row.id), "message": "Endpoint restored successfully."},
+            data={
+                "id": str(existing_deleted.id),
+                "message": "Endpoint restored successfully.",
+            }
         )
 
-    insert_query = text("""
-        INSERT INTO endpoints (
-            ip_address, hostname, device_type,
-            location, description, monitoring_enabled,
-            allow_incident_trace, allow_topology_discovery,
-            enable_rca, enable_scheduled_discovery, is_l2_segment,
-            manual_parent_id, endpoint_status, created_by
-        ) VALUES (
-            :ip_address, :hostname, :device_type,
-            :location, :description, :monitoring_enabled,
-            :allow_incident_trace, :allow_topology_discovery,
-            :enable_rca, :enable_scheduled_discovery, :is_l2_segment,
-            CAST(:manual_parent_id AS uuid), 'ACTIVE', CAST(:created_by AS uuid)
-        ) RETURNING id, created_at, updated_at
-    """)
-    insert_result = await db.execute(insert_query, {
-        "ip_address": request.ip_address,
-        "hostname": request.hostname,
-        "device_type": request.device_type,
-        "location": request.location,
-        "description": request.description,
-        "monitoring_enabled": request.monitoring_enabled,
-        "allow_incident_trace": request.allow_incident_trace,
-        "allow_topology_discovery": request.allow_topology_discovery,
-        "enable_rca": request.enable_rca,
-        "enable_scheduled_discovery": request.enable_scheduled_discovery,
-        "is_l2_segment": request.is_l2_segment,
-        "manual_parent_id": str(request.manual_parent_id) if request.manual_parent_id else None,
-        "created_by": current_user.get("sub"),
-    })
-    new_endpoint = insert_result.fetchone()
-    
-    audit_query = text("""
-        INSERT INTO audit_logs (
-            user_id, action, target_type, target_id, details
-        ) VALUES (
-            CAST(:user_id AS uuid), 'ENDPOINT:CREATE', 'endpoints',
-            CAST(:target_id AS uuid), :details
+    new_endpoint = await repo.create_endpoint(
+        ip_address=request.ip_address,
+        hostname=request.hostname,
+        device_type=request.device_type,
+        location=request.location,
+        description=request.description,
+        monitoring_enabled=request.monitoring_enabled,
+        allow_incident_trace=request.allow_incident_trace,
+        allow_topology_discovery=request.allow_topology_discovery,
+        enable_rca=request.enable_rca,
+        enable_scheduled_discovery=request.enable_scheduled_discovery,
+        is_l2_segment=request.is_l2_segment,
+        manual_parent_id=request.manual_parent_id,
+        endpoint_status="ACTIVE",
+        created_by=admin_uuid,
+    )
+
+    new_id = getattr(new_endpoint, "id", None)
+    if new_id:
+        await auth_repo.create_audit_log(
+            user_id=admin_uuid,
+            action="ENDPOINT:CREATE",
+            target_type="endpoints",
+            target_id=new_id,
+            details={
+                "ip_address": request.ip_address,
+                "hostname": request.hostname,
+            },
         )
-    """)
-    await db.execute(audit_query, {
-        "user_id": current_user.get("sub"),
-        "target_id": str(new_endpoint.id),
-        "details": json.dumps({
-            "ip_address": request.ip_address,
-            "hostname": request.hostname,
-        })
-    })
-    
+
     await db.commit()
-    
-    asyncio.create_task(_bg_run_initial_discovery(new_endpoint.id, request.ip_address))
+
+    if new_id:
+        asyncio.create_task(
+            _bg_run_initial_discovery(new_id, request.ip_address)
+        )
 
     return APIResponse.success(
-        data={"id": str(new_endpoint.id), "message": "Endpoint created."},
+        data={"id": str(new_id), "message": "Endpoint created."},
     )
+
 
 @router.patch("/{endpoint_id}", response_model=APIResponse)
 async def update_endpoint(
@@ -533,100 +388,94 @@ async def update_endpoint(
 ):
     from app.services.topology import topology_manager
 
-    check_query = text("""
-        SELECT id FROM endpoints
-        WHERE id = CAST(:endpoint_id AS uuid)
-          AND endpoint_status != 'DELETED'
-    """)
-    check_result = await db.execute(check_query, {"endpoint_id": str(endpoint_id)})
-    if not check_result.fetchone():
+    repo = EndpointRepository(db)
+    auth_repo = AuthRepository(db)
+
+    endpoint = await repo.get_by_id(endpoint_id)
+    if not endpoint:
         raise HTTPException(status_code=404, detail="Endpoint not found.")
-        
+
     updates = {}
+    audit_details = {}
+
     if request.hostname is not None:
         updates["hostname"] = request.hostname
+        audit_details["hostname"] = request.hostname
     if request.device_type is not None:
         updates["device_type"] = request.device_type
+        audit_details["device_type"] = request.device_type
     if request.location is not None:
         updates["location"] = request.location
+        audit_details["location"] = request.location
     if request.description is not None:
         updates["description"] = request.description
+        audit_details["description"] = request.description
     if request.monitoring_enabled is not None:
         updates["monitoring_enabled"] = request.monitoring_enabled
+        audit_details["monitoring_enabled"] = request.monitoring_enabled
     if request.allow_incident_trace is not None:
         updates["allow_incident_trace"] = request.allow_incident_trace
+        audit_details["allow_incident_trace"] = request.allow_incident_trace
     if request.allow_topology_discovery is not None:
         updates["allow_topology_discovery"] = request.allow_topology_discovery
+        audit_details["allow_topology_discovery"] = request.allow_topology_discovery
     if request.enable_rca is not None:
         updates["enable_rca"] = request.enable_rca
+        audit_details["enable_rca"] = request.enable_rca
     if request.enable_scheduled_discovery is not None:
         updates["enable_scheduled_discovery"] = request.enable_scheduled_discovery
+        audit_details["enable_scheduled_discovery"] = request.enable_scheduled_discovery
     if request.is_l2_segment is not None:
         updates["is_l2_segment"] = request.is_l2_segment
-    if request.manual_parent_id is not None:
-        if request.manual_parent_id:
-            parent_id_str = str(request.manual_parent_id)
-            if parent_id_str == str(endpoint_id):
-                raise HTTPException(status_code=400, detail="Endpoint cannot be set as its own parent.")
-
-            # Check for cyclic parent traversal
-            curr = parent_id_str
-            visited = {str(endpoint_id)}
-            while curr:
-                if curr in visited:
-                    raise HTTPException(status_code=400, detail="Cyclic parent relationship detected.")
-                visited.add(curr)
-                parent_query = text("SELECT manual_parent_id FROM endpoints WHERE id = CAST(:pid AS uuid)")
-                p_res = await db.execute(parent_query, {"pid": curr})
-                p_row = p_res.fetchone()
-                curr = str(p_row.manual_parent_id) if p_row and p_row.manual_parent_id else None
-
-        updates["manual_parent_id"] = str(request.manual_parent_id) if request.manual_parent_id else None
+        audit_details["is_l2_segment"] = request.is_l2_segment
     if request.endpoint_status is not None:
         updates["endpoint_status"] = request.endpoint_status
-        
-    updates["updated_at"] = datetime.now(get_local_timezone())
-    
-    if len(updates) == 1:
+        audit_details["endpoint_status"] = request.endpoint_status
+
+    if request.manual_parent_id is not None:
+        if request.manual_parent_id:
+            if str(request.manual_parent_id) == str(endpoint_id):
+                raise HTTPException(
+                    status_code=400,
+                    detail="Endpoint cannot be set as its own parent.",
+                )
+            if await repo.detect_parent_cycle(endpoint_id, request.manual_parent_id):
+                raise HTTPException(
+                    status_code=400,
+                    detail="Cyclic parent relationship detected.",
+                )
+        updates["manual_parent_id"] = request.manual_parent_id
+        audit_details["manual_parent_id"] = str(request.manual_parent_id) if request.manual_parent_id else None
+
+    if not updates:
         return APIResponse.success(data={"message": "No changes provided."})
-        
-    set_clause = ", ".join(
-        f"manual_parent_id = CAST(:manual_parent_id AS uuid)" if k == "manual_parent_id" else f"{k} = :{k}"
-        for k in updates
+
+    await repo.update_endpoint(endpoint_id, **updates)
+
+    admin_uuid = None
+    if current_user.get("sub"):
+        try:
+            admin_uuid = UUID(str(current_user.get("sub")))
+        except Exception:
+            pass
+
+    await auth_repo.create_audit_log(
+        user_id=admin_uuid,
+        action="ENDPOINT:UPDATE",
+        target_type="endpoints",
+        target_id=endpoint_id,
+        details=audit_details,
     )
-    update_query = text(f"""
-        UPDATE endpoints SET {set_clause}
-        WHERE id = CAST(:endpoint_id AS uuid)
-    """)
-    
-    params = updates.copy()
-    params["endpoint_id"] = str(endpoint_id)
-    
-    await db.execute(update_query, params)
-    
-    audit_details = {k: v for k, v in updates.items() if k != "updated_at"}
-    audit_query = text("""
-        INSERT INTO audit_logs (
-            user_id, action, target_type, target_id, details
-        ) VALUES (
-            CAST(:user_id AS uuid), 'ENDPOINT:UPDATE', 'endpoints',
-            CAST(:target_id AS uuid), :details
-        )
-    """)
-    await db.execute(audit_query, {
-        "user_id": current_user.get("sub"),
-        "target_id": str(endpoint_id),
-        "details": json.dumps(audit_details, default=str),
-    })
-    
+
     await db.commit()
 
     try:
         await topology_manager.full_rebuild(db)
     except Exception:
         pass
-    
+
     return APIResponse.success(data={"message": "Endpoint updated."})
+
 
 @router.delete("/{endpoint_id}", response_model=APIResponse)
 async def delete_endpoint(
@@ -636,50 +485,40 @@ async def delete_endpoint(
 ):
     from app.services.topology import topology_manager
 
-    check_query = text("""
-        SELECT id FROM endpoints
-        WHERE id = CAST(:endpoint_id AS uuid)
-          AND endpoint_status != 'DELETED'
-    """)
-    check_result = await db.execute(check_query, {"endpoint_id": str(endpoint_id)})
-    if not check_result.fetchone():
+    repo = EndpointRepository(db)
+    auth_repo = AuthRepository(db)
+
+    endpoint = await repo.get_by_id(endpoint_id)
+    if not endpoint:
         raise HTTPException(status_code=404, detail="Endpoint not found.")
-        
-    now = datetime.now(get_local_timezone())
-    delete_query = text("""
-        UPDATE endpoints
-        SET endpoint_status = 'DELETED',
-            deleted_at = :now,
-            updated_at = :now
-        WHERE id = CAST(:endpoint_id AS uuid)
-    """)
-    await db.execute(delete_query, {
-        "endpoint_id": str(endpoint_id),
-        "now": now,
-    })
-    
-    audit_query = text("""
-        INSERT INTO audit_logs (
-            user_id, action, target_type, target_id, details
-        ) VALUES (
-            CAST(:user_id AS uuid), 'ENDPOINT:DELETE', 'endpoints',
-            CAST(:target_id AS uuid), :details
-        )
-    """)
-    await db.execute(audit_query, {
-        "user_id": current_user.get("sub"),
-        "target_id": str(endpoint_id),
-        "details": json.dumps({}),
-    })
-    
+
+    now = datetime.now(timezone.utc)
+    await repo.soft_delete_endpoint(endpoint_id, deleted_at=now)
+
+    admin_uuid = None
+    if current_user.get("sub"):
+        try:
+            admin_uuid = UUID(str(current_user.get("sub")))
+        except Exception:
+            pass
+
+    await auth_repo.create_audit_log(
+        user_id=admin_uuid,
+        action="ENDPOINT:DELETE",
+        target_type="endpoints",
+        target_id=endpoint_id,
+        details={},
+    )
+
     await db.commit()
 
     try:
         await topology_manager.full_rebuild(db)
     except Exception:
         pass
-    
+
     return APIResponse.success(data={"message": "Endpoint deleted."})
+
 
 @router.post("/{endpoint_id}/refresh-baseline", response_model=APIResponse)
 async def trigger_refresh_baseline(
@@ -690,17 +529,14 @@ async def trigger_refresh_baseline(
     from app.services.baseline_route import refresh_baseline_route
     from app.services.topology import topology_manager
 
-    check_query = text("""
-        SELECT host(ip_address) AS ip_address FROM endpoints
-        WHERE id = CAST(:endpoint_id AS uuid)
-          AND endpoint_status != 'DELETED'
-    """)
-    check_result = await db.execute(check_query, {"endpoint_id": str(endpoint_id)})
-    row = check_result.fetchone()
-    if not row:
+    repo = EndpointRepository(db)
+    endpoint = await repo.get_by_id(endpoint_id)
+    if not endpoint:
         raise HTTPException(status_code=404, detail="Endpoint not found.")
 
-    res = await refresh_baseline_route(endpoint_id, str(row.ip_address), db=db)
+    res = await refresh_baseline_route(
+        endpoint_id, str(endpoint.ip_address), db=db
+    )
     await db.commit()
 
     try:
@@ -709,5 +545,8 @@ async def trigger_refresh_baseline(
         pass
 
     return APIResponse.success(
-        data={"message": "Route discovery completed and baseline refreshed.", "route": res}
+        data={
+            "message": "Route discovery completed and baseline refreshed.",
+            "route": res,
+        }
     )

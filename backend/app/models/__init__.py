@@ -1,7 +1,21 @@
+from app.models.audit_log import AuditLog
 from app.models.baseline_route import EndpointBaselineRoute
+from app.models.diagnostic_trace import EndpointDiagnosticTrace
+from app.models.endpoint import Endpoint
+from app.models.endpoint_event import EndpointEvent
 from app.models.rca_incident import EndpointRCAIncident
+from app.models.system_setting import AppSetting, SystemSetting
+from app.models.user import Role, User
 
 __all__ = [
+    "Endpoint",
+    "User",
+    "Role",
+    "AuditLog",
+    "EndpointEvent",
+    "SystemSetting",
+    "AppSetting",
+    "EndpointDiagnosticTrace",
     "EndpointBaselineRoute",
     "EndpointRCAIncident",
 ]
