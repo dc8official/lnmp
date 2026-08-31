@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # ============================================================
-# lnmp Network Monitoring Platform - Production Installer
+# lnmp Network Monitoring Platform v3.0.0 - Production Installer
 # Supports: Debian 12+, Ubuntu 22.04+
 # Usage: sudo bash deploy/install.sh [--dry-run]
 # ============================================================

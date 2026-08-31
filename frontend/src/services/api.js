@@ -24,6 +24,10 @@ api.interceptors.response.use(
 
 export default api
 
+export function getVersion() {
+  return api.get('/version')
+}
+
 export function getEndpoints(status = null) {
   const params = {}
   if (status) params.status = status
@@ -59,14 +63,8 @@ export function getUptimeReport(id, startDate, endDate) {
   })
 }
 
-export function getIncidents(
-  id,
-  startDate,
-  endDate,
-  page = 1,
-  pageSize = 50
-) {
-  return api.get(`/reports/incidents/${id}`, {
+export function getEndpointEvents(id, startDate, endDate, page = 1, pageSize = 50) {
+  return api.get(`/reports/events/${id}`, {
     params: {
       start_date: startDate,
       end_date: endDate,
@@ -76,25 +74,59 @@ export function getIncidents(
   })
 }
 
-export function getEndpointEvents(id, startDate, endDate, page = 1, size = 100) {
-    return api.get(`/reports/events/${id}`, {
-        params: {
-            start_date: startDate,
-            end_date: endDate,
-            page,
-            size,
-        },
-    })
+export function getAvailabilityReport(id, startDate, endDate) {
+  return api.get(`/reports/availability/${id}`, {
+    params: {
+      start_date: startDate,
+      end_date: endDate,
+    },
+  })
 }
 
-export function exportBatchTelemetry(endpointIds, startTime, endTime) {
-    return api.post('/telemetry/export/batch', {
-        endpoint_ids: endpointIds,
-        start_time: startTime,
-        end_time: endTime,
-    }, {
-        responseType: 'blob',
-    })
+export function getRttTrend(id, startDate, endDate) {
+  return api.get(`/reports/rtt-trend/${id}`, {
+    params: {
+      start_date: startDate,
+      end_date: endDate,
+    },
+  })
+}
+
+export function getTransitionTimeline(id, startDate, endDate) {
+  return api.get(`/reports/timeline/${id}`, {
+    params: {
+      start_date: startDate,
+      end_date: endDate,
+    },
+  })
+}
+
+export function getAuditLogs(params = {}) {
+  return api.get('/reports/audit-logs', { params })
+}
+
+export function exportBatchTelemetry(endpointIds, startDate, endDate) {
+  return api.post(
+    '/reports/telemetry/export-batch',
+    {
+      endpoint_ids: endpointIds,
+      start_date: startDate,
+      end_date: endDate,
+    },
+    {
+      responseType: 'blob',
+    }
+  )
+}
+
+export function exportTelemetryCsv(endpointId, startDate, endDate) {
+  return api.get(`/reports/telemetry/export/${endpointId}`, {
+    params: {
+      start_date: startDate,
+      end_date: endDate,
+    },
+    responseType: 'blob',
+  })
 }
 
 export function login(username, password) {
@@ -105,16 +137,8 @@ export function logout() {
   return api.post('/auth/logout')
 }
 
-export function createEndpoint(dataOrIp, hostname, device_type, location) {
-  if (typeof dataOrIp === 'object' && dataOrIp !== null) {
-    return api.post('/endpoints/', dataOrIp)
-  }
-  return api.post('/endpoints/', {
-    ip_address: dataOrIp,
-    hostname,
-    device_type,
-    location,
-  })
+export function createEndpoint(data) {
+  return api.post('/endpoints/', data)
 }
 
 export function updateEndpoint(id, data) {

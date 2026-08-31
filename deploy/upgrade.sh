@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# LNMP Network Monitoring Platform v2.0 (Beta) - Automated Upgrade Utility
+# LNMP Network Monitoring Platform v3.0.0 - Automated Upgrade Utility
 # ==============================================================================
 
 set -euo pipefail
@@ -12,14 +12,14 @@ RED='\033[0;31m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
-# 1. Require Root / Administrative Privileges
-if [[ ${EUID} -ne 0 ]]; then
+# 1. Require Root / Administrative Privileges (bypassed in dry-run mode)
+if [[ ${EUID} -ne 0 && "${1:-}" != "--dry-run" ]]; then
     echo -e "${RED}[ERROR] This script must be executed with root privileges (e.g., sudo ./upgrade.sh).${NC}" >&2
     exit 1
 fi
 
 echo -e "${BLUE}========================================================================${NC}"
-echo -e "${BLUE}    LNMP Network Monitoring Platform v2.0 (Beta) - Upgrade Utility      ${NC}"
+echo -e "${BLUE}    LNMP Network Monitoring Platform v3.0.0 - Upgrade Utility           ${NC}"
 echo -e "${BLUE}========================================================================${NC}"
 
 # Resolve Script and Project Root Directory
@@ -88,6 +88,16 @@ echo -e "\n${BLUE}--- Step 2/7: Migrating System Configuration Defaults ---${NC}
 if [[ ${DRY_RUN} -eq 0 && -f "${CONFIG_FILE}" ]]; then
     echo -e "${GREEN}[INFO] Verifying configuration settings in ${CONFIG_FILE}...${NC}"
     
+    # Update ping timing budget to 5 pings @ 8.0s for v3.0.0
+    if grep -q "ping_count = 10" "${CONFIG_FILE}"; then
+        sed -i 's/ping_count = 10/ping_count = 5/' "${CONFIG_FILE}"
+        echo -e "${GREEN}[INFO] Updated ping_count to 5 probes.${NC}"
+    fi
+    if grep -q "ping_interval_seconds = 6" "${CONFIG_FILE}"; then
+        sed -i 's/ping_interval_seconds = 6/ping_interval_seconds = 8/' "${CONFIG_FILE}"
+        echo -e "${GREEN}[INFO] Updated ping_interval_seconds to 8s.${NC}"
+    fi
+
     # Update session_timeout_minutes to 120 if currently 30
     if grep -q "session_timeout_minutes = 30" "${CONFIG_FILE}"; then
         sed -i 's/session_timeout_minutes = 30/session_timeout_minutes = 120/' "${CONFIG_FILE}"
@@ -98,6 +108,20 @@ if [[ ${DRY_RUN} -eq 0 && -f "${CONFIG_FILE}" ]]; then
     if ! grep -q "max_active_sessions_per_user" "${CONFIG_FILE}"; then
         sed -i '/\[security\]/a max_active_sessions_per_user = 2' "${CONFIG_FILE}"
         echo -e "${GREEN}[INFO] Added max_active_sessions_per_user = 2 to [security].${NC}"
+    fi
+
+    # Add [redis] section if missing
+    if ! grep -q "\[redis\]" "${CONFIG_FILE}"; then
+        cat << 'EOF' >> "${CONFIG_FILE}"
+
+[redis]
+host = "127.0.0.1"
+port = 6379
+db = 0
+enabled = true
+performance_mode = false
+EOF
+        echo -e "${GREEN}[INFO] Appended [redis] storage driver section to ${CONFIG_FILE}.${NC}"
     fi
 fi
 
@@ -115,22 +139,35 @@ else
 fi
 
 # 6. Dependency Update & Code Compilation
-echo -e "\n${BLUE}--- Step 4/7: Updating Python Dependencies & Building Frontend ---${NC}"
+echo -e "\n${BLUE}--- Step 4/7: Updating System Packages, Dependencies & Building Frontend ---${NC}"
 if [[ ${DRY_RUN} -eq 0 ]]; then
     cd "${PROJECT_ROOT}"
     if [[ -d ".git" ]]; then
         echo -e "${GREEN}[INFO] Pulling latest updates from git repository...${NC}"
-        git pull origin main || git pull || echo -e "${YELLOW}[WARN] Git pull completed with non-zero status. Continuing...${NC}"
+        git pull origin v3.0.0 || git pull origin 3.0.0 || git pull origin main || git pull || echo -e "${YELLOW}[WARN] Git pull completed with non-zero status. Continuing...${NC}"
     else
         echo -e "${YELLOW}[INFO] Working directory is not a git repository. Skipping git pull.${NC}"
     fi
 
-    # Ensure system dependencies (traceroute, libcap2-bin)
+    # Ensure system dependencies (redis-server, traceroute, libcap2-bin)
     if command -v apt-get &>/dev/null; then
-        if ! dpkg -l traceroute libcap2-bin 2>/dev/null | grep -q "^ii"; then
-            echo -e "${GREEN}[INFO] Installing missing system utilities (traceroute, libcap2-bin)...${NC}"
-            apt-get update -qq && apt-get install -y traceroute libcap2-bin || true
+        PACKAGES_TO_CHECK="redis-server traceroute libcap2-bin"
+        MISSING_PKGS=""
+        for pkg in ${PACKAGES_TO_CHECK}; do
+            if ! dpkg -l "${pkg}" 2>/dev/null | grep -q "^ii"; then
+                MISSING_PKGS="${MISSING_PKGS} ${pkg}"
+            fi
+        done
+
+        if [[ -n "${MISSING_PKGS}" ]]; then
+            echo -e "${GREEN}[INFO] Installing missing system packages:${MISSING_PKGS}...${NC}"
+            apt-get update -qq && apt-get install -y ${MISSING_PKGS} || true
         fi
+
+        # Enable and start Redis
+        systemctl enable --now redis-server 2>/dev/null || systemctl enable --now redis 2>/dev/null || true
+
+        # Set network capabilities for raw ICMP traceroute
         TRACEROUTE_BIN=$(command -v traceroute || true)
         if [[ -n "${TRACEROUTE_BIN}" ]] && command -v setcap &>/dev/null; then
             setcap cap_net_raw+ep "${TRACEROUTE_BIN}" || true
@@ -163,7 +200,7 @@ if [[ ${DRY_RUN} -eq 0 ]]; then
         cd "${PROJECT_ROOT}"
     fi
 else
-    echo -e "[DRY-RUN] Would pull git updates, upgrade pip requirements, and execute npm run build in frontend/"
+    echo -e "[DRY-RUN] Would install redis-server, upgrade pip requirements, and execute npm run build in frontend/"
 fi
 
 # 7. Synchronize Production Files
@@ -229,6 +266,7 @@ if [[ ${DRY_RUN} -eq 0 ]]; then
 
     echo -e "${GREEN}[INFO] Reloading systemd daemons and enabling auto-start on boot...${NC}"
     systemctl daemon-reload
+    systemctl enable --now redis-server 2>/dev/null || systemctl enable --now redis 2>/dev/null || true
     systemctl enable netmon-api netmon-engine || true
     systemctl restart netmon-api netmon-engine
     systemctl restart nginx || true
@@ -240,10 +278,10 @@ if [[ ${DRY_RUN} -eq 0 ]]; then
         echo -e "${YELLOW}[WARN] Check service status via: systemctl status netmon-api netmon-engine${NC}"
     fi
 else
-    echo -e "[DRY-RUN] Would run: systemctl enable & restart netmon-api netmon-engine"
+    echo -e "[DRY-RUN] Would run: systemctl enable & restart redis-server netmon-api netmon-engine"
 fi
 
 echo -e "\n${GREEN}========================================================================${NC}"
-echo -e "${GREEN}   [UPGRADE COMPLETE] LNMP v2.0 (Beta) Platform upgraded successfully!   ${NC}"
+echo -e "${GREEN}   [UPGRADE COMPLETE] LNMP v3.0.0 Platform upgraded successfully!       ${NC}"
 echo -e "${GREEN}   Pre-Upgrade Database Backup Saved At: ${BACKUP_FILE}${NC}"
 echo -e "${GREEN}========================================================================${NC}"

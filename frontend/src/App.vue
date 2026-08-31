@@ -3,8 +3,8 @@
     <header class="app-header" v-if="showNav">
       <div class="header-inner">
         <div class="brand">
-          <span class="brand-name">LNMP</span>
-          <span class="brand-version">v3.0.0</span>
+          <span class="brand-name">lnmp</span>
+          <span class="brand-version">{{ appVersion || 'v3.0.0' }}</span>
         </div>
         <nav class="header-nav" aria-label="Main Navigation">
           <RouterLink to="/" class="nav-link">Dashboard</RouterLink>
@@ -107,12 +107,13 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter, useRoute, RouterLink, RouterView } from 'vue-router'
-import { logout, changePassword } from './services/api.js'
+import { logout, changePassword, getVersion } from './services/api.js'
 import { currentUser, isAdmin, mustChangePassword, loadUserFromStorage, setUserState, clearUserState } from './services/auth.js'
 
 const router = useRouter()
 const route = useRoute()
 const isDark = ref(true)
+const appVersion = ref('v3.0.0')
 const liveAnnouncement = ref('')
 let globalSse = null
 
@@ -131,7 +132,7 @@ const changePasswordForm = ref({
   confirm_password: ''
 })
 
-onMounted(() => {
+onMounted(async () => {
   const saved = localStorage.getItem('theme') || 'dark'
   if (saved === 'dark') {
     isDark.value = true
@@ -142,6 +143,15 @@ onMounted(() => {
   }
   
   loadUserFromStorage()
+
+  try {
+    const res = await getVersion()
+    if (res.data?.data?.version) {
+      appVersion.value = `v${res.data.data.version.replace(/^v/, '')}`
+    }
+  } catch (err) {
+    appVersion.value = 'v3.0.0'
+  }
 
   // Global SSE listener for accessibility screen reader announcements
   try {

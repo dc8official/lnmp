@@ -4,8 +4,8 @@
       <Card class="login-card">
         <template #title>
           <div class="brand-header">
-            <h2>lnmp Platform</h2>
-            <p class="brand-subtitle">Network Uptime Monitoring v2.0(beta)</p>
+            <h2>lnmp v3.0.0</h2>
+            <p class="brand-subtitle">Network Uptime Monitoring Platform</p>
           </div>
         </template>
         <template #content>
