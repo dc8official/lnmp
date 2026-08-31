@@ -1,19 +1,25 @@
 from __future__ import annotations
+
 import logging
 import time
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
+
 from app.config import settings
+from app.database import AsyncSessionLocal, check_database_connection
 from app.logging_config import setup_logging
-from app.database import check_database_connection, AsyncSessionLocal
-from app.services.baseline_service import baseline_cache, start_baseline_refresh_task
-from app.services.diagnostics import start_discovery_worker, start_diagnostic_cleanup_task
-from app.schemas import APIResponse
-from app.routers import auth, endpoints, reports, topology, users
+from app.routers import auth, endpoints, events, reports, topology, users
 from app.routers.reports import telemetry_router
+from app.schemas import APIResponse
 from app.services.baseline_route import start_midnight_discovery_worker
+from app.services.baseline_service import baseline_cache, start_baseline_refresh_task
+from app.services.diagnostics import (
+    start_diagnostic_cleanup_task,
+    start_discovery_worker,
+)
+from app.services.driver_manager import driver_manager
 from app.services.topology import topology_manager
 
 # Initialize dual console and rotating file logging
@@ -23,28 +29,40 @@ logger = setup_logging(
     log_level=getattr(settings.logging, "level", "INFO"),
 )
 
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await check_database_connection()
+    # Initialize storage driver manager (Redis / PostgreSQL)
+    await driver_manager.initialize()
+
     # Initialize baseline cache and topology DAG manager
     async with AsyncSessionLocal() as db:
         await baseline_cache.refresh_from_db(db)
         await topology_manager.full_rebuild(db)
-    refresh_task = await start_baseline_refresh_task(AsyncSessionLocal, interval_seconds=3600)
+
+    refresh_task = await start_baseline_refresh_task(
+        AsyncSessionLocal, interval_seconds=3600
+    )
     discovery_task = await start_discovery_worker(AsyncSessionLocal)
     midnight_task = await start_midnight_discovery_worker(AsyncSessionLocal)
-    cleanup_task = await start_diagnostic_cleanup_task(AsyncSessionLocal, interval_seconds=86400)
-    logger.info("LNMP v2.0 (Beta) started successfully with Hybrid Adaptive Baselines & Real-Time Diagnostics.")
+    cleanup_task = await start_diagnostic_cleanup_task(
+        AsyncSessionLocal, interval_seconds=86400
+    )
+    logger.info(
+        "LNMP v3.0.0 started successfully with Real-Time SSE, Dual-Storage Architecture & Multi-Protocol Diagnostics."
+    )
     yield
     refresh_task.cancel()
     discovery_task.cancel()
     midnight_task.cancel()
     cleanup_task.cancel()
-    logger.info("LNMP v2.0 (Beta) platform shutting down cleanly.")
+    logger.info("LNMP v3.0.0 platform shutting down cleanly.")
+
 
 app = FastAPI(
     title="lnmp - Network Monitoring Platform",
-    version="2.0.0-beta",
+    version="3.0.0",
     docs_url="/api/docs",
     redoc_url="/api/redoc",
     openapi_url="/api/openapi.json",
@@ -59,11 +77,16 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
 class AccessLoggingMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         start_time = time.perf_counter()
         forwarded = request.headers.get("X-Forwarded-For")
-        client_ip = forwarded.split(",")[0].strip() if forwarded else (request.client.host if request.client else "127.0.0.1")
+        client_ip = (
+            forwarded.split(",")[0].strip()
+            if forwarded
+            else (request.client.host if request.client else "127.0.0.1")
+        )
         path = request.url.path
         method = request.method
         try:
@@ -71,20 +94,58 @@ class AccessLoggingMiddleware(BaseHTTPMiddleware):
             latency_ms = (time.perf_counter() - start_time) * 1000.0
             status = response.status_code
             if status >= 500:
-                logger.error("%s - \"%s %s\" %d SERVER ERROR - %.2fms", client_ip, method, path, status, latency_ms)
+                logger.error(
+                    '%s - "%s %s" %d SERVER ERROR - %.2fms',
+                    client_ip,
+                    method,
+                    path,
+                    status,
+                    latency_ms,
+                )
             elif status in (401, 403):
-                logger.warning("%s - \"%s %s\" %d AUTH REJECTED - %.2fms", client_ip, method, path, status, latency_ms)
+                logger.warning(
+                    '%s - "%s %s" %d AUTH REJECTED - %.2fms',
+                    client_ip,
+                    method,
+                    path,
+                    status,
+                    latency_ms,
+                )
             elif status >= 400:
-                logger.info("%s - \"%s %s\" %d CLIENT ERROR - %.2fms", client_ip, method, path, status, latency_ms)
+                logger.info(
+                    '%s - "%s %s" %d CLIENT ERROR - %.2fms',
+                    client_ip,
+                    method,
+                    path,
+                    status,
+                    latency_ms,
+                )
             else:
-                logger.info("%s - \"%s %s\" %d OK - %.2fms", client_ip, method, path, status, latency_ms)
+                logger.info(
+                    '%s - "%s %s" %d OK - %.2fms',
+                    client_ip,
+                    method,
+                    path,
+                    status,
+                    latency_ms,
+                )
             return response
         except Exception as exc:
             latency_ms = (time.perf_counter() - start_time) * 1000.0
-            logger.error("%s - \"%s %s\" 500 EXCEPTION: %s (%.2fms)", client_ip, method, path, exc, latency_ms, exc_info=True)
+            logger.error(
+                '%s - "%s %s" 500 EXCEPTION: %s (%.2fms)',
+                client_ip,
+                method,
+                path,
+                exc,
+                latency_ms,
+                exc_info=True,
+            )
             raise
 
+
 app.add_middleware(AccessLoggingMiddleware)
+
 
 class HSTSMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request, call_next):
@@ -95,19 +156,25 @@ class HSTSMiddleware(BaseHTTPMiddleware):
             )
         return response
 
+
 app.add_middleware(HSTSMiddleware)
 
 app.include_router(auth.router, prefix="/api/v1")
 app.include_router(endpoints.router, prefix="/api/v1")
+app.include_router(events.router, prefix="/api/v1")
 app.include_router(reports.router, prefix="/api/v1")
 app.include_router(topology.router, prefix="/api/v1")
 app.include_router(users.router, prefix="/api/v1")
 app.include_router(telemetry_router)
 
+
 @app.get("/api/v1/version", tags=["system"])
 async def get_version():
-    return APIResponse.success(data={"version": "2.0.0-beta", "platform": "lnmp v2.0(beta)"})
+    return APIResponse.success(
+        data={"version": "3.0.0", "platform": "lnmp v3.0.0"}
+    )
+
 
 @app.get("/api/v1/health", tags=["system"])
 async def health_check():
-    return APIResponse.success(data={"status": "ok", "version": "2.0.0-beta"})
+    return APIResponse.success(data={"status": "ok", "version": "3.0.0"})

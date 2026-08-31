@@ -4,13 +4,39 @@
     <div class="dashboard-toolbar">
       <div class="toolbar-left">
         <h1 class="page-title">Network Dashboard</h1>
-        <p class="page-sub" v-if="!loading && !error">
-          {{ endpoints.length }} monitored endpoint{{ endpoints.length !== 1 ? 's' : '' }}
-          <span class="separator">·</span>
-          Sync: {{ lastRefreshedLabel }}
-        </p>
+        <div class="toolbar-sub-row">
+          <span class="page-sub" v-if="!loading && !error">
+            {{ endpoints.length }} monitored target{{ endpoints.length !== 1 ? 's' : '' }}
+            <span class="separator">·</span>
+            Sync: {{ lastRefreshedLabel }}
+          </span>
+          <span class="sse-indicator" :class="sseConnected ? 'sse-live' : 'sse-connecting'">
+            <span class="pulse-dot"></span>
+            {{ sseConnected ? 'Live SSE' : 'Reconnecting...' }}
+          </span>
+        </div>
       </div>
       <div class="toolbar-right">
+        <!-- Dual View Switcher -->
+        <div class="view-switcher" v-if="activeTab === 'endpoints'">
+          <button 
+            class="btn-view" 
+            :class="{ active: viewMode === 'grid' }" 
+            @click="viewMode = 'grid'"
+            title="Visual Card Grid"
+          >
+            ▦ Cards
+          </button>
+          <button 
+            class="btn-view" 
+            :class="{ active: viewMode === 'table' }" 
+            @click="viewMode = 'table'"
+            title="Dense Sortable Data Table"
+          >
+            ☰ Table
+          </button>
+        </div>
+
         <button 
           class="btn-secondary" 
           @click="fetchEndpoints" 
@@ -28,6 +54,62 @@
       </div>
     </div>
 
+    <!-- Global Network Health KPI Strip -->
+    <div class="kpi-strip">
+      <div 
+        class="kpi-card" 
+        :class="{ active: statusFilter === 'ALL' }" 
+        @click="statusFilter = 'ALL'"
+        role="button"
+        tabindex="0"
+        @keydown.enter="statusFilter = 'ALL'"
+      >
+        <span class="kpi-label">Total Monitored</span>
+        <span class="kpi-value tnum">{{ kpiStats.total }}</span>
+      </div>
+
+      <div 
+        class="kpi-card kpi-up" 
+        :class="{ active: statusFilter === 'UP' }" 
+        @click="statusFilter = statusFilter === 'UP' ? 'ALL' : 'UP'"
+        role="button"
+        tabindex="0"
+        @keydown.enter="statusFilter = statusFilter === 'UP' ? 'ALL' : 'UP'"
+      >
+        <span class="kpi-label">🟢 UP</span>
+        <span class="kpi-value tnum text-up">{{ kpiStats.up }}</span>
+      </div>
+
+      <div 
+        class="kpi-card kpi-unstable" 
+        :class="{ active: statusFilter === 'UNSTABLE' }" 
+        @click="statusFilter = statusFilter === 'UNSTABLE' ? 'ALL' : 'UNSTABLE'"
+        role="button"
+        tabindex="0"
+        @keydown.enter="statusFilter = statusFilter === 'UNSTABLE' ? 'ALL' : 'UNSTABLE'"
+      >
+        <span class="kpi-label">🟡 UNSTABLE</span>
+        <span class="kpi-value tnum text-unstable">{{ kpiStats.unstable }}</span>
+      </div>
+
+      <div 
+        class="kpi-card kpi-down" 
+        :class="{ active: statusFilter === 'DOWN' }" 
+        @click="statusFilter = statusFilter === 'DOWN' ? 'ALL' : 'DOWN'"
+        role="button"
+        tabindex="0"
+        @keydown.enter="statusFilter = statusFilter === 'DOWN' ? 'ALL' : 'DOWN'"
+      >
+        <span class="kpi-label">🔴 DOWN</span>
+        <span class="kpi-value tnum text-down">{{ kpiStats.down }}</span>
+      </div>
+
+      <div class="kpi-card kpi-sla">
+        <span class="kpi-label">📈 Fleet SLA (24h)</span>
+        <span class="kpi-value tnum text-accent">{{ kpiStats.sla }}%</span>
+      </div>
+    </div>
+
     <!-- Console Tabs -->
     <div class="dashboard-tabs">
       <button 
@@ -36,6 +118,9 @@
         @click="activeTab = 'endpoints'"
       >
         Monitored Endpoints
+        <span class="tab-badge tnum" v-if="filteredEndpoints.length !== endpoints.length">
+          {{ filteredEndpoints.length }} / {{ endpoints.length }}
+        </span>
       </button>
       <button 
         class="tab-btn" 
@@ -48,13 +133,13 @@
 
     <!-- Endpoints Content -->
     <div v-if="activeTab === 'endpoints'">
-      <div v-if="error" class="alert-error">
+      <div v-if="error" class="alert-error" role="alert">
         {{ error }}
       </div>
 
       <div v-if="loading && endpoints.length === 0" class="empty-state">
         <div class="spinner"></div>
-        <p>Synchronizing network status...</p>
+        <p>Synchronizing real-time network status...</p>
       </div>
 
       <div v-else-if="!loading && endpoints.length === 0 && !error" class="empty-state">
@@ -65,9 +150,15 @@
         </button>
       </div>
 
-      <div v-else class="endpoint-grid">
+      <div v-else-if="filteredEndpoints.length === 0" class="empty-state">
+        <p class="empty-title">No endpoints match filter "{{ statusFilter }}"</p>
+        <button class="btn-secondary" @click="statusFilter = 'ALL'">Clear Filter</button>
+      </div>
+
+      <!-- View 1: Visual Card Grid -->
+      <div v-else-if="viewMode === 'grid'" class="endpoint-grid">
         <EndpointCard
-          v-for="ep in endpoints"
+          v-for="ep in filteredEndpoints"
           :key="ep.id"
           :endpoint="ep"
           :isAdmin="isAdmin"
@@ -79,12 +170,95 @@
         />
       </div>
 
+      <!-- View 2: Dense Sortable Data Table -->
+      <div v-else-if="viewMode === 'table'" class="table-card">
+        <div class="table-responsive">
+          <table class="dense-table" aria-label="Monitored Endpoints Table">
+            <thead>
+              <tr>
+                <th style="width: 40px;">
+                  <input 
+                    type="checkbox" 
+                    :checked="isAllSelected" 
+                    @change="toggleSelectAll"
+                    aria-label="Select all endpoints" 
+                  />
+                </th>
+                <th @click="handleSort('hostname')" class="sortable-th">
+                  Hostname {{ sortKey === 'hostname' ? (sortAsc ? '▲' : '▼') : '' }}
+                </th>
+                <th @click="handleSort('ip_address')" class="sortable-th">
+                  IP Address {{ sortKey === 'ip_address' ? (sortAsc ? '▲' : '▼') : '' }}
+                </th>
+                <th @click="handleSort('device_type')" class="sortable-th">
+                  Device Type {{ sortKey === 'device_type' ? (sortAsc ? '▲' : '▼') : '' }}
+                </th>
+                <th @click="handleSort('detailed_state')" class="sortable-th">
+                  State {{ sortKey === 'detailed_state' ? (sortAsc ? '▲' : '▼') : '' }}
+                </th>
+                <th @click="handleSort('avg_rtt_ms')" class="sortable-th text-right">
+                  Avg Latency {{ sortKey === 'avg_rtt_ms' ? (sortAsc ? '▲' : '▼') : '' }}
+                </th>
+                <th @click="handleSort('packet_loss_pct')" class="sortable-th text-right">
+                  Loss % {{ sortKey === 'packet_loss_pct' ? (sortAsc ? '▲' : '▼') : '' }}
+                </th>
+                <th @click="handleSort('uptime_pct')" class="sortable-th text-right">
+                  24h Uptime {{ sortKey === 'uptime_pct' ? (sortAsc ? '▲' : '▼') : '' }}
+                </th>
+                <th class="text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr 
+                v-for="ep in sortedEndpoints" 
+                :key="ep.id"
+                class="clickable-row"
+                :class="{ 'row-selected': selectedIds.includes(ep.id) }"
+                @click="navigateTo(ep.id)"
+              >
+                <td @click.stop>
+                  <input 
+                    type="checkbox" 
+                    :checked="selectedIds.includes(ep.id)" 
+                    @change="toggleEndpointSelect(ep.id)"
+                    aria-label="Select endpoint"
+                  />
+                </td>
+                <td class="font-bold">{{ ep.hostname }}</td>
+                <td class="font-mono tnum">{{ ep.ip_address }}</td>
+                <td><span class="device-tag">{{ ep.device_type }}</span></td>
+                <td>
+                  <span class="status-pill" :class="getStateClass(ep.current_state?.detailed_state || ep.endpoint_status)">
+                    {{ ep.current_state?.detailed_state || ep.endpoint_status }}
+                  </span>
+                </td>
+                <td class="font-mono tnum text-right">
+                  {{ ep.current_state?.avg_rtt_ms != null ? ep.current_state.avg_rtt_ms.toFixed(1) + ' ms' : '—' }}
+                </td>
+                <td class="font-mono tnum text-right">
+                  {{ getLossPct(ep) }}
+                </td>
+                <td class="font-mono tnum text-right font-bold">
+                  {{ getUptimePct(ep) }}
+                </td>
+                <td class="text-right" @click.stop>
+                  <div class="table-actions">
+                    <button class="btn-action" @click="openEditDialog(ep)" title="Edit">✎</button>
+                    <button class="btn-action text-down" v-if="isAdmin" @click="confirmDeleteEndpoint(ep.id)" title="Delete">✕</button>
+                  </div>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
       <!-- Selection Contextual Banner -->
       <transition name="fade">
         <div v-if="selectedIds.length > 0" class="selection-banner">
           <div class="banner-content">
-            <span class="selection-count">
-              <strong>{{ selectedIds.length }}</strong> target(s) selected for CSV export
+            <span class="selection-count font-mono tnum">
+              <strong>{{ selectedIds.length }}</strong> target(s) selected
             </span>
             <button 
               class="btn-primary btn-small" 
@@ -92,6 +266,9 @@
               @click="exportSelectedCSV"
             >
               {{ exporting ? 'Exporting...' : 'Export Selected CSV' }}
+            </button>
+            <button class="btn-secondary btn-small" @click="selectedIds = []">
+              Clear
             </button>
           </div>
         </div>
@@ -123,7 +300,7 @@
           <div class="form-group">
             <label>IP Address *</label>
             <input 
-              class="form-input" 
+              class="form-input font-mono" 
               v-model="form.ip_address" 
               placeholder="e.g. 192.168.1.1 or 8.8.8.8" 
               required 
@@ -188,76 +365,39 @@
 </template>
 
 <script setup>
-import { ref, onMounted, computed } from 'vue'
+import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { 
   getEndpoints, 
   createEndpoint, 
   updateEndpoint, 
   deleteEndpoint, 
-  changePassword,
-  getUsers,
-  createUser,
-  resetUserPassword,
-  updateUser,
-  deleteUser,
   exportBatchTelemetry
 } from '../services/api.js'
 import EndpointCard from '../components/EndpointCard.vue'
 import TopologyMap from '../components/TopologyMap.vue'
 
 const router = useRouter()
-const isDarkMode = ref(true)
 
 const endpoints = ref([])
 const loading = ref(false)
 const error = ref(null)
 const lastRefreshed = ref(null)
 const user = ref(null)
+const sseConnected = ref(false)
+let eventSource = null
+
+// View Mode: 'grid' | 'table'
+const viewMode = ref('grid')
+const statusFilter = ref('ALL')
+
+// Sorting for table view
+const sortKey = ref('hostname')
+const sortAsc = ref(true)
 
 const selectedIds = ref([])
 const exporting = ref(false)
 
-const toggleEndpointSelect = (id) => {
-  const idx = selectedIds.value.indexOf(id)
-  if (idx > -1) {
-    selectedIds.value.splice(idx, 1)
-  } else {
-    selectedIds.value.push(id)
-  }
-}
-
-const exportSelectedCSV = async () => {
-  if (selectedIds.value.length === 0) return
-  
-  exporting.value = true
-  try {
-    const now = new Date()
-    const endTime = now.toISOString()
-    const past = new Date()
-    past.setDate(past.getDate() - 7)
-    const startTime = past.toISOString()
-    
-    const response = await exportBatchTelemetry(selectedIds.value, startTime, endTime)
-    
-    const blob = new Blob([response.data], { type: 'text/csv' })
-    const link = document.createElement('a')
-    link.href = window.URL.createObjectURL(blob)
-    link.download = `batch_telemetry_${Date.now()}.csv`
-    document.body.appendChild(link)
-    link.click()
-    document.body.removeChild(link)
-    
-    selectedIds.value = []
-  } catch (err) {
-    console.error('Failed to export CSV:', err)
-    alert('Failed to export selected telemetry CSV. Ensure the server is responsive.')
-  } finally {
-    exporting.value = false
-  }
-}
-
-// Tab state
 const activeTab = ref('endpoints')
 
 // Form states
@@ -280,25 +420,153 @@ const form = ref({
 
 const isAdmin = computed(() => user.value?.role === 'ADMIN')
 
-const fetchEndpoints = async () => {
-  if (user.value?.must_change_password) {
-    endpoints.value = []
-    return
-  }
+const kpiStats = computed(() => {
+  const total = endpoints.value.length
+  let up = 0
+  let unstable = 0
+  let down = 0
 
+  endpoints.value.forEach(ep => {
+    const st = ep.current_state?.detailed_state || ep.endpoint_status || 'UP'
+    if (st === 'UP') up++
+    else if (st === 'UP-UNSTABLE' || st === 'DOWN-UNSTABLE') unstable++
+    else if (st === 'DOWN') down++
+    else up++
+  })
+
+  const sla = total > 0 ? (((up + unstable * 0.5) / total) * 100).toFixed(1) : '100.0'
+  return { total, up, unstable, down, sla }
+})
+
+const filteredEndpoints = computed(() => {
+  if (statusFilter.value === 'ALL') return endpoints.value
+  return endpoints.value.filter(ep => {
+    const st = ep.current_state?.detailed_state || ep.endpoint_status || 'UP'
+    if (statusFilter.value === 'UP') return st === 'UP'
+    if (statusFilter.value === 'UNSTABLE') return st === 'UP-UNSTABLE' || st === 'DOWN-UNSTABLE'
+    if (statusFilter.value === 'DOWN') return st === 'DOWN'
+    return true
+  })
+})
+
+const sortedEndpoints = computed(() => {
+  const list = [...filteredEndpoints.value]
+  list.sort((a, b) => {
+    let valA = a[sortKey.value]
+    let valB = b[sortKey.value]
+
+    if (sortKey.value === 'detailed_state') {
+      valA = a.current_state?.detailed_state || a.endpoint_status || ''
+      valB = b.current_state?.detailed_state || b.endpoint_status || ''
+    } else if (sortKey.value === 'avg_rtt_ms') {
+      valA = a.current_state?.avg_rtt_ms ?? 99999
+      valB = b.current_state?.avg_rtt_ms ?? 99999
+    } else if (sortKey.value === 'packet_loss_pct') {
+      valA = a.current_state?.failed_count ?? 0
+      valB = b.current_state?.failed_count ?? 0
+    } else if (sortKey.value === 'uptime_pct') {
+      valA = a.current_state?.health_score ?? 100
+      valB = b.current_state?.health_score ?? 100
+    }
+
+    if (valA < valB) return sortAsc.value ? -1 : 1
+    if (valA > valB) return sortAsc.value ? 1 : -1
+    return 0
+  })
+  return list
+})
+
+const isAllSelected = computed(() => {
+  return filteredEndpoints.value.length > 0 && filteredEndpoints.value.every(ep => selectedIds.value.includes(ep.id))
+})
+
+const toggleSelectAll = () => {
+  if (isAllSelected.value) {
+    selectedIds.value = []
+  } else {
+    selectedIds.value = filteredEndpoints.value.map(ep => ep.id)
+  }
+}
+
+function handleSort(key) {
+  if (sortKey.value === key) {
+    sortAsc.value = !sortAsc.value
+  } else {
+    sortKey.value = key
+    sortAsc.value = true
+  }
+}
+
+function getStateClass(st) {
+  if (st === 'UP') return 'status-up'
+  if (st === 'UP-UNSTABLE' || st === 'DOWN-UNSTABLE') return 'status-unstable'
+  if (st === 'DOWN') return 'status-down'
+  return ''
+}
+
+function getLossPct(ep) {
+  const succ = ep.current_state?.success_count ?? 5
+  const fail = ep.current_state?.failed_count ?? 0
+  const tot = succ + fail
+  if (tot === 0) return '0%'
+  return `${Math.round((fail / tot) * 100)}%`
+}
+
+function getUptimePct(ep) {
+  const hs = ep.current_state?.health_score
+  if (hs != null) return `${hs.toFixed(1)}%`
+  return '100.0%'
+}
+
+const toggleEndpointSelect = (id) => {
+  const idx = selectedIds.value.indexOf(id)
+  if (idx > -1) {
+    selectedIds.value.splice(idx, 1)
+  } else {
+    selectedIds.value.push(id)
+  }
+}
+
+const exportSelectedCSV = async () => {
+  if (selectedIds.value.length === 0) return
+  exporting.value = true
+  try {
+    const now = new Date()
+    const endTime = now.toISOString()
+    const past = new Date()
+    past.setDate(past.getDate() - 7)
+    const startTime = past.toISOString()
+    
+    const response = await exportBatchTelemetry(selectedIds.value, startTime, endTime)
+    const blob = new Blob([response.data], { type: 'text/csv' })
+    const link = document.createElement('a')
+    link.href = window.URL.createObjectURL(blob)
+    link.download = `batch_telemetry_${Date.now()}.csv`
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    selectedIds.value = []
+  } catch (err) {
+    console.error('Failed to export CSV:', err)
+    alert('Failed to export selected telemetry CSV.')
+  } finally {
+    exporting.value = false
+  }
+}
+
+const fetchEndpoints = async () => {
   loading.value = true
   error.value = null
   try {
     const response = await getEndpoints()
     endpoints.value = response.data.data || []
     lastRefreshed.value = new Date()
-    selectedIds.value = []
   } catch (err) {
     if (err.response?.status === 401) {
       localStorage.removeItem('user')
       router.push('/login')
     } else {
-      error.value = err.response?.data?.detail || err.response?.data?.error?.message || 'Failed to connect to backend engine. Verify backend is running.'
+      error.value = err.response?.data?.detail || err.response?.data?.error?.message || 'Failed to connect to backend engine.'
     }
   } finally {
     loading.value = false
@@ -314,7 +582,6 @@ const lastRefreshedLabel = computed(() => {
   return lastRefreshed.value.toLocaleTimeString()
 })
 
-// Dialog management
 const openAddDialog = () => {
   isEditing.value = false
   form.value = {
@@ -359,7 +626,7 @@ const saveEndpoint = async () => {
     displayDialog.value = false
     await fetchEndpoints()
   } catch (err) {
-    alert(err.response?.data?.detail || 'Failed to save endpoint definitions.')
+    alert(err.response?.data?.detail || 'Failed to save endpoint.')
   } finally {
     formSaving.value = false
   }
@@ -383,66 +650,55 @@ const executeDeleteEndpoint = async () => {
   }
 }
 
-const executeChangePassword = async () => {
-  if (changePasswordForm.value.new_password !== changePasswordForm.value.confirm_password) {
-    changePasswordError.value = 'Passwords do not match.'
-    return
-  }
-  if (changePasswordForm.value.new_password.length < 8) {
-    changePasswordError.value = 'New password must be at least 8 characters long.'
-    return
-  }
-
-  changePasswordLoading.value = true
-  changePasswordError.value = null
+function initSSE() {
   try {
-    await changePassword({
-      old_password: changePasswordForm.value.old_password,
-      new_password: changePasswordForm.value.new_password
-    })
-    
-    // Update local storage user details
-    const storedUser = localStorage.getItem('user')
-    if (storedUser) {
-      const parsed = JSON.parse(storedUser)
-      parsed.must_change_password = false
-      localStorage.setItem('user', JSON.stringify(parsed))
-      user.value = parsed
+    eventSource = new EventSource('/api/v1/events/stream')
+    eventSource.onopen = () => {
+      sseConnected.value = true
     }
-    
-    displayChangePasswordDialog.value = false
-    await fetchEndpoints()
-  } catch (err) {
-    changePasswordError.value = err.response?.data?.detail || 'Failed to update password. Verify current password.'
-  } finally {
-    changePasswordLoading.value = false
+    eventSource.onmessage = (event) => {
+      if (!event.data) return
+      try {
+        const payload = JSON.parse(event.data)
+        if (payload.type === 'STATE_TRANSITION' && payload.endpoint_id) {
+          const ep = endpoints.value.find(e => e.id === payload.endpoint_id)
+          if (ep) {
+            ep.current_state = {
+              ...ep.current_state,
+              operational_state: payload.operational_state,
+              detailed_state: payload.detailed_state,
+              avg_rtt_ms: payload.avg_rtt_ms,
+              health_score: payload.health_score,
+            }
+          }
+        }
+      } catch (e) {
+        // Heartbeat or non-json comment
+      }
+    }
+    eventSource.onerror = () => {
+      sseConnected.value = false
+    }
+  } catch (e) {
+    sseConnected.value = false
   }
 }
 
 onMounted(async () => {
-  const currentTheme = localStorage.getItem('theme') || 'dark'
-  isDarkMode.value = currentTheme === 'dark'
-  if (isDarkMode.value) {
-    document.documentElement.classList.add('dark')
-  } else {
-    document.documentElement.classList.remove('dark')
-  }
-
   const storedUser = localStorage.getItem('user')
   if (storedUser) {
     try {
       user.value = JSON.parse(storedUser)
-      if (user.value?.must_change_password) {
-        displayChangePasswordDialog.value = true
-      }
     } catch (e) {
-      console.error('Failed to parse onMounted user state:', e)
+      console.error(e)
     }
   }
   await fetchEndpoints()
-  if (isAdmin.value) {
-    await fetchUsers()
-  }
+  initSSE()
+})
+
+onUnmounted(() => {
+  if (eventSource) eventSource.close()
 })
 </script>
 
@@ -450,24 +706,29 @@ onMounted(async () => {
 .dashboard {
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 16px;
 }
 
 .dashboard-toolbar {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  margin-bottom: 8px;
   gap: 16px;
   flex-wrap: wrap;
 }
 
 .page-title {
   margin: 0 0 4px;
-  font-size: 24px;
+  font-size: 22px;
   font-weight: 700;
   color: var(--text-primary);
   letter-spacing: -0.02em;
+}
+
+.toolbar-sub-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
 }
 
 .page-sub {
@@ -477,18 +738,137 @@ onMounted(async () => {
 }
 
 .separator {
-  margin: 0 6px;
+  margin: 0 4px;
+}
+
+.sse-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 9999px;
+  font-family: var(--font-mono);
+}
+
+.sse-live {
+  background: rgba(16, 185, 129, 0.15);
+  color: #10B981;
+  border: 1px solid rgba(16, 185, 129, 0.3);
+}
+
+.sse-connecting {
+  background: rgba(245, 158, 11, 0.15);
+  color: #F59E0B;
+  border: 1px solid rgba(245, 158, 11, 0.3);
+}
+
+.pulse-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: pulse 2s infinite ease-in-out;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(0.85); }
 }
 
 .toolbar-right {
   display: flex;
+  align-items: center;
   gap: 10px;
-  flex-shrink: 0;
 }
 
-.btn-small {
+.view-switcher {
+  display: flex;
+  background: var(--bg-surface-selected);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  padding: 2px;
+  gap: 2px;
+}
+
+.btn-view {
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 600;
   padding: 6px 12px;
-  font-size: var(--text-xs);
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.btn-view.active {
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+}
+
+/* ── KPI Strip ── */
+.kpi-strip {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+}
+
+@media (min-width: 768px) {
+  .kpi-strip {
+    grid-template-columns: repeat(5, 1fr);
+  }
+}
+
+.kpi-card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 12px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  user-select: none;
+}
+
+.kpi-card:hover {
+  border-color: var(--border-color-strong);
+  background: var(--bg-surface-hover);
+}
+
+.kpi-card.active {
+  border-color: var(--text-primary);
+  background: var(--bg-surface-selected);
+  box-shadow: 0 0 0 1px var(--text-primary);
+}
+
+.kpi-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.kpi-value {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.text-up { color: #10B981; }
+.text-unstable { color: #F59E0B; }
+.text-down { color: #EF4444; }
+.text-accent { color: #3B82F6; }
+
+.tnum {
+  font-feature-settings: "tnum";
+  font-variant-numeric: tabular-nums;
 }
 
 /* ── Tabs ── */
@@ -496,7 +876,7 @@ onMounted(async () => {
   display: flex;
   border-bottom: 1px solid var(--border-color);
   gap: 8px;
-  margin-bottom: 12px;
+  margin-top: 4px;
 }
 
 .tab-btn {
@@ -507,6 +887,9 @@ onMounted(async () => {
   border-bottom: 2px solid transparent;
   transition: all 0.15s ease;
   margin-bottom: -1px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .tab-btn:hover {
@@ -516,6 +899,14 @@ onMounted(async () => {
 .tab-btn.active {
   color: var(--text-primary);
   border-bottom: 2px solid var(--accent);
+}
+
+.tab-badge {
+  font-size: 11px;
+  background: var(--bg-surface-selected);
+  border: 1px solid var(--border-color);
+  padding: 1px 6px;
+  border-radius: 9999px;
 }
 
 /* ── Grid ── */
@@ -537,35 +928,139 @@ onMounted(async () => {
   .endpoint-grid { grid-template-columns: repeat(4, 1fr); }
 }
 
-/* ── Alerts ── */
-.alert-error {
-  background: var(--color-down-bg);
-  color: var(--color-down);
-  border: 1px solid var(--color-down);
-  padding: 12px 16px;
-  border-radius: var(--radius);
-  font-size: 14px;
-  margin-bottom: 20px;
+/* ── Dense Table ── */
+.table-card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  overflow: hidden;
 }
 
-.alert-info {
-  background: var(--color-unknown-bg);
-  color: var(--text-primary);
-  border: 1px solid var(--border-color-strong);
-  padding: 12px 16px;
-  border-radius: var(--radius);
+.table-responsive {
+  width: 100%;
+  overflow-x: auto;
+}
+
+.dense-table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
   font-size: 13px;
-  margin-bottom: 16px;
-  font-weight: 500;
 }
 
-.warning-alert {
-  background: var(--color-up-unstable-bg);
-  color: var(--color-up-unstable);
-  border-color: var(--color-up-unstable);
+.dense-table th {
+  background: var(--bg-surface-selected);
+  color: var(--text-secondary);
+  font-weight: 600;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border-color);
+  text-transform: uppercase;
+  font-size: 11px;
+  letter-spacing: 0.05em;
+  user-select: none;
 }
 
-/* ── Empty States ── */
+.sortable-th {
+  cursor: pointer;
+}
+
+.sortable-th:hover {
+  color: var(--text-primary);
+}
+
+.dense-table td {
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border-color);
+  color: var(--text-primary);
+}
+
+.dense-table tr:last-child td {
+  border-bottom: none;
+}
+
+.clickable-row {
+  cursor: pointer;
+  transition: background 0.1s ease;
+}
+
+.clickable-row:hover td {
+  background: var(--bg-surface-hover);
+}
+
+.row-selected td {
+  background: var(--bg-surface-selected);
+}
+
+.device-tag {
+  font-size: 11px;
+  color: var(--text-secondary);
+  background: var(--bg-surface-selected);
+  border: 1px solid var(--border-color);
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.status-pill {
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.status-up { background: rgba(16, 185, 129, 0.15); color: #10B981; }
+.status-unstable { background: rgba(245, 158, 11, 0.15); color: #F59E0B; }
+.status-down { background: rgba(239, 68, 68, 0.15); color: #EF4444; }
+
+.font-mono { font-family: var(--font-mono); }
+.font-bold { font-weight: 600; }
+.text-right { text-align: right; }
+
+.table-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.btn-action {
+  background: transparent;
+  border: 1px solid var(--border-color);
+  color: var(--text-secondary);
+  padding: 3px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.btn-action:hover {
+  background: var(--bg-surface-hover);
+  color: var(--text-primary);
+}
+
+/* ── Selection Banner ── */
+.selection-banner {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--bg-surface);
+  border: 1px solid var(--accent);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+  border-radius: 8px;
+  padding: 12px 24px;
+  z-index: 150;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.banner-content {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  white-space: nowrap;
+}
+
 .empty-state {
   text-align: center;
   padding: 80px 20px;
@@ -599,216 +1094,12 @@ onMounted(async () => {
 
 @keyframes spin { to { transform: rotate(360deg); } }
 
-/* ── Tables Redesign ── */
-.table-card {
-  background: var(--bg-surface);
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius);
-  overflow: hidden;
-  box-shadow: var(--shadow);
-}
-
-.table-responsive {
-  width: 100%;
-  overflow-x: auto;
-}
-
-.audit-table {
-  width: 100%;
-  border-collapse: collapse;
-  text-align: left;
-  font-size: 13px;
-}
-
-.audit-table th {
-  background: var(--bg-surface-selected);
-  color: var(--text-secondary);
-  font-weight: 600;
+.alert-error {
+  background: rgba(239, 68, 68, 0.1);
+  color: #EF4444;
+  border: 1px solid rgba(239, 68, 68, 0.3);
   padding: 12px 16px;
-  border-bottom: 1px solid var(--border-color);
-  text-transform: uppercase;
-  font-size: var(--text-xs);
-  letter-spacing: 0.05em;
-}
-
-.audit-table td {
-  padding: 14px 16px;
-  border-bottom: 1px solid var(--border-color);
-  color: var(--text-primary);
-}
-
-.audit-table tr:last-child td {
-  border-bottom: none;
-}
-
-.audit-table tr:hover td {
-  background: var(--bg-surface-hover);
-}
-
-.self-row td {
-  background: var(--bg-surface-selected);
-}
-
-.self-tag {
-  font-size: var(--text-xs);
-  color: var(--text-muted);
-  font-weight: 400;
-  margin-left: 4px;
-}
-
-.role-badge {
-  font-family: monospace;
-  font-size: 12px;
-  font-weight: 700;
-  color: var(--text-secondary);
-}
-
-/* Row Action Buttons */
-.actions-header {
-  text-align: right !important;
-}
-
-.actions-col {
-  text-align: right;
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-}
-
-.btn-action-warning {
-  background: transparent;
-  color: var(--color-up-unstable);
-  border: 1px solid var(--color-up-unstable);
-  border-radius: 4px;
-  padding: 4px 10px;
-  font-size: var(--text-xs);
-  font-weight: 600;
-  transition: all 0.15s;
-}
-
-.btn-action-warning:hover {
-  background: var(--color-up-unstable-bg);
-}
-
-.btn-action-danger {
-  background: transparent;
-  color: var(--color-down);
-  border: 1px solid var(--color-down);
-  border-radius: 4px;
-  padding: 4px 10px;
-  font-size: var(--text-xs);
-  font-weight: 600;
-  transition: all 0.15s;
-}
-
-.btn-action-danger:hover {
-  background: var(--color-down-bg);
-}
-
-.btn-action-success {
-  background: transparent;
-  color: var(--color-up);
-  border: 1px solid var(--color-up);
-  border-radius: 4px;
-  padding: 4px 10px;
-  font-size: var(--text-xs);
-  font-weight: 600;
-  transition: all 0.15s;
-}
-
-.btn-action-success:hover {
-  background: var(--color-up-bg);
-}
-
-/* ── Contextual Floating Selection Banner ── */
-.selection-banner {
-  position: fixed;
-  bottom: 24px;
-  left: 50%;
-  transform: translateX(-50%);
-  background: var(--bg-surface);
-  border: 1px solid var(--accent);
-  box-shadow: var(--shadow-hover);
-  border-radius: var(--radius);
-  padding: 12px 24px;
-  z-index: 150;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: all 0.2s ease;
-}
-
-.banner-content {
-  display: flex;
-  align-items: center;
-  gap: 20px;
-  white-space: nowrap;
-}
-
-.selection-count {
+  border-radius: 6px;
   font-size: 13px;
-  color: var(--text-primary);
-}
-
-.fade-enter-active,
-.fade-leave-active {
-  transition: opacity 0.2s ease, transform 0.2s ease;
-}
-
-.fade-enter-from,
-.fade-leave-to {
-  opacity: 0;
-  transform: translate(-50%, 15px);
-}
-
-.text-center {
-  text-align: center;
-}
-
-.modal-alert-text {
-  font-size: 15px;
-  font-weight: 600;
-  color: var(--text-primary);
-  margin-bottom: 4px;
-}
-
-.warning-subtext {
-  font-size: var(--text-xs);
-  color: var(--text-muted);
-  margin: 0;
-}
-
-.checkbox-form-group {
-  display: flex;
-  flex-direction: row !important;
-  align-items: center;
-  gap: 8px !important;
-  margin-top: 4px;
-}
-
-.checkbox-form-group input {
-  width: 14px;
-  height: 14px;
-  accent-color: var(--accent);
-  cursor: pointer;
-}
-
-.checkbox-form-group label {
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--text-primary);
-  cursor: pointer;
-  user-select: none;
-}
-
-.form-textarea {
-  resize: vertical;
-  min-height: 70px;
-}
-
-.form-help {
-  font-size: var(--text-xs);
-  color: var(--text-muted);
-  margin-top: -2px;
 }
 </style>

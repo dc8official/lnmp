@@ -1,65 +1,52 @@
-# LNMP: Network Monitoring Platform v2.0 (Beta)
+# LNMP: Network Monitoring Platform v3.0.0
 
-A high-precision, decoupled network telemetry and monitoring solution designed for continuous endpoint status verification, low-latency ICMP polling, adaptive statistical alerting, automated root-cause analysis (RCA), and dynamic topology visualization with crossing-free layout routing.
+A high-precision, decoupled network telemetry and monitoring solution designed for continuous endpoint status verification, low-latency multi-protocol polling, adaptive statistical alerting, automated root-cause analysis (RCA), real-time Server-Sent Events (SSE), dual-driver storage acceleration, and dynamic topology visualization with crossing-free layout routing.
 
 ---
 
 ## Architectural Overview
 
-The platform is decoupled into independent, modular layers to guarantee continuous telemetry collection regardless of client-side dashboard activity or temporary network disruptions:
+The platform is decoupled into independent, modular layers to guarantee continuous telemetry collection regardless of client-side dashboard activity, heavy API load, or temporary network disruptions:
 
-* **The Monitoring Engine:** A persistent Python daemon managed via `systemd` that performs periodic, high-density ICMP telemetry scans aligned precisely to absolute minute boundaries. Features a top-of-minute database write semaphore (`asyncio.Semaphore(15)`) to eliminate connection pool thundering herds.
-* **The Hybrid Adaptive Alert Engine:** A dual-layer evaluation engine combining an in-memory state machine for transient jitter suppression with dynamic statistical baseline tracking. By evaluating live latency against historical time-series bounds via Z-score calculations (`Z = (x - μ) / σ`), the engine dynamically identifies performance degradation without requiring static thresholds.
-* **The Diagnostic & Traceroute Subsystem:** An asynchronous, non-blocking background task worker that triggers immediate path diagnostics on the first detected drop sub-cycle. Executions are throttled via an `asyncio.Semaphore` queue to protect system resources.
-* **The Topology & Root Cause Analysis (RCA) Engine:** A sequential discovery pipeline that runs during device onboarding and scheduled midnight passes to build a parent-child network adjacency map. Differentiates monitored targets from intermediate transit hops and performs topological RCA (`INFERRED_DOWN`) to suppress cascading alert storms.
-* **Interactive Crossing-Free Topology Map:** A Vue 3 Vis-Network visualizer implementing **BFS DAG Longest-Path Layering** (`Level(v) = max(Level(u) + 1)`) combined with the **Sugiyama (1981)** barycenter crossing reduction framework and **Gansner / DOT (1993)** coordinate heuristics (`edgeMinimization`, `blockShifting`, `parentCentralization`, directional tangent channeling) with dynamic **Horizontal (LR) ⇄ Vertical (UD)** layout switching.
-* **The Telemetry & Diagnostic Datastore:** A hybrid storage design pairing TimescaleDB hypertables with **7-day chunk compression** (90%+ disk savings) and **automated continuous aggregate refresh policies** for sub-millisecond query performance over multi-year deployments.
-* **Security & Session Governance:** Features **sliding 2-hour inactivity timeouts**, **token-based concurrent session quotas** (max 2 active sessions with FIFO rotation), and **IP-scoped failed login lockouts** (`<Client_IP>:<Username>`) to protect corporate NATs and VPNs from credential brute-force attacks.
-* **Observability & Logging Suite:** Dual console (`systemd journalctl`) and **150MB auto-rotating log files** (`/var/log/netmon/api.log`, `engine.log`, `error.log`) with global FastAPI request latency and security diagnostic middleware.
+* **SQLAlchemy 2.0 ORM & Repository Pattern:** Clean data access layer separating business logic from database operations, eliminating raw SQL queries and implementing SQL-level pagination (`limit`, `offset`) across all entities.
+* **5-Ping @ 8.0s Concurrency Sweeper:** Polling engine tuned with a spacious **28-second headroom window** before the minute boundary and 0–2000ms randomized startup jitter, completely eliminating connection contention and thundering herds.
+* **Dynamic In-Memory Endpoint Registry:** Concurrent-safe registry supporting zero-downtime, sub-minute dynamic additions, updates, and deletions of monitored targets without service restarts.
+* **High-Fidelity Route Diagnostics:** Upgraded traceroute engine (`traceroute -n -q 2 -w 3 -m 30 -I`) with multi-probe latency parsing, raw ICMP capability isolation (`CAP_NET_RAW`), and Layer-2 subnet auto-bypass.
+* **Real-Time Server-Sent Events (SSE) Stream:** Asynchronous event broker streaming telemetry envelopes (`STATE_TRANSITION`, `NODE_STATE_CHANGE`, `RCA_INCIDENT`) and 15-second heartbeat keep-alives via `GET /api/v1/events/stream`.
+* **Multi-Protocol Synthetic Probes:** Lightweight async probes verifying TCP port reachability, HTTP/HTTPS status code validation, and SSL/TLS certificate expiry with strict SSRF defense.
+* **Dual-Driver Storage Architecture:** Seamlessly switches between **PostgreSQL-Native** (`LISTEN/NOTIFY` + table sessions) and **Redis-Accelerated** (Pub/Sub + in-memory sessions) drivers via configuration and admin settings.
+* **Interactive Crossing-Free Topology Map:** Vue 3 Vis-Network visualizer implementing **BFS DAG Longest-Path Layering** (`Level(v) = max(Level(u) + 1)`), **Sugiyama (1981)** barycenter crossing reduction, **Gansner (1993)** coordinate alignment, **frozen-physics real-time recoloring**, and **Horizontal (LR) ⇄ Vertical (UD)** layout switching.
+* **Enterprise Frontend & Accessibility Overhaul:** High-contrast monochrome design system, top summary KPI ribbon with instant filter pills, **Dual View Switcher** (Visual Card Grid vs. Dense Sortable Table), tabular monospace numbers, and WCAG 2.1 AA keyboard focus indicators.
+* **TimescaleDB Compression & Retention:** 7-day chunk compression (90%+ disk savings), automated continuous aggregates, and daily automated 90-day retention cleanup.
+* **Security & Session Governance:** Sliding 2-hour inactivity timeouts, token-based concurrent session quotas (max 2 active sessions with FIFO rotation), and IP-scoped failed login lockouts (`<Client_IP>:<Username>`).
 
 ---
 
-## Detailed Documentation
+## Detailed Documentation Suite
 
-For a deeper dive into specific components of the platform, please refer to the comprehensive guides in the `docs/` directory:
+For comprehensive guides, references, and operational procedures, refer to the `docs/` directory:
 
-* **[Architecture Overview](docs/architecture.md):** In-depth explanation of decoupled engines, TimescaleDB compression, BFS & Sugiyama topology routing, and RCA inference logic.
-* **[Changelog & Technical Evolution](docs/changelog.md):** Complete version history, feature tables, and evolutionary milestones from Version 1.0 to 1.5 to 2.0 (Beta).
-* **[Troubleshooting & Disaster Recovery](docs/troubleshooting.md):** Step-by-step diagnostic workflows, permission fixes, log tailing, and database restore procedures.
-* **[Security Model & Threat Hardening](docs/security.md):** Complete authentication matrix, sliding sessions, lockout defense, and Linux capability isolation.
+* **[Changelog & Technical Evolution](docs/changelog.md):** Complete release notes and evolutionary milestones from Version 1.0 to Version 3.0.0.
+* **[Architecture Deep-Dive](docs/architecture.md):** In-depth analysis of the Repository Layer, Dual-Driver Storage, Concurrency Sweeper, and Topology DAG.
+* **[Deployment & Operations Guide](docs/deployment.md):** Production installation, automated in-place upgrades (`upgrade.sh`), Redis configuration, and health verification.
+* **[Disaster Recovery & Restoration Runbook](deploy/RESTORE.md):** Step-by-step procedures for restoring TimescaleDB backups, running Alembic migrations, and flushing Redis cache.
+* **[User & Operator Guide](docs/user-guide.md):** Guide to navigating the Live KPI ribbon, Card/Table view switcher, High-Fidelity traceroutes, and Admin Settings.
+* **[API Reference](docs/api-reference.md):** Complete documentation for REST endpoints, SSE streams (`/events/stream`), pagination parameters, and synthetic probe schemas.
 * **[Database & TimescaleDB Deep-Dive](docs/database.md):** Full schema dictionary, hypertable partitioning, 7-day chunk compression, and continuous aggregate policies.
+* **[Security Model & Threat Hardening](docs/security.md):** Authentication matrix, Argon2id password hashing, sliding sessions, lockout defense, and Linux capability isolation.
 * **[SLA Calculation Methodology](docs/sla-calculation.md):** Mathematical formulation of uptime availability, flap suppression, and blackout neutralization.
-* **[User & Operator Guide](docs/user-guide.md):** Instructions for onboarding devices, browser autofill, horizontal/vertical topology views, and interpreting Z-Score baselines.
-* **[API Reference](docs/api-reference.md):** Complete guide to FastAPI REST endpoints, JSON payloads, and RBAC token claims.
-* **[Deployment & Operations](docs/deployment.md):** Step-by-step production installation, systemd auto-start configuration, log rotation, and zero-downtime upgrades.
+* **[Troubleshooting Runbook](docs/troubleshooting.md):** Step-by-step diagnostic workflows, permission fixes, and log inspection.
 * **[Developer Guide](docs/developer-guide.md):** Local setup instructions for Vite and Uvicorn, plus guidelines for contributing via Alembic migrations.
 
 ---
 
 ## Technical Stack
 
-* **Backend:** Python 3.10+, FastAPI, SQLAlchemy, Alembic (Migrations), Native `asyncio`
-* **Database Layer:** PostgreSQL 14+ with TimescaleDB Extension (Hypertables, 7-Day Chunk Compression, Continuous Aggregates)
+* **Backend:** Python 3.10+, FastAPI, SQLAlchemy 2.0 (Async Declarative Models & Repository Layer), Pydantic Settings, Alembic, Native `asyncio`, Argon2id
+* **Storage & Caching:** PostgreSQL 14+ with TimescaleDB Extension, Redis 6+ (Pub/Sub & Session Cache Acceleration)
 * **Frontend:** Vue 3 (Composition API), Vite, PrimeVue (Aura Theme Preset), Chart.js, `vis-network` (BFS + Sugiyama Crossing Reduction)
-* **System Layer:** Linux `systemd` (with Auto-Start Enablement), Native Raw Sockets (`CAP_NET_RAW` capability), System `traceroute`
+* **System Layer:** Linux `systemd` (Auto-Start Enabled), Native Raw Sockets (`CAP_NET_RAW` capability), System `traceroute`
 * **Logging:** Python `RotatingFileHandler` (~150MB bounded footprint) + `systemd-journald`
-
----
-
-## Key Platform Features
-
-* **High-Precision ICMP Polling**: Sub-minute multi-packet scanning aligned to absolute minute boundaries via asynchronous concurrency.
-* **Adaptive Baseline Anomaly Detection**: Dynamic time-of-day statistical bounds (Z-Score `Z > 3.0`) eliminating static threshold alert fatigue.
-* **Crossing-Free Topology Map**: Breadth-First Search (BFS) DAG Longest-Path Layering paired with the Sugiyama (1981) Barycenter framework and Gansner (1993) coordinate alignment.
-* **Orientation Switcher**: Interactive toolbar toggle between Vertical (Top-to-Bottom) and Horizontal (Left-to-Right) topology views.
-* **Topological Root Cause Analysis (RCA)**: Automated upstream failure detection with downstream alert suppression (`INFERRED_DOWN`).
-* **Concurrent Background Diagnostics**: Microsecond-precision traceroutes triggered on first sub-cycle packet drops.
-* **Native Browser Password Autofill**: 100% compliant HTML forms supporting 1-click login and credential managers (Chrome, Safari, Bitwarden, etc.).
-* **Enterprise Session Governance**: Sliding 2-hour inactivity timeouts, token-based 2-session quotas, and IP-scoped brute-force lockout protection.
-* **TimescaleDB Compression & Retention**: 7-day native chunk compression (90%+ disk savings) and automated continuous aggregate refresh policies.
-
-> [!TIP]
-> For an exhaustive, version-by-version breakdown of technical mechanisms and operational benefits across versions 1.0, 1.5, and 2.0 (Beta), refer to the **[Changelog & Evolutionary Architecture](docs/changelog.md)**.
 
 ---
 
@@ -68,65 +55,42 @@ For a deeper dive into specific components of the platform, please refer to the 
 ### Hardware Sizing Matrix
 
 | Deployment Scale | Monitored Endpoints | CPU Cores | Memory (RAM) | Storage (SSD) | Recommended Use Case |
-| --- | --- | --- | --- | --- | --- |
-| **Small / Lab** | Up to 100 | 1 vCPU | 2 GB RAM | 10 GB SSD | Home lab, edge monitoring, small office networks. |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **Small / Edge** | Up to 100 | 1 vCPU | 2 GB RAM | 10 GB SSD | Home lab, edge monitoring, small office networks. |
 | **Medium Enterprise** | 100 – 500 | 2 vCPUs | 4 GB RAM | 25 GB SSD | Branch networks, regional datacenter monitoring. |
 | **Large Scale** | 500 – 2,000+ | 4+ vCPUs | 8 GB+ RAM | 50 GB+ NVMe | Multi-site enterprise datacenters & ISP backbones. |
-
-> [!NOTE]
-> **v2.0 Resource Dynamics:**
-> With **TimescaleDB 7-day chunk compression** enabled, disk storage consumption is reduced by 90%+. The comprehensive logging suite is hard-capped at **~150 MB** on disk. **2 GB RAM is the recommended baseline** to ensure smooth zero-swap database caching, instant API responses, and fast frontend asset builds (`npm run build`).
 
 ---
 
 ## Getting Started (Production Deployment)
 
-For production deployments, execute with root privileges:
+### 1. Fresh Installation
 
 ```bash
 sudo -i
-```
-
-### 1. Retrieve the Repository
-
-```bash
 git clone https://github.com/dc8official/lnmp.git
-cd lnmp
-```
-
-### 2. Automatic System Installation
-
-```bash
-cd deploy
+cd lnmp/deploy
 ./install.sh
 ```
 
-### 3. Upgrading the Platform (Zero Data Loss)
+### 2. Upgrading to v3.0.0 (Zero Historical Data Loss)
 
-You can run the upgrade utility from your git clone directory or directly in `/opt/netmon/noop`:
+Run the automated in-place upgrade utility from your git clone directory or `/opt/netmon/noop`:
 
 ```bash
-cd deploy
-./upgrade.sh
+cd /opt/netmon/noop/deploy
+sudo ./upgrade.sh
 ```
 
 The upgrade utility automatically executes:
 1. **Pre-Upgrade Backup**: Dumps a timestamped PostgreSQL SQL backup to `/var/backups/netmon/`.
-2. **Smart Config Migration**: Updates `/etc/netmon/config.toml` (e.g. 120m timeout, 2-session limit) without touching database credentials.
-3. **Service Pause**: Gracefully pauses background daemons.
-4. **Code & Dependency Sync**: Pulls updates, upgrades Python packages, and rebuilds Vue 3 frontend assets.
-5. **Database Migrations**: Applies latest Alembic migrations including TimescaleDB compression policies (`alembic upgrade head`).
-6. **Systemd Auto-Start Enablement**: Refreshes `.service` units, enables services on boot (`systemctl enable`), and restarts daemons.
-7. **Health Check**: Verifies live API status.
-
-### 4. Uninstalling the Platform (Clean Decommission)
-
-To decommission the platform, remove background services, and clean up web routing:
-
-```bash
-cd deploy
-./uninstall.sh
-```
+2. **System Dependencies**: Installs and starts `redis-server` and sets `CAP_NET_RAW` capabilities on `traceroute`.
+3. **Smart Config Migration**: Updates `/etc/netmon/config.toml` defaults (5 pings @ 8s, 120m timeout, Redis section) without overwriting secrets.
+4. **Service Pause**: Gracefully pauses background daemons.
+5. **Code & Dependency Sync**: Pulls latest updates, installs Python requirements, and compiles Vue 3 assets.
+6. **Alembic Forward Migrations**: Runs `alembic upgrade head` while preserving all TimescaleDB hypertables and continuous aggregates.
+7. **Systemd Unit Refresh & Restart**: Reloads daemons, enables auto-start, and restarts `redis-server`, `netmon-api`, `netmon-engine`, and `nginx`.
+8. **Health Check**: Validates live API status and version endpoint (`/api/v1/version`).
 
 ---
 

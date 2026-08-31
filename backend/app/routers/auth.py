@@ -1,59 +1,49 @@
 from __future__ import annotations
-import json
-import logging
-from datetime import datetime
-from typing import Optional
-from app.services.timezone_utils import get_local_timezone
-from fastapi import APIRouter, Depends, HTTPException, Request, Response
-from pydantic import BaseModel
-from sqlalchemy import text
 
-logger = logging.getLogger(__name__)
+import logging
+from datetime import datetime, timezone
+from typing import Optional
+from uuid import UUID
+
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.config import settings
 from app.database import get_db
+from app.repositories.auth_repo import AuthRepository
 from app.schemas import APIResponse
+from app.schemas.auth import (
+    ChangePasswordRequest,
+    LoginRequest,
+    LoginResponse,
+)
 from app.services.auth_service import (
-    hash_password,
-    verify_password,
+    clear_failed_attempts,
     create_access_token,
     decode_access_token,
-    is_account_locked,
-    record_failed_attempt,
-    clear_failed_attempts,
-    is_session_active,
+    get_trusted_client_ip,
+    hash_password,
+    hash_password_async,
     invalidate_session,
-    invalidate_all_user_sessions,
+    is_account_locked,
+    is_session_active,
+    record_failed_attempt,
+    verify_password,
+    verify_password_async,
 )
-from app.config import settings
+
+logger = logging.getLogger(__name__)
 
 cookie_name = "lnmp_access_token"
 
+
 def get_client_ip(request: Request) -> str:
-    """Extracts the client's source IP address, respecting X-Forwarded-For if behind a reverse proxy."""
-    try:
-        if hasattr(request, "headers") and hasattr(request.headers, "get"):
-            forwarded = request.headers.get("X-Forwarded-For")
-            if forwarded and isinstance(forwarded, str):
-                return str(forwarded.split(",")[0].strip())
-        if getattr(request, "client", None) and getattr(request.client, "host", None):
-            host = request.client.host
-            if isinstance(host, str):
-                return str(host.strip())
-    except Exception:
-        pass
-    return "127.0.0.1"
+    """Extracts client source IP address with trusted proxy validation."""
+    return get_trusted_client_ip(request)
 
-class LoginRequest(BaseModel):
-    username: str
-    password: str
-
-class LoginResponse(BaseModel):
-    username: str
-    role: str
-    must_change_password: bool
-    message: str
 
 router = APIRouter(prefix="/auth", tags=["auth"])
+
 
 @router.post("/login")
 async def login(
@@ -66,68 +56,66 @@ async def login(
     if is_account_locked(client_ip, payload.username):
         raise HTTPException(
             status_code=403,
-            detail="Account temporarily locked for 15 minutes due to multiple failed login attempts from this location."
+            detail="Account temporarily locked for 15 minutes due to multiple failed login attempts from this location.",
         )
 
-    query = text("""
-        SELECT u.id, u.username, u.password_hash,
-               u.is_active, u.must_change_password, r.role_name
-        FROM users u
-        JOIN roles r ON u.role_id = r.id
-        WHERE u.username = :username
-        LIMIT 1
-    """)
-    result = await db.execute(query, {"username": payload.username})
-    row = result.fetchone()
+    auth_repo = AuthRepository(db)
+    user = await auth_repo.get_user_by_username(payload.username)
 
-    if not row or not row.is_active:
+    is_active = getattr(user, "is_active", False) if user else False
+    password_hash = getattr(user, "password_hash", "") if user else ""
+
+    if not user or not is_active:
         record_failed_attempt(client_ip, payload.username)
         raise HTTPException(status_code=401, detail="Invalid username or password.")
 
-    if not verify_password(payload.password, row.password_hash):
+    is_valid = await verify_password_async(payload.password, password_hash)
+    if not is_valid:
         record_failed_attempt(client_ip, payload.username)
         raise HTTPException(status_code=401, detail="Invalid username or password.")
 
     clear_failed_attempts(client_ip, payload.username)
 
-    now = datetime.now(get_local_timezone())
-    update_query = text("""
-        UPDATE users
-        SET last_login = :now
-        WHERE id = CAST(:user_id AS uuid)
-    """)
-    await db.execute(update_query, {"now": now, "user_id": str(row.id)})
+    user_id = getattr(user, "id", None)
+    username = getattr(user, "username", payload.username)
+    role_name = "VIEWER"
+    if hasattr(user, "role_name") and isinstance(user.role_name, str):
+        role_name = user.role_name
+    elif hasattr(user, "role"):
+        if isinstance(user.role, str):
+            role_name = user.role
+        elif hasattr(user.role, "role_name") and isinstance(user.role.role_name, str):
+            role_name = user.role.role_name
+    must_change_password = bool(getattr(user, "must_change_password", False))
 
-    audit_query = text("""
-        INSERT INTO audit_logs (
-            user_id, action, target_type,
-            target_id, details
-        ) VALUES (
-            CAST(:user_id AS uuid), 'USER:LOGIN',
-            'users', CAST(:user_id AS uuid),
-            :details
+    now = datetime.now(timezone.utc)
+    if user_id:
+        await auth_repo.update_last_login(user_id, now)
+        await auth_repo.create_audit_log(
+            user_id=user_id,
+            action="USER:LOGIN",
+            target_type="users",
+            target_id=user_id,
+            details={"username": payload.username, "ip": client_ip},
         )
-    """)
-    await db.execute(audit_query, {
-        "user_id": str(row.id),
-        "details": json.dumps({"username": payload.username, "ip": client_ip})
-    })
-    await db.commit()
+        await db.commit()
 
     token = create_access_token(
-        user_id=str(row.id),
-        username=row.username,
-        role_name=row.role_name,
+        user_id=str(user_id),
+        username=username,
+        role_name=str(role_name),
     )
 
     response_body = LoginResponse(
-        username=row.username,
-        role=row.role_name,
-        must_change_password=row.must_change_password,
-        message="Login successful."
+        username=username,
+        role=str(role_name),
+        must_change_password=must_change_password,
+        message="Login successful.",
     )
 
-    is_secure = http_request.url.scheme == "https" or getattr(settings.security, "hsts_enabled", False)
+    is_secure = http_request.url.scheme == "https" or getattr(
+        settings.security, "hsts_enabled", False
+    )
 
     response.set_cookie(
         key=cookie_name,
@@ -141,6 +129,7 @@ async def login(
 
     return APIResponse.success(data=response_body)
 
+
 @router.post("/logout")
 async def logout(request: Request, response: Response):
     token = request.cookies.get(cookie_name)
@@ -153,7 +142,9 @@ async def logout(request: Request, response: Response):
         if payload and payload.get("sub") and payload.get("jti"):
             invalidate_session(payload.get("sub"), payload.get("jti"))
 
-    is_secure = request.url.scheme == "https" or getattr(settings.security, "hsts_enabled", False)
+    is_secure = request.url.scheme == "https" or getattr(
+        settings.security, "hsts_enabled", False
+    )
     response.delete_cookie(
         key=cookie_name,
         path="/",
@@ -162,6 +153,7 @@ async def logout(request: Request, response: Response):
         samesite="lax",
     )
     return APIResponse.success(data={"message": "Logged out."})
+
 
 async def get_current_user(
     request: Request,
@@ -174,40 +166,75 @@ async def get_current_user(
         if auth_header and auth_header.startswith("Bearer "):
             token = auth_header.split(" ", 1)[1]
     if not token:
-        logger.warning("Auth failure on %s %s from IP %s: Missing authentication token (cookie or header)", request.method, request.url.path, client_ip)
+        logger.warning(
+            "Auth failure on %s %s from IP %s: Missing authentication token",
+            request.method,
+            request.url.path,
+            client_ip,
+        )
         raise HTTPException(status_code=401, detail="Not authenticated.")
-        
+
     payload = decode_access_token(token)
     if payload is None:
-        logger.warning("Auth failure on %s %s from IP %s: JWT token is expired, tampered, or invalid", request.method, request.url.path, client_ip)
+        logger.warning(
+            "Auth failure on %s %s from IP %s: JWT token is expired, tampered, or invalid",
+            request.method,
+            request.url.path,
+            client_ip,
+        )
         raise HTTPException(status_code=401, detail="Session expired or invalid.")
 
-    user_id = payload.get("sub")
+    user_id_str = payload.get("sub")
     jti = payload.get("jti")
-    if not user_id:
-        logger.warning("Auth failure on %s %s from IP %s: Token missing subject claims", request.method, request.url.path, client_ip)
+    if not user_id_str:
+        logger.warning(
+            "Auth failure on %s %s from IP %s: Token missing subject claims",
+            request.method,
+            request.url.path,
+            client_ip,
+        )
         raise HTTPException(status_code=401, detail="Invalid token claims.")
 
-    if not is_session_active(str(user_id), jti):
-        logger.warning("Auth eviction on %s %s from IP %s: User %s session (JTI: %s) evicted by newer login or session limit", request.method, request.url.path, client_ip, user_id, jti)
+    if not is_session_active(str(user_id_str), jti):
+        logger.warning(
+            "Auth eviction on %s %s from IP %s: User %s session (JTI: %s) evicted",
+            request.method,
+            request.url.path,
+            client_ip,
+            user_id_str,
+            jti,
+        )
         raise HTTPException(
             status_code=401,
-            detail="Session terminated: maximum active sessions reached or session expired."
+            detail="Session terminated: maximum active sessions reached or session expired.",
         )
 
-    user_query = text("""
-        SELECT is_active, must_change_password
-        FROM users
-        WHERE id = CAST(:user_id AS uuid)
-    """)
-    res = await db.execute(user_query, {"user_id": str(user_id)})
-    row = res.fetchone()
-    if not row or not row.is_active:
-        logger.warning("Auth rejection on %s %s from IP %s: User %s is disabled or inactive in database", request.method, request.url.path, client_ip, user_id)
-        raise HTTPException(status_code=401, detail="User account is inactive or disabled.")
+    try:
+        user_uuid = UUID(str(user_id_str))
+    except (ValueError, TypeError):
+        raise HTTPException(status_code=401, detail="Invalid token claims.")
 
-    payload["must_change_password"] = row.must_change_password
+    auth_repo = AuthRepository(db)
+    user = await auth_repo.get_user_by_id(user_uuid)
+
+    is_active = getattr(user, "is_active", False) if user else False
+    if not user or not is_active:
+        logger.warning(
+            "Auth rejection on %s %s from IP %s: User %s is disabled or inactive in database",
+            request.method,
+            request.url.path,
+            client_ip,
+            user_id_str,
+        )
+        raise HTTPException(
+            status_code=401, detail="User account is inactive or disabled."
+        )
+
+    payload["must_change_password"] = getattr(
+        user, "must_change_password", False
+    )
     return payload
+
 
 async def require_admin(
     current_user: dict = Depends(get_current_user),
@@ -216,9 +243,6 @@ async def require_admin(
         raise HTTPException(status_code=403, detail="Admin access required.")
     return current_user
 
-class ChangePasswordRequest(BaseModel):
-    old_password: Optional[str] = None
-    new_password: str
 
 @router.post("/change-password")
 async def change_password(
@@ -226,51 +250,45 @@ async def change_password(
     current_user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    query = text("""
-        SELECT id, password_hash, must_change_password FROM users
-        WHERE id = CAST(:user_id AS uuid) AND is_active = TRUE
-        LIMIT 1
-    """)
-    result = await db.execute(query, {"user_id": current_user.get("sub")})
-    row = result.fetchone()
-    if not row:
+    try:
+        user_uuid = UUID(str(current_user.get("sub")))
+    except (ValueError, TypeError):
         raise HTTPException(status_code=404, detail="User not found.")
-        
+
+    auth_repo = AuthRepository(db)
+    user = await auth_repo.get_user_by_id(user_uuid)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found.")
+
+    password_hash = getattr(user, "password_hash", "")
+    must_change_password = getattr(user, "must_change_password", False)
+
     if request.old_password and request.old_password.strip():
-        if not verify_password(request.old_password.strip(), row.password_hash):
+        is_valid = await verify_password_async(
+            request.old_password.strip(), password_hash
+        )
+        if not is_valid:
             raise HTTPException(status_code=400, detail="Invalid current password.")
-    elif not row.must_change_password:
+    elif not must_change_password:
         raise HTTPException(status_code=400, detail="Current password is required.")
-        
+
     if not request.new_password or len(request.new_password.strip()) < 8:
-        raise HTTPException(status_code=400, detail="New password must be at least 8 characters long.")
+        raise HTTPException(
+            status_code=400,
+            detail="New password must be at least 8 characters long.",
+        )
 
     clean_new_pass = request.new_password.strip()
-    hashed = hash_password(clean_new_pass)
-    update_query = text("""
-        UPDATE users
-        SET password_hash = :p,
-            must_change_password = FALSE,
-            updated_at = NOW()
-        WHERE id = CAST(:user_id AS uuid)
-    """)
-    await db.execute(update_query, {
-        "p": hashed,
-        "user_id": str(current_user.get("sub"))
-    })
-    
-    audit_query = text("""
-        INSERT INTO audit_logs (
-            user_id, action, target_type, target_id, details
-        ) VALUES (
-            CAST(:user_id AS uuid), 'USER:CHANGE_PASSWORD', 'users', CAST(:user_id AS uuid), :details
-        )
-    """)
-    await db.execute(audit_query, {
-        "user_id": str(current_user.get("sub")),
-        "details": json.dumps({"username": current_user.get("username")})
-    })
-    
+    hashed = await hash_password_async(clean_new_pass)
+
+    await auth_repo.update_password(user_uuid, hashed, must_change_password=False)
+    await auth_repo.create_audit_log(
+        user_id=user_uuid,
+        action="USER:CHANGE_PASSWORD",
+        target_type="users",
+        target_id=user_uuid,
+        details={"username": current_user.get("username")},
+    )
     await db.commit()
-    
+
     return APIResponse.success(data={"message": "Password changed successfully."})

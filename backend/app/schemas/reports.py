@@ -1,9 +1,10 @@
 from __future__ import annotations
-from datetime import datetime
+
+from datetime import datetime, timezone
 from typing import Literal, Optional
 from uuid import UUID
-from pydantic import BaseModel, field_validator, field_serializer
-from app.services.timezone_utils import get_local_timezone
+from pydantic import BaseModel, ConfigDict, field_validator, field_serializer
+
 
 class UptimeReport(BaseModel):
     endpoint_id: UUID
@@ -16,9 +17,7 @@ class UptimeReport(BaseModel):
     uptime_percentage: float
     incident_count: int
 
-    model_config = {
-        "from_attributes": True
-    }
+    model_config = ConfigDict(from_attributes=True)
 
     @field_validator("uptime_percentage")
     @classmethod
@@ -29,12 +28,12 @@ class UptimeReport(BaseModel):
 
     @field_serializer("period_start", "period_end")
     def serialize_period(self, v: datetime) -> str:
-        local_tz = get_local_timezone()
         if v.tzinfo is None:
-            v = v.replace(tzinfo=local_tz)
+            v = v.replace(tzinfo=timezone.utc)
         else:
-            v = v.astimezone(local_tz)
+            v = v.astimezone(timezone.utc)
         return v.isoformat()
+
 
 class IncidentRecord(BaseModel):
     endpoint_id: UUID
@@ -46,26 +45,22 @@ class IncidentRecord(BaseModel):
     ]
     contributing_event_count: int
 
-    model_config = {
-        "from_attributes": True
-    }
+    model_config = ConfigDict(from_attributes=True)
 
     @field_serializer("incident_start")
     def serialize_incident_start(self, v: datetime) -> str:
-        local_tz = get_local_timezone()
         if v.tzinfo is None:
-            v = v.replace(tzinfo=local_tz)
+            v = v.replace(tzinfo=timezone.utc)
         else:
-            v = v.astimezone(local_tz)
+            v = v.astimezone(timezone.utc)
         return v.isoformat()
 
     @field_serializer("incident_end")
     def serialize_incident_end(self, v: Optional[datetime]) -> Optional[str]:
         if v is None:
             return None
-        local_tz = get_local_timezone()
         if v.tzinfo is None:
-            v = v.replace(tzinfo=local_tz)
+            v = v.replace(tzinfo=timezone.utc)
         else:
-            v = v.astimezone(local_tz)
+            v = v.astimezone(timezone.utc)
         return v.isoformat()

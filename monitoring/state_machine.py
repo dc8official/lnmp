@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, Tuple
 from uuid import UUID
 
@@ -16,6 +16,7 @@ logger = logging.getLogger(__name__)
 
 _active_background_tasks: set[asyncio.Task] = set()
 
+
 def safe_create_task(coro, task_name: str = "background_task") -> asyncio.Task:
     """Safely spawn a background asyncio task with error logging and lifetime tracking."""
     task = asyncio.create_task(coro)
@@ -26,7 +27,12 @@ def safe_create_task(coro, task_name: str = "background_task") -> asyncio.Task:
         if not t.cancelled():
             exc = t.exception()
             if exc:
-                logger.error("Background task '%s' failed with exception: %s", task_name, exc, exc_info=exc)
+                logger.error(
+                    "Background task '%s' failed with exception: %s",
+                    task_name,
+                    exc,
+                    exc_info=exc,
+                )
 
     task.add_done_callback(_on_complete)
     return task
@@ -49,10 +55,8 @@ class StateMachine:
     Core state machine for the monitoring engine.
 
     Manages per-endpoint in-memory state, applies the N-cycle confirmation
-    logic before committing state transitions, and executes all required
-    database operations when transitions are committed.
-
-    This class has no knowledge of scheduling, ICMP mechanics, or the HTTP API.
+    logic before committing state transitions, updates the in-memory topology DAG,
+    broadcasts real-time SSE telemetry, and executes database operations.
     """
 
     def __init__(self, confirmation_threshold: int = 3) -> None:
@@ -69,7 +73,6 @@ class StateMachine:
     ) -> Optional[EndpointState]:
         """
         Called once per endpoint when the monitoring engine starts.
-
         Looks for the latest event in the database for this endpoint to load the state.
         """
         row = (
@@ -116,7 +119,7 @@ class StateMachine:
         operational_state, detailed_state = classify_ping_result(
             result, baseline_mean=baseline_mean, baseline_stddev=baseline_stddev
         )
-        start_time = datetime.now().astimezone()
+        start_time = datetime.now(timezone.utc)
         health_score = result.health_score
 
         row = (
@@ -249,15 +252,81 @@ class StateMachine:
                     new_detailed_state,
                 )
 
+                # 1. Update in-memory topology DAG status immediately
+                try:
+                    from app.services.topology import topology_manager
+
+                    safe_create_task(
+                        topology_manager.update_node_status(
+                            str(state.endpoint_id), new_detailed_state
+                        ),
+                        "topology_update_node_status",
+                    )
+                except Exception as e:
+                    logger.warning("Topology manager update hook error: %s", e)
+
+                # 2. Broadcast SSE and EventBroker events
+                try:
+                    from app.routers.events import broadcast_sse_event
+                    from app.services.driver_manager import driver_manager
+
+                    now_iso = datetime.now(timezone.utc).isoformat()
+                    node_payload = {
+                        "type": "NODE_STATE_CHANGE",
+                        "endpoint_id": str(state.endpoint_id),
+                        "new_state": new_detailed_state,
+                    }
+                    safe_create_task(
+                        broadcast_sse_event("NODE_STATE_CHANGE", node_payload),
+                        "sse_node_state_change",
+                    )
+
+                    transition_payload = {
+                        "type": "STATE_TRANSITION",
+                        "endpoint_id": str(state.endpoint_id),
+                        "operational_state": new_operational_state,
+                        "detailed_state": new_detailed_state,
+                        "avg_rtt_ms": result.avg_rtt_ms,
+                        "health_score": result.health_score,
+                        "timestamp": now_iso,
+                    }
+                    safe_create_task(
+                        broadcast_sse_event(
+                            "STATE_TRANSITION", transition_payload
+                        ),
+                        "sse_state_transition",
+                    )
+
+                    event_broker = driver_manager.get_event_broker()
+                    if event_broker:
+                        safe_create_task(
+                            event_broker.publish(
+                                "NODE_STATE_CHANGE", node_payload
+                            ),
+                            "broker_node_state_change",
+                        )
+                        safe_create_task(
+                            event_broker.publish(
+                                "STATE_TRANSITION", transition_payload
+                            ),
+                            "broker_state_transition",
+                        )
+                except Exception as e:
+                    logger.warning("Event broadcast error: %s", e)
+
                 # V1.5 State Transition Hooks: Differential RCA and Recovery
                 if state.confirmed_operational_state != new_operational_state:
-                    import asyncio
-                    from app.services.rca_engine import run_differential_rca, handle_endpoint_recovery
+                    from app.services.rca_engine import (
+                        handle_endpoint_recovery,
+                        run_differential_rca,
+                    )
 
                     if new_operational_state == "DOWN":
                         # Fetch enable_rca configuration
                         rca_check = await db.execute(
-                            text("SELECT enable_rca FROM endpoints WHERE id = CAST(:id AS uuid)"),
+                            text(
+                                "SELECT enable_rca FROM endpoints WHERE id = CAST(:id AS uuid)"
+                            ),
                             {"id": str(state.endpoint_id)},
                         )
                         rca_row = rca_check.fetchone()
@@ -268,13 +337,17 @@ class StateMachine:
                             )
                     elif new_operational_state == "UP":
                         ep_check = await db.execute(
-                            text("SELECT host(ip_address) AS ip_address FROM endpoints WHERE id = CAST(:id AS uuid)"),
+                            text(
+                                "SELECT host(ip_address) AS ip_address FROM endpoints WHERE id = CAST(:id AS uuid)"
+                            ),
                             {"id": str(state.endpoint_id)},
                         )
                         ep_row = ep_check.fetchone()
                         if ep_row and ep_row.ip_address:
                             safe_create_task(
-                                handle_endpoint_recovery(state.endpoint_id, str(ep_row.ip_address)),
+                                handle_endpoint_recovery(
+                                    state.endpoint_id, str(ep_row.ip_address)
+                                ),
                                 "endpoint_recovery",
                             )
 
@@ -291,7 +364,7 @@ class StateMachine:
             )
 
         # Step 3: Insert the record for this cycle to the database.
-        execution_time = datetime.now().astimezone()
+        execution_time = datetime.now(timezone.utc)
 
         row = (
             await db.execute(

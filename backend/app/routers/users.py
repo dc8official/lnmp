@@ -1,60 +1,63 @@
 from __future__ import annotations
-import json
-from datetime import datetime
-from app.services.timezone_utils import get_local_timezone
-from typing import Literal, Optional
+
+import logging
+from typing import Optional
 from uuid import UUID
+
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, Field
-from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
+
 from app.database import get_db
-from app.routers.auth import require_admin, get_current_user
-from app.services.auth_service import hash_password, generate_readable_password
+from app.repositories.auth_repo import AuthRepository
+from app.routers.auth import get_current_user, require_admin
 from app.schemas import APIResponse
+from app.schemas.users import (
+    CreateUserRequest,
+    ResetPasswordRequest,
+    UpdateUserRequest,
+    UserSummary,
+)
+from app.services.auth_service import (
+    generate_readable_password,
+    hash_password,
+    hash_password_async,
+)
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/users", tags=["users"])
 
-class CreateUserRequest(BaseModel):
-    username: str = Field(..., min_length=3, max_length=50)
-    password: Optional[str] = None
-    role: Literal["ADMIN", "VIEWER"]
-
-class UpdateUserRequest(BaseModel):
-    role: Optional[Literal["ADMIN", "VIEWER"]] = None
-    is_active: Optional[bool] = None
-
-class ResetPasswordRequest(BaseModel):
-    password: Optional[str] = None
 
 @router.get("/")
 async def list_users(
     current_user: dict = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
-    query = text("""
-        SELECT u.id, u.username, u.is_active, u.must_change_password, 
-               u.last_login, u.created_at, r.role_name
-        FROM users u
-        JOIN roles r ON u.role_id = r.id
-        ORDER BY u.created_at DESC
-    """)
-    result = await db.execute(query)
-    rows = result.fetchall()
-    
+    auth_repo = AuthRepository(db)
+    users = await auth_repo.list_users()
+
     users_data = []
-    for row in rows:
+    for user in users:
+        role_name = "VIEWER"
+        if hasattr(user, "role_name") and isinstance(user.role_name, str):
+            role_name = user.role_name
+        elif hasattr(user, "role"):
+            if isinstance(user.role, str):
+                role_name = user.role
+            elif hasattr(user.role, "role_name") and isinstance(user.role.role_name, str):
+                role_name = user.role.role_name
         users_data.append({
-            "id": str(row.id),
-            "username": row.username,
-            "is_active": row.is_active,
-            "must_change_password": row.must_change_password,
-            "last_login": row.last_login,
-            "created_at": row.created_at,
-            "role": row.role_name
+            "id": str(user.id),
+            "username": user.username,
+            "is_active": user.is_active,
+            "must_change_password": user.must_change_password,
+            "last_login": user.last_login,
+            "created_at": user.created_at,
+            "role": str(role_name),
         })
-        
+
     return APIResponse.success(data=users_data)
+
 
 @router.post("/", status_code=201)
 async def create_user(
@@ -62,19 +65,20 @@ async def create_user(
     current_user: dict = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
+    auth_repo = AuthRepository(db)
+
     # Check if username already exists
-    dup_query = text("SELECT id FROM users WHERE username = :username LIMIT 1")
-    dup_result = await db.execute(dup_query, {"username": request.username})
-    if dup_result.fetchone():
-        raise HTTPException(status_code=409, detail="Username is already taken.")
-        
+    dup_user = await auth_repo.get_user_by_username(request.username)
+    if dup_user:
+        raise HTTPException(
+            status_code=409, detail="Username is already taken."
+        )
+
     # Get role_id
-    role_query = text("SELECT id FROM roles WHERE role_name = :role LIMIT 1")
-    role_result = await db.execute(role_query, {"role": request.role})
-    role_row = role_result.fetchone()
+    role_row = await auth_repo.get_role_by_name(request.role)
     if not role_row:
         raise HTTPException(status_code=400, detail="Invalid role specified.")
-        
+
     # Set default password if not provided
     generated_pass = None
     if request.password and request.password.strip():
@@ -83,50 +87,47 @@ async def create_user(
         plain_password = generate_readable_password()
         generated_pass = plain_password
 
-    hashed = hash_password(plain_password)
-    
-    insert_query = text("""
-        INSERT INTO users (
-            username, password_hash, role_id, is_active, must_change_password
-        ) VALUES (
-            :u, :p, CAST(:r AS uuid), TRUE, TRUE
-        ) RETURNING id, created_at
-    """)
-    insert_result = await db.execute(insert_query, {
-        "u": request.username,
-        "p": hashed,
-        "r": str(role_row.id)
-    })
-    new_user = insert_result.fetchone()
-    
-    audit_query = text("""
-        INSERT INTO audit_logs (
-            user_id, action, target_type, target_id, details
-        ) VALUES (
-            CAST(:user_id AS uuid), 'USER:CREATE', 'users', CAST(:target_id AS uuid), :details
+    hashed = await hash_password_async(plain_password)
+
+    new_user = await auth_repo.create_user(
+        username=request.username,
+        password_hash=hashed,
+        role_id=role_row.id,
+    )
+
+    admin_uuid = None
+    if current_user.get("sub"):
+        try:
+            admin_uuid = UUID(str(current_user.get("sub")))
+        except Exception:
+            pass
+
+    new_user_id = getattr(new_user, "id", None)
+    if new_user_id:
+        await auth_repo.create_audit_log(
+            user_id=admin_uuid,
+            action="USER:CREATE",
+            target_type="users",
+            target_id=new_user_id,
+            details={
+                "username": request.username,
+                "role": request.role,
+            },
         )
-    """)
-    await db.execute(audit_query, {
-        "user_id": current_user.get("sub"),
-        "target_id": str(new_user.id),
-        "details": json.dumps({
-            "username": request.username,
-            "role": request.role
-        })
-    })
-    
+
     await db.commit()
-    
+
     res_data = {
-        "id": str(new_user.id),
+        "id": str(new_user_id),
         "username": request.username,
         "role": request.role,
-        "message": f"User account '{request.username}' created successfully."
+        "message": f"User account '{request.username}' created successfully.",
     }
     if generated_pass:
         res_data["generated_password"] = generated_pass
 
     return APIResponse.success(data=res_data)
+
 
 @router.post("/{user_id}/reset-password")
 async def reset_password(
@@ -136,14 +137,16 @@ async def reset_password(
     db: AsyncSession = Depends(get_db),
 ):
     if str(user_id) == str(current_user.get("sub")):
-        raise HTTPException(status_code=400, detail="Use the password change menu to update your own password.")
+        raise HTTPException(
+            status_code=400,
+            detail="Use the password change menu to update your own password.",
+        )
 
-    query = text("SELECT id, username FROM users WHERE id = CAST(:user_id AS uuid) LIMIT 1")
-    result = await db.execute(query, {"user_id": str(user_id)})
-    row = result.fetchone()
-    if not row:
+    auth_repo = AuthRepository(db)
+    user = await auth_repo.get_user_by_id(user_id)
+    if not user:
         raise HTTPException(status_code=404, detail="User not found.")
-        
+
     generated_pass = None
     if request.password and request.password.strip():
         plain_password = request.password.strip()
@@ -151,42 +154,35 @@ async def reset_password(
         plain_password = generate_readable_password()
         generated_pass = plain_password
 
-    hashed = hash_password(plain_password)
-    
-    update_query = text("""
-        UPDATE users
-        SET password_hash = :p,
-            must_change_password = TRUE,
-            updated_at = NOW()
-        WHERE id = CAST(:user_id AS uuid)
-    """)
-    await db.execute(update_query, {
-        "p": hashed,
-        "user_id": str(user_id)
-    })
-    
-    audit_query = text("""
-        INSERT INTO audit_logs (
-            user_id, action, target_type, target_id, details
-        ) VALUES (
-            CAST(:user_id AS uuid), 'USER:RESET_PASSWORD', 'users', CAST(:target_id AS uuid), :details
-        )
-    """)
-    await db.execute(audit_query, {
-        "user_id": current_user.get("sub"),
-        "target_id": str(user_id),
-        "details": json.dumps({"username": row.username})
-    })
-    
+    hashed = await hash_password_async(plain_password)
+
+    await auth_repo.update_password(user_id, hashed, must_change_password=True)
+
+    admin_uuid = None
+    if current_user.get("sub"):
+        try:
+            admin_uuid = UUID(str(current_user.get("sub")))
+        except Exception:
+            pass
+
+    await auth_repo.create_audit_log(
+        user_id=admin_uuid,
+        action="USER:RESET_PASSWORD",
+        target_type="users",
+        target_id=user_id,
+        details={"username": user.username},
+    )
+
     await db.commit()
-    
+
     res_data = {
-        "message": f"Password for user '{row.username}' reset successfully."
+        "message": f"Password for user '{user.username}' reset successfully."
     }
     if generated_pass:
         res_data["generated_password"] = generated_pass
 
     return APIResponse.success(data=res_data)
+
 
 @router.patch("/{user_id}")
 async def update_user(
@@ -197,58 +193,56 @@ async def update_user(
 ):
     # Safety Check: Prevent modifying self
     if str(user_id) == str(current_user.get("sub")):
-        raise HTTPException(status_code=400, detail="Administrative roles cannot modify their own privileges or status.")
-        
-    query = text("SELECT id, username FROM users WHERE id = CAST(:user_id AS uuid) LIMIT 1")
-    result = await db.execute(query, {"user_id": str(user_id)})
-    row = result.fetchone()
-    if not row:
+        raise HTTPException(
+            status_code=400,
+            detail="Administrative roles cannot modify their own privileges or status.",
+        )
+
+    auth_repo = AuthRepository(db)
+    user = await auth_repo.get_user_by_id(user_id)
+    if not user:
         raise HTTPException(status_code=404, detail="User not found.")
-        
+
     updates = {}
+    audit_details = {}
+
     if request.role is not None:
-        role_query = text("SELECT id FROM roles WHERE role_name = :role LIMIT 1")
-        role_result = await db.execute(role_query, {"role": request.role})
-        role_row = role_result.fetchone()
+        role_row = await auth_repo.get_role_by_name(request.role)
         if not role_row:
             raise HTTPException(status_code=400, detail="Invalid role specified.")
-        updates["role_id"] = str(role_row.id)
-        
+        updates["role_id"] = role_row.id
+        audit_details["role"] = request.role
+
     if request.is_active is not None:
         updates["is_active"] = request.is_active
-        
+        audit_details["is_active"] = request.is_active
+
     if not updates:
         return APIResponse.success(data={"message": "No updates provided."})
-        
-    updates["updated_at"] = datetime.now(get_local_timezone())
-    set_clause = ", ".join(f"{k} = :{k}" for k in updates)
-    update_query = text(f"UPDATE users SET {set_clause} WHERE id = CAST(:user_id AS uuid)")
-    
-    params = updates.copy()
-    params["user_id"] = str(user_id)
-    await db.execute(update_query, params)
-    
-    audit_details = {k: v for k, v in updates.items() if k != "updated_at"}
-    if "role_id" in audit_details:
-        audit_details["role"] = request.role
-        del audit_details["role_id"]
-        
-    audit_query = text("""
-        INSERT INTO audit_logs (
-            user_id, action, target_type, target_id, details
-        ) VALUES (
-            CAST(:user_id AS uuid), 'USER:UPDATE', 'users', CAST(:target_id AS uuid), :details
-        )
-    """)
-    await db.execute(audit_query, {
-        "user_id": current_user.get("sub"),
-        "target_id": str(user_id),
-        "details": json.dumps(audit_details)
-    })
-    
+
+    await auth_repo.update_user(user_id, **updates)
+
+    admin_uuid = None
+    if current_user.get("sub"):
+        try:
+            admin_uuid = UUID(str(current_user.get("sub")))
+        except Exception:
+            pass
+
+    await auth_repo.create_audit_log(
+        user_id=admin_uuid,
+        action="USER:UPDATE",
+        target_type="users",
+        target_id=user_id,
+        details=audit_details,
+    )
+
     await db.commit()
-    
-    return APIResponse.success(data={"message": f"User '{row.username}' updated successfully."})
+
+    return APIResponse.success(
+        data={"message": f"User '{user.username}' updated successfully."}
+    )
+
 
 @router.delete("/{user_id}")
 async def delete_user(
@@ -258,36 +252,35 @@ async def delete_user(
 ):
     # Safety Check: Prevent deleting self
     if str(user_id) == str(current_user.get("sub")):
-        raise HTTPException(status_code=400, detail="Administrators cannot delete or deactivate their own active accounts.")
-        
-    query = text("SELECT id, username FROM users WHERE id = CAST(:user_id AS uuid) LIMIT 1")
-    result = await db.execute(query, {"user_id": str(user_id)})
-    row = result.fetchone()
-    if not row:
-        raise HTTPException(status_code=404, detail="User not found.")
-        
-    # Soft delete / deactivate user
-    update_query = text("""
-        UPDATE users
-        SET is_active = FALSE,
-            updated_at = NOW()
-        WHERE id = CAST(:user_id AS uuid)
-    """)
-    await db.execute(update_query, {"user_id": str(user_id)})
-    
-    audit_query = text("""
-        INSERT INTO audit_logs (
-            user_id, action, target_type, target_id, details
-        ) VALUES (
-            CAST(:user_id AS uuid), 'USER:DEACTIVATE', 'users', CAST(:target_id AS uuid), :details
+        raise HTTPException(
+            status_code=400,
+            detail="Administrators cannot delete or deactivate their own active accounts.",
         )
-    """)
-    await db.execute(audit_query, {
-        "user_id": current_user.get("sub"),
-        "target_id": str(user_id),
-        "details": json.dumps({"username": row.username})
-    })
-    
+
+    auth_repo = AuthRepository(db)
+    user = await auth_repo.get_user_by_id(user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found.")
+
+    await auth_repo.deactivate_user(user_id)
+
+    admin_uuid = None
+    if current_user.get("sub"):
+        try:
+            admin_uuid = UUID(str(current_user.get("sub")))
+        except Exception:
+            pass
+
+    await auth_repo.create_audit_log(
+        user_id=admin_uuid,
+        action="USER:DEACTIVATE",
+        target_type="users",
+        target_id=user_id,
+        details={"username": user.username},
+    )
+
     await db.commit()
-    
-    return APIResponse.success(data={"message": f"User '{row.username}' deactivated successfully."})
+
+    return APIResponse.success(
+        data={"message": f"User '{user.username}' deactivated successfully."}
+    )

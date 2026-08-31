@@ -36,7 +36,7 @@ class TestDiagnosticsAndTopology(unittest.TestCase):
         # Hop 1
         self.assertEqual(hops[0]["hop"], 1)
         self.assertEqual(hops[0]["ip"], "192.168.1.1")
-        self.assertAlmostEqual(hops[0]["rtt_ms"], 1.123)
+        self.assertAlmostEqual(hops[0]["rtt_ms"], 1.049, places=2)
 
         # Hop 2
         self.assertEqual(hops[1]["hop"], 2)

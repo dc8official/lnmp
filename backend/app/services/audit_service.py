@@ -1,12 +1,14 @@
 from __future__ import annotations
-import json
+
 import logging
 from typing import Optional
 from uuid import UUID
-from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.repositories.auth_repo import AuthRepository
+
 logger = logging.getLogger(__name__)
+
 
 async def log_action(
     db: AsyncSession,
@@ -16,33 +18,14 @@ async def log_action(
     details: Optional[dict] = None,
     user_id: Optional[UUID] = None,
 ) -> None:
-    query = text("""
-        INSERT INTO audit_logs (
-            user_id,
-            action,
-            target_type,
-            target_id,
-            details
-        ) VALUES (
-            CAST(:user_id AS uuid),
-            :action,
-            :target_type,
-            CAST(:target_id AS uuid),
-            :details
-        )
-    """)
-    
-    await db.execute(
-        query,
-        {
-            "user_id": str(user_id) if user_id is not None else None,
-            "action": action,
-            "target_type": target_type,
-            "target_id": str(target_id),
-            "details": json.dumps(details) if details is not None else None,
-        }
+    auth_repo = AuthRepository(db)
+    await auth_repo.create_audit_log(
+        user_id=user_id,
+        action=action,
+        target_type=target_type,
+        target_id=target_id,
+        details=details,
     )
-    
     logger.debug(
         "Audit: action=%s target_type=%s target_id=%s user_id=%s",
         action,

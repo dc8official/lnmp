@@ -6,7 +6,30 @@ The versioning format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
-## [Version 2.0 (Beta)] — Current Release
+## [Version 3.0.0] — Current Production Release
+
+### 🚀 Major Architectural Upgrades
+
+| Upgrade Domain | Technical Implementation | Operational & Performance Benefit |
+| :--- | :--- | :--- |
+| **SQLAlchemy 2.0 ORM & Repository Layer** | Migrated all database operations from raw SQL string sprawl to pure typed async declarative models (`backend/app/models/`) and a clean Repository Layer (`backend/app/repositories/`). | Eliminates SQL injection vectors, god controllers, and coupling; standardizes database access with full IDE autocompletion and type-safety. |
+| **SQL-Level Pagination** | Implemented `limit` and `offset` query parameters across repositories with metadata envelopes (`total_count`, `page`, `page_size`, `total_pages`). | Drastically reduces server memory consumption and DB serialization overhead when querying large endpoint and event lists. |
+| **Pydantic-Settings Centralization** | Modernized configuration management with nested `Settings` models reading from `/etc/netmon/config.toml` and environment variables. | Clean validation of system configurations on startup with clear error messages for missing or invalid parameters. |
+| **60s Cycle Timing Budget Refactor** | Re-tuned monitoring cycle from `10 pings @ 6.0s` to `5 pings @ 8.0s` with randomized startup jitter (0–2000ms offset). | Guarantees probe pass completion in ~32s, leaving a spacious **28-second headroom window** before the minute boundary to eliminate thundering herds and DB lock contention. |
+| **Dynamic In-Memory Endpoint Registry** | Thread-safe, asyncio concurrent `EndpointRegistry` with sub-minute lifecycle synchronization (`add_endpoint`, `update_endpoint`, `remove_endpoint`). | Enables zero-downtime endpoint onboarding and configuration updates without requiring engine daemon restarts. |
+| **High-Fidelity Route Diagnostics** | Upgraded traceroute parameters to `traceroute -n -q 2 -w 3 -m 30 -I` with robust multi-probe latency extraction and automatic Layer-2 subnet bypass. | Eliminates silent hop parsing dropouts, measures multi-probe transit variability, and avoids wasteful traceroutes on direct broadcast segments. |
+| **Dual-Driver Storage Architecture** | Abstracted `SessionStore` (`PostgresSessionStore`, `RedisSessionStore`) and `EventBroker` (`PostgresEventBroker`, `RedisEventBroker`) managed via `StorageDriverManager`. | Enables high-performance Redis in-memory acceleration while retaining 100% functionality on standalone PostgreSQL deployments. |
+| **Async Argon2id Password Hashing** | Wrapped CPU-intensive password hashing and verification in `asyncio.to_thread` with trusted CIDR IP sanitization. | Prevents event-loop stalls under concurrent authentication traffic and guarantees accurate audit logging behind reverse proxies. |
+| **Real-Time Server-Sent Events (SSE)** | High-throughput streaming endpoint `GET /api/v1/events/stream` emitting `STATE_TRANSITION`, `NODE_STATE_CHANGE`, and `RCA_INCIDENT` envelopes with 15s heartbeat pings. | Eliminates periodic client polling, reducing backend HTTP request load while providing instantaneous sub-second UI updates. |
+| **Multi-Protocol Synthetic Probes** | Lightweight async probes for TCP port reachability, HTTP/HTTPS status validation, and SSL/TLS certificate expiry with strict SSRF defense. | Extends platform monitoring beyond ICMP to application-layer service health and certificate expiration alerts. |
+| **Frozen-Physics Topology Recolor** | Real-time Vis-Network node recoloring upon SSE `NODE_STATE_CHANGE` events with locked physics (`physics: { enabled: false }`). | Updates network status colors in real time without causing node jitter, layout recalculations, or canvas movement. |
+| **Dashboard Layout Overhaul** | Added Global Network Health KPI strip with live filter pills, dual view switcher (Visual Card Grid vs Dense Table), and real-time SSE connection badge. | Gives operators instant fleet-wide SLA visibility and high-density sorting capabilities across thousands of monitored devices. |
+| **Admin Settings Console** | Dedicated administrative interface (`/settings`) for storage driver switching, L2 auto-bypass toggles, security timeouts, and user governance. | Simplifies runtime system tuning and user administration into a centralized web UI. |
+| **Design System & Accessibility Polish** | High-contrast monochrome theme, tabular monospace numbers (`font-variant-numeric: tabular-nums`), WCAG 2.1 AA focus rings, and `aria-live` screen reader regions. | Guarantees compliance with accessibility standards and ensures maximum legibility in mission-critical NOC environments. |
+
+---
+
+## [Version 2.0 (Beta)]
 
 ### ✨ Feature Updates
 
@@ -22,22 +45,6 @@ The versioning format follows [Semantic Versioning](https://semver.org/).
 | **TimescaleDB 7-Day Compression** | Columnar hypertable chunk compression via migration `0005_v2_0_timescale_stability.py` | Reduces database storage growth by 90%+ while keeping years of historical telemetry 100% queryable for charts and reports. |
 | **Continuous Aggregate Policies** | Automated hourly background refresh with crash-recovery catch-up | Accelerates historical baseline queries, ensures continuous aggregation, and saves server RAM during live dashboard usage. |
 
-### 🛡️ Quality, Stability & Security Updates
-
-| Hardening Module | Technical Mechanism | Operational Benefit |
-| :--- | :--- | :--- |
-| **Top-of-Minute DB Write Semaphore** | `asyncio.Semaphore(15)` in monitoring engine | Eliminates top-of-the-minute PostgreSQL connection pool exhaustion and thundering herds when polling hundreds of endpoints. |
-| **Database Pool Scaling** | Expanded pool settings (`pool_size=20, max_overflow=30`) in `database.py` | Guarantees high-throughput query handling during simultaneous multi-user dashboard sessions. |
-| **150MB Auto-Rotating Logging Suite** | Python `RotatingFileHandler` with dual console and file outputs (`/var/log/netmon/`) | Full diagnostic transparency into API requests, engine cycles, and errors with a hard-capped 150MB maximum disk footprint. |
-| **Global Access & Latency Middleware** | Asynchronous FastAPI middleware capturing client IP, path, status, and latency | Pinpoints slow queries and monitors real-time API performance on every endpoint. |
-| **Security Diagnostic Warning Logs** | Explicit warning-level logging on 401 unauthenticated and 403 lockout events | Provides auditability for authentication failures and security investigations. |
-| **Automated 90-Day Retention Purge** | Daily background maintenance task in `diagnostics.py` | Automatically purges resolved RCA incidents (> 90d) and audit logs (> 90d) to prevent unconstrained database growth. |
-| **Smart In-Place Config Migrator** | Automated config updater in `deploy/upgrade.sh` | Seamlessly updates `/etc/netmon/config.toml` defaults (120m timeout, 2-session limit) without overwriting database passwords or secrets. |
-| **Systemd Auto-Start Enforcement** | Automatic `.service` unit copy and `systemctl enable` in install and upgrade scripts | Guarantees that monitoring daemons automatically start on server reboot without manual operator intervention. |
-| **Dedicated Decommission Utility** | Interactive `deploy/uninstall.sh` with safety confirmation and pre-removal SQL dump | Allows safe, complete removal of platform services and web routing with guaranteed zero accidental data loss. |
-| **Build-Time Vulnerability Mitigation** | NPM `overrides` locking `nanoid` to `>= 3.3.18` | Eliminates an infinite loop Denial-of-Service (DoS) vulnerability in frontend build tooling. |
-| **Clean UI Branding** | Removed placeholder shield and hexagon icons; updated version badge to `lnmp v2.0(beta)` | Provides a clean, distraction-free user interface and professional visual hierarchy. |
-
 ---
 
 ## [Version 1.5 (Beta)]
@@ -52,42 +59,3 @@ The versioning format follows [Semantic Versioning](https://semver.org/).
 | **Differential Root Cause Analysis (RCA)** | Automated side-by-side comparison of live failure traces against baseline snapshots | Instantly isolates whether an outage is caused by a local broadcast drop or an upstream carrier/transit link failure. |
 | **In-Memory Directed Acyclic Graph (DAG)** | Sequential discovery pipeline with single-vertex Trie/Tree deduplication and orphan pruning | Builds an exact parent-child network topology map with zero duplicate transit nodes. |
 | **Topological Alert Suppression** | Downstream dependency tracking marking children as `INFERRED_DOWN` | Silences cascading alert storms when an upstream aggregation router fails, highlighting the true root cause. |
-| **4-Tier Network Boundary Detection** | Pure-Python `/proc/net/route` and `/proc/net/arp` inspection with FHRP regex (HSRP/VRRP/GLBP) | Automatically detects host interfaces, default gateways, and virtual redundancy protocol boundaries. |
-| **Streaming Telemetry CSV Export** | Server-side database cursor streaming rows with formula sanitization (`=`, `+`, `-`, `@`) | Allows exporting millions of telemetry rows cleanly without server memory bloat or spreadsheet formula execution risks. |
-| **Role-Based Access Control (RBAC)** | Distinct `ADMIN` and `OPERATOR` permission models with dedicated user management view | Restricts configuration changes to administrators while giving operators read-only dashboard and diagnostic access. |
-| **Forced Initial Password Reset** | Database-enforced `must_change_password` flag verified upon authentication | Ensures temporary onboarding credentials cannot be reused indefinitely. |
-| **Granular Endpoint Diagnostic Controls** | Flags: `allow_incident_trace`, `allow_topology_discovery`, `manual_parent_id` | Prevents CPU storms and control-plane traffic overload on sensitive low-bandwidth network hardware. |
-
-### 🛡️ Quality, Stability & Security Updates
-
-| Hardening Module | Technical Mechanism | Operational Benefit |
-| :--- | :--- | :--- |
-| **Upstream CVE Patches** | Patched dependencies (form-data CRLF, Vite NTFS traversal, Axios prototype pollution) | Secures the platform against known supply-chain vulnerabilities. |
-| **PostgreSQL Explicit UUID Casting** | Enforced `CAST(:id AS uuid)` across all SQLAlchemy queries and models | Eliminates runtime database type-coercion and UUID lookup errors. |
-| **Physics-Stabilized Topology Canvas** | Vis-Network physics freeze after 200 stabilization iterations | Eliminates continuous canvas shaking, bouncing, and CPU drain during live polling updates. |
-| **Ephemeral JSONB Diagnostic Retention** | Dedicated JSONB table with automated 14-day background purge worker | Keeps high-frequency time-series hypertables fast and query-optimized while preserving diagnostic traces. |
-| **Non-Blocking Endpoint Creation** | Async background discovery (`_bg_run_initial_discovery`) | Delivers sub-50ms API responses when adding new endpoints by offloading initial traceroutes to background tasks. |
-| **Dedicated CLI Password Reset Tool** | Standalone Python/Shell recovery script (`deploy/reset-admin-password.sh`) | Provides safe out-of-band administrative password recovery from the server CLI. |
-
----
-
-## [Version 1.0 (Baseline)]
-
-### ✨ Feature Updates
-
-| Feature Module | Technical Mechanism | Operational Benefit |
-| :--- | :--- | :--- |
-| **The 10-Ping Sub-Cycle Poller** | 10 ICMP packets spaced 6 seconds apart within every 60-second window | Provides high-density sampling aligned precisely to absolute minute boundaries. |
-| **Dual-State Operational Engine** | Decoupled `operational_state` (macro availability) from `detailed_state` (minute-level health) | Separates transient packet drops from true production outage incidents. |
-| **Honest SLA Mathematics** | Lifespan alignment and server blackout neutralization (`D_sla = T_total - U`) | Eliminates administrative downtime windows and prevents false SLA calculation penalties. |
-| **RESTful Service API & Web Dashboard** | FastAPI backend with Vue 3 / Chart.js real-time telemetry charting | Delivers real-time network visibility and RTT latency visualization. |
-| **Endpoint CRUD Management** | Relational data model for target IP addresses, hostnames, and site tags | Centralizes network endpoint inventory management. |
-
-### 🛡️ Quality, Stability & Security Updates
-
-| Hardening Module | Technical Mechanism | Operational Benefit |
-| :--- | :--- | :--- |
-| **In-Memory Flap Suppression (N=3)** | State machine requiring 3 consecutive cycles (180s) of sustained change | Prevents alert flapping and notification spam caused by momentary packet jitter. |
-| **Raw Socket ICMP Polling** | Linux `CAP_NET_RAW` capability on binary execution | Achieves high-efficiency packet crafting without spawning resource-heavy external sub-processes. |
-| **Asynchronous Engine Architecture** | Single-threaded Python `asyncio` event loop | Prevents OS thread exhaustion while concurrently monitoring multiple endpoints. |
-| **Baseline PostgreSQL Migrations** | Initial Alembic migration framework and relational schemas | Establishes structured, version-controlled database schema management. |

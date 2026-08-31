@@ -1,13 +1,19 @@
 from __future__ import annotations
+
 import asyncio
 import logging
-from datetime import datetime
+import random
+from datetime import datetime, timezone
 from uuid import UUID
-from sqlalchemy import text
+
+from sqlalchemy import select
 from app.database import AsyncSessionLocal
+from app.models.endpoint import Endpoint
 from app.services.baseline_service import baseline_cache, start_baseline_refresh_task
+from app.services.diagnostics import run_throttled_traceroute, save_diagnostic_trace
 from monitoring.gap_handler import resolve_startup_state
 from monitoring.ping import run_ping_cycle
+from monitoring.registry import endpoint_registry, MonitoredEndpoint
 from monitoring.state_machine import EndpointState, StateMachine
 
 from app.logging_config import setup_logging
@@ -25,6 +31,7 @@ db_write_semaphore = asyncio.Semaphore(15)
 
 _active_background_tasks: set[asyncio.Task] = set()
 
+
 def safe_create_task(coro, task_name: str = "background_task") -> asyncio.Task:
     """Safely spawn a background asyncio task with error logging and lifetime tracking."""
     task = asyncio.create_task(coro)
@@ -35,25 +42,37 @@ def safe_create_task(coro, task_name: str = "background_task") -> asyncio.Task:
         if not t.cancelled():
             exc = t.exception()
             if exc:
-                logger.error("Background task '%s' failed with exception: %s", task_name, exc, exc_info=exc)
+                logger.error(
+                    "Background task '%s' failed with exception: %s",
+                    task_name,
+                    exc,
+                    exc_info=exc,
+                )
 
     task.add_done_callback(_on_complete)
     return task
 
 
-from app.services.diagnostics import run_throttled_traceroute, save_diagnostic_trace
-
-
-async def trigger_incident_diagnostic_trace(endpoint_id: UUID, ip_address: str):
+async def trigger_incident_diagnostic_trace(endpoint_id: UUID, ip_address: str) -> None:
     """Fires a background diagnostic traceroute upon detecting a failed ping sub-cycle."""
     try:
         trace_data = await run_throttled_traceroute(ip_address)
         async with AsyncSessionLocal() as db:
-            await save_diagnostic_trace(db, endpoint_id, "FAILED_PING_SUBCYCLE", trace_data)
+            await save_diagnostic_trace(
+                db, endpoint_id, "FAILED_PING_SUBCYCLE", trace_data
+            )
             await db.commit()
-            logger.info("Incident diagnostic trace saved for endpoint %s (%s)", endpoint_id, ip_address)
+            logger.info(
+                "Incident diagnostic trace saved for endpoint %s (%s)",
+                endpoint_id,
+                ip_address,
+            )
     except Exception as e:
-        logger.error("Failed to execute incident diagnostic trace for %s: %s", ip_address, e)
+        logger.error(
+            "Failed to execute incident diagnostic trace for %s: %s",
+            ip_address,
+            e,
+        )
 
 
 async def monitor_endpoint(
@@ -61,6 +80,10 @@ async def monitor_endpoint(
     ip_address: str,
     state_machine: StateMachine,
 ) -> None:
+    # 0–2000ms randomized startup jitter to distribute probe start times
+    startup_jitter = random.uniform(0.0, 2.0)
+    await asyncio.sleep(startup_jitter)
+
     async with AsyncSessionLocal() as db:
         state = await state_machine.initialize_endpoint(endpoint_id, db)
         await db.commit()
@@ -84,7 +107,7 @@ async def monitor_endpoint(
                 result = await run_ping_cycle(
                     ip_address=ip_address,
                     count=1,
-                    interval=6.0,
+                    interval=8.0,
                     timeout=2.0,
                     privileged=True,
                 )
@@ -110,7 +133,9 @@ async def monitor_endpoint(
 
             # Sleep until the next top-of-the-minute boundary
             now_utc = datetime.now().astimezone()
-            remaining_seconds = 60.0 - now_utc.second - (now_utc.microsecond / 1_000_000.0)
+            remaining_seconds = (
+                60.0 - now_utc.second - (now_utc.microsecond / 1_000_000.0)
+            )
             logger.info(
                 "Sleeping for %.4f seconds until the next top-of-the-minute boundary.",
                 remaining_seconds,
@@ -119,10 +144,11 @@ async def monitor_endpoint(
 
     while True:
         try:
+            # 5 pings @ 8.0s = ~32.0s duration, guaranteeing ~28.0s headroom window before next boundary
             result = await run_ping_cycle(
                 ip_address=ip_address,
-                count=10,
-                interval=6.0,
+                count=5,
+                interval=8.0,
                 timeout=2.0,
                 privileged=True,
             )
@@ -142,17 +168,19 @@ async def monitor_endpoint(
                             current_state, result, db, baseline=baseline
                         )
 
-                    # Down-State Trigger Hook: Fire incident diagnostic trace on first failed ping sub-cycle
+                    # Check operational toggles directly from in-memory EndpointRegistry
+                    # to eliminate in-cycle database lock contention during packet drops
                     if result.failed_count > 0:
-                        allow_res = await db.execute(
-                            text("SELECT allow_incident_trace FROM endpoints WHERE id = CAST(:id AS uuid)"),
-                            {"id": str(endpoint_id)},
-                        )
-                        row = allow_res.fetchone()
-                        if row and getattr(row, "allow_incident_trace", True):
-                            safe_create_task(
-                                trigger_incident_diagnostic_trace(endpoint_id, ip_address),
+                        toggles = endpoint_registry.get_toggles(endpoint_id)
+                        if toggles.get("allow_incident_trace", True):
+                            task = safe_create_task(
+                                trigger_incident_diagnostic_trace(
+                                    endpoint_id, ip_address
+                                ),
                                 "incident_diagnostic_trace",
+                            )
+                            endpoint_registry.register_diagnostic_task(
+                                endpoint_id, task
                             )
 
                     await db.commit()
@@ -160,6 +188,9 @@ async def monitor_endpoint(
             async with states_lock:
                 endpoint_states[str(endpoint_id)] = new_state
 
+        except asyncio.CancelledError:
+            logger.info("Monitoring task for endpoint %s cancelled.", endpoint_id)
+            break
         except Exception as e:
             logger.error(
                 "Error in monitoring cycle for %s: %s: %s",
@@ -171,14 +202,13 @@ async def monitor_endpoint(
         # Absolute Minute Loop Alignment:
         # Dynamically compute the exact remaining seconds required to hit the top of the next absolute minute.
         now_utc = datetime.now().astimezone()
-        remaining_seconds = 60.0 - now_utc.second - (now_utc.microsecond / 1_000_000.0)
+        remaining_seconds = (
+            60.0 - now_utc.second - (now_utc.microsecond / 1_000_000.0)
+        )
         if remaining_seconds <= 0:
             remaining_seconds += 60.0
 
         await asyncio.sleep(remaining_seconds)
-
-
-
 
 
 async def main() -> None:
@@ -192,59 +222,49 @@ async def main() -> None:
 
     state_machine = StateMachine(confirmation_threshold=3)
 
-
-
-    running_tasks: dict[str, asyncio.Task] = {}
-
     while True:
         try:
             async with AsyncSessionLocal() as db:
-                result = await db.execute(
-                    text(
-                        "SELECT id, ip_address FROM endpoints "
-                        "WHERE endpoint_status = 'ACTIVE' "
-                        "AND monitoring_enabled = TRUE"
-                    )
+                stmt = select(Endpoint).where(
+                    Endpoint.endpoint_status == "ACTIVE",
+                    Endpoint.monitoring_enabled == True,  # noqa: E712
                 )
-                active_endpoints = result.fetchall()
+                result = await db.execute(stmt)
+                active_endpoints = result.scalars().all()
 
-            # Map of current active endpoints in PostgreSQL
-            db_active_ids = {}
-            for row in active_endpoints:
-                db_active_ids[str(row.id)] = str(row.ip_address).split('/')[0]
+            db_active_map = {ep.id: ep for ep in active_endpoints}
 
-            # Dynamic Removal: cancel tasks for deactivated or deleted targets
-            for endpoint_id_str, task in list(running_tasks.items()):
-                if endpoint_id_str not in db_active_ids:
-                    logger.info("Deactivating monitoring task for endpoint %s", endpoint_id_str)
-                    task.cancel()
-                    running_tasks.pop(endpoint_id_str)
-                    async with states_lock:
-                        if endpoint_id_str in endpoint_states:
-                            endpoint_states.pop(endpoint_id_str)
-
-            def _on_task_done(t: asyncio.Task, ep_id: str):
-                if not t.cancelled() and t.exception():
-                    logger.error("Monitoring task for endpoint %s crashed: %s", ep_id, t.exception())
-                    running_tasks.pop(ep_id, None)
-
-            # Dynamic Addition: spawn tasks for newly active/enabled targets
-            for endpoint_id_str, ip_address in db_active_ids.items():
-                if endpoint_id_str not in running_tasks:
-                    logger.info("Spawning monitoring task for endpoint %s at %s", endpoint_id_str, ip_address)
-                    endpoint_uuid = UUID(endpoint_id_str)
-                    task = asyncio.create_task(
-                        monitor_endpoint(
-                            endpoint_uuid,
-                            ip_address,
-                            state_machine,
-                        )
+            # Sync in-memory endpoint registry
+            for ep in active_endpoints:
+                def _spawn(target: MonitoredEndpoint):
+                    return monitor_endpoint(
+                        target.id,
+                        target.ip_address,
+                        state_machine,
                     )
-                    task.add_done_callback(lambda t, id=endpoint_id_str: _on_task_done(t, id))
-                    running_tasks[endpoint_id_str] = task
 
+                await endpoint_registry.add_endpoint(ep, spawn_coro_fn=_spawn)
+
+            # Evict removed or deactivated endpoints
+            current_registered = endpoint_registry.list_active_endpoints()
+            for reg_ep in current_registered:
+                if reg_ep.id not in db_active_map:
+                    logger.info(
+                        "Deactivating monitoring for removed endpoint %s",
+                        reg_ep.id,
+                    )
+                    await endpoint_registry.remove_endpoint(reg_ep.id)
+                    async with states_lock:
+                        endpoint_states.pop(str(reg_ep.id), None)
+
+        except asyncio.CancelledError:
+            break
         except Exception as e:
-            logger.error("Error in master orchestration loop: %s: %s", type(e).__name__, e)
+            logger.error(
+                "Error in master orchestration loop: %s: %s",
+                type(e).__name__,
+                e,
+            )
 
         await asyncio.sleep(30)
 

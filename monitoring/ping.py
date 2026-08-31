@@ -172,16 +172,19 @@ def classify_ping_result(
     Classifies a ping result into operational state ('UP', 'DOWN') and
     detailed state ('UP', 'UP-UNSTABLE', 'DOWN-UNSTABLE', 'DOWN').
 
-    Uses hybrid adaptive baseline evaluation (Z-score logic):
-    If latency (avg_rtt_ms) exceeds (baseline_mean + k * baseline_stddev),
-    the endpoint latency is marked degraded ('UP-UNSTABLE').
+    Uses hybrid adaptive baseline evaluation (Z-score logic) for 5-ping ratio thresholds:
+    - 5/5 received + healthy RTT (<= μ + 3σ) ➔ UP / UP
+    - 5/5 received + degraded RTT (> μ + 3σ) ➔ UP / UP-UNSTABLE
+    - 3/5 or 4/5 received (20–40% loss) ➔ UP / UP-UNSTABLE
+    - 1/5 or 2/5 received (60–80% loss) ➔ DOWN / DOWN-UNSTABLE
+    - 0/5 received (100% loss) ➔ DOWN / DOWN
     """
-    if result.total_count == 0:
+    if result.total_count == 0 or result.success_count == 0:
         return "DOWN", "DOWN"
 
     ratio = result.success_count / result.total_count
 
-    if ratio == 1.0:
+    if ratio >= 1.0:
         # Dynamic Z-score baseline evaluation
         if baseline_mean is not None and baseline_stddev is not None and result.avg_rtt_ms is not None:
             safe_stddev = max(baseline_stddev, 2.0)
@@ -189,9 +192,9 @@ def classify_ping_result(
             if result.avg_rtt_ms > threshold:
                 return "UP", "UP-UNSTABLE"
         return "UP", "UP"
-    elif ratio >= 0.6:
+    elif ratio >= 0.6:  # 3/5 or 4/5 (20–40% loss)
         return "UP", "UP-UNSTABLE"
-    elif ratio > 0.0:
+    elif ratio > 0.0:   # 1/5 or 2/5 (60–80% loss)
         return "DOWN", "DOWN-UNSTABLE"
-    else:
+    else:               # 0/5 (100% loss)
         return "DOWN", "DOWN"
