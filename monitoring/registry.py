@@ -30,6 +30,27 @@ class MonitoredEndpoint:
     baseline_stddev: Optional[float] = None
 
 
+def _get_val(obj: Any, key: str, default: Any = None) -> Any:
+    """Extracts an attribute from an ORM model, dataclass, or dictionary safely."""
+    if obj is None:
+        return default
+    if isinstance(obj, dict):
+        return obj.get(key, default)
+    if hasattr(obj, key):
+        val = getattr(obj, key, default)
+        return default if val is None else val
+    return default
+
+
+def _has_val(obj: Any, key: str) -> bool:
+    """Checks if a key/attribute is present in an ORM model, dataclass, or dictionary."""
+    if obj is None:
+        return False
+    if isinstance(obj, dict):
+        return key in obj
+    return hasattr(obj, key)
+
+
 class EndpointRegistry:
     """
     Concurrent-safe in-memory registry managing active monitoring targets,
@@ -59,62 +80,30 @@ class EndpointRegistry:
         Ingests a new or updated target into the in-memory registry,
         caches toggles and baseline stats, and optionally spawns a sweep task.
         """
-        ep_id = getattr(ep_data, "id", None) or ep_data.get("id")
+        ep_id = _get_val(ep_data, "id")
         if isinstance(ep_id, str):
             ep_id = UUID(ep_id)
         if not ep_id:
             raise ValueError("Endpoint data must contain a valid UUID id.")
 
-        ip_addr = str(
-            getattr(ep_data, "ip_address", None) or ep_data.get("ip_address", "")
-        ).split("/")[0].strip()
-        hostname = str(
-            getattr(ep_data, "hostname", None) or ep_data.get("hostname", ip_addr)
-        )
-        device_type = str(
-            getattr(ep_data, "device_type", None) or ep_data.get("device_type", "SERVER")
-        )
-        location = getattr(ep_data, "location", None) or ep_data.get("location")
-        endpoint_status = str(
-            getattr(ep_data, "endpoint_status", None) or ep_data.get("endpoint_status", "ACTIVE")
-        ).upper()
-        monitoring_enabled = bool(
-            getattr(ep_data, "monitoring_enabled", True)
-            if hasattr(ep_data, "monitoring_enabled")
-            else ep_data.get("monitoring_enabled", True)
-        )
-        allow_incident_trace = bool(
-            getattr(ep_data, "allow_incident_trace", True)
-            if hasattr(ep_data, "allow_incident_trace")
-            else ep_data.get("allow_incident_trace", True)
-        )
-        allow_topology_discovery = bool(
-            getattr(ep_data, "allow_topology_discovery", True)
-            if hasattr(ep_data, "allow_topology_discovery")
-            else ep_data.get("allow_topology_discovery", True)
-        )
-        enable_rca = bool(
-            getattr(ep_data, "enable_rca", True)
-            if hasattr(ep_data, "enable_rca")
-            else ep_data.get("enable_rca", True)
-        )
-        enable_scheduled_discovery = bool(
-            getattr(ep_data, "enable_scheduled_discovery", True)
-            if hasattr(ep_data, "enable_scheduled_discovery")
-            else ep_data.get("enable_scheduled_discovery", True)
-        )
-        is_l2_segment = bool(
-            getattr(ep_data, "is_l2_segment", False)
-            if hasattr(ep_data, "is_l2_segment")
-            else ep_data.get("is_l2_segment", False)
-        )
-        manual_parent_id = getattr(ep_data, "manual_parent_id", None) or ep_data.get("manual_parent_id")
+        ip_addr = str(_get_val(ep_data, "ip_address", "")).split("/")[0].strip()
+        hostname = str(_get_val(ep_data, "hostname", ip_addr))
+        device_type = str(_get_val(ep_data, "device_type", "SERVER"))
+        location = _get_val(ep_data, "location")
+        endpoint_status = str(_get_val(ep_data, "endpoint_status", "ACTIVE")).upper()
+        monitoring_enabled = bool(_get_val(ep_data, "monitoring_enabled", True))
+        allow_incident_trace = bool(_get_val(ep_data, "allow_incident_trace", True))
+        allow_topology_discovery = bool(_get_val(ep_data, "allow_topology_discovery", True))
+        enable_rca = bool(_get_val(ep_data, "enable_rca", True))
+        enable_scheduled_discovery = bool(_get_val(ep_data, "enable_scheduled_discovery", True))
+        is_l2_segment = bool(_get_val(ep_data, "is_l2_segment", False))
+        manual_parent_id = _get_val(ep_data, "manual_parent_id")
         if isinstance(manual_parent_id, str):
             manual_parent_id = UUID(manual_parent_id)
 
-        created_at = getattr(ep_data, "created_at", None) or ep_data.get("created_at")
-        baseline_mean = getattr(ep_data, "baseline_mean", None) or ep_data.get("baseline_mean")
-        baseline_stddev = getattr(ep_data, "baseline_stddev", None) or ep_data.get("baseline_stddev")
+        created_at = _get_val(ep_data, "created_at")
+        baseline_mean = _get_val(ep_data, "baseline_mean")
+        baseline_stddev = _get_val(ep_data, "baseline_stddev")
 
         endpoint = MonitoredEndpoint(
             id=ep_id,
@@ -168,7 +157,7 @@ class EndpointRegistry:
 
     async def update_endpoint(self, ep_data: dict[str, Any] | Any) -> Optional[MonitoredEndpoint]:
         """Updates target attributes in place without losing active sweep continuity."""
-        ep_id = getattr(ep_data, "id", None) or ep_data.get("id")
+        ep_id = _get_val(ep_data, "id")
         if isinstance(ep_id, str):
             ep_id = UUID(ep_id)
         if not ep_id:
@@ -179,42 +168,47 @@ class EndpointRegistry:
             if not existing:
                 return None
 
-            if hasattr(ep_data, "ip_address") or "ip_address" in ep_data:
+            if _has_val(ep_data, "ip_address"):
                 existing.ip_address = str(
-                    getattr(ep_data, "ip_address", None) or ep_data.get("ip_address", existing.ip_address)
+                    _get_val(ep_data, "ip_address", existing.ip_address)
                 ).split("/")[0].strip()
-            if hasattr(ep_data, "hostname") or "hostname" in ep_data:
+            if _has_val(ep_data, "hostname"):
                 existing.hostname = str(
-                    getattr(ep_data, "hostname", None) or ep_data.get("hostname", existing.hostname)
+                    _get_val(ep_data, "hostname", existing.hostname)
                 )
-            if hasattr(ep_data, "endpoint_status") or "endpoint_status" in ep_data:
+            if _has_val(ep_data, "endpoint_status"):
                 existing.endpoint_status = str(
-                    getattr(ep_data, "endpoint_status", None) or ep_data.get("endpoint_status", existing.endpoint_status)
+                    _get_val(ep_data, "endpoint_status", existing.endpoint_status)
                 ).upper()
-            if hasattr(ep_data, "monitoring_enabled") or "monitoring_enabled" in ep_data:
-                val = getattr(ep_data, "monitoring_enabled", None)
-                if val is None and isinstance(ep_data, dict):
-                    val = ep_data.get("monitoring_enabled")
+            if _has_val(ep_data, "monitoring_enabled"):
+                val = _get_val(ep_data, "monitoring_enabled")
                 if val is not None:
                     existing.monitoring_enabled = bool(val)
-            if hasattr(ep_data, "allow_incident_trace") or "allow_incident_trace" in ep_data:
-                val = getattr(ep_data, "allow_incident_trace", None)
-                if val is None and isinstance(ep_data, dict):
-                    val = ep_data.get("allow_incident_trace")
+            if _has_val(ep_data, "allow_incident_trace"):
+                val = _get_val(ep_data, "allow_incident_trace")
                 if val is not None:
                     existing.allow_incident_trace = bool(val)
-            if hasattr(ep_data, "enable_rca") or "enable_rca" in ep_data:
-                val = getattr(ep_data, "enable_rca", None)
-                if val is None and isinstance(ep_data, dict):
-                    val = ep_data.get("enable_rca")
+            if _has_val(ep_data, "allow_topology_discovery"):
+                val = _get_val(ep_data, "allow_topology_discovery")
+                if val is not None:
+                    existing.allow_topology_discovery = bool(val)
+            if _has_val(ep_data, "enable_rca"):
+                val = _get_val(ep_data, "enable_rca")
                 if val is not None:
                     existing.enable_rca = bool(val)
-            if hasattr(ep_data, "is_l2_segment") or "is_l2_segment" in ep_data:
-                val = getattr(ep_data, "is_l2_segment", None)
-                if val is None and isinstance(ep_data, dict):
-                    val = ep_data.get("is_l2_segment")
+            if _has_val(ep_data, "enable_scheduled_discovery"):
+                val = _get_val(ep_data, "enable_scheduled_discovery")
+                if val is not None:
+                    existing.enable_scheduled_discovery = bool(val)
+            if _has_val(ep_data, "is_l2_segment"):
+                val = _get_val(ep_data, "is_l2_segment")
                 if val is not None:
                     existing.is_l2_segment = bool(val)
+            if _has_val(ep_data, "manual_parent_id"):
+                val = _get_val(ep_data, "manual_parent_id")
+                if isinstance(val, str):
+                    val = UUID(val)
+                existing.manual_parent_id = val
 
             # Check if task needs cancellation due to disabling
             should_run = existing.endpoint_status == "ACTIVE" and existing.monitoring_enabled

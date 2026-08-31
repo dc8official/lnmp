@@ -158,6 +158,7 @@ class EndpointRepository(BaseRepository[Endpoint]):
         """Fetch a single endpoint joined with latest operational state and 24h UP event counts."""
         latest_event_sub = (
             select(
+                EndpointEvent.endpoint_id,
                 EndpointEvent.operational_state.label("current_operational_state"),
                 EndpointEvent.detailed_state.label("current_detailed_state"),
                 EndpointEvent.health_score.label("current_health_score"),
@@ -195,7 +196,10 @@ class EndpointRepository(BaseRepository[Endpoint]):
                 latest_event_sub.c.last_seen,
                 func.coalesce(up_count_sub, 0).label("up_events_count"),
             )
-            .outerjoin(latest_event_sub, True)
+            .outerjoin(
+                latest_event_sub,
+                Endpoint.id == latest_event_sub.c.endpoint_id,
+            )
             .where(
                 Endpoint.id == endpoint_id,
                 Endpoint.endpoint_status != "DELETED",
