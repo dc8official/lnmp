@@ -13,9 +13,14 @@ const routes = [
     component: () => import('../components/TopologyMap.vue'),
   },
   {
+    path: '/settings',
+    name: 'Settings',
+    component: () => import('../views/SettingsView.vue'),
+  },
+  {
     path: '/users',
     name: 'UserManagement',
-    component: () => import('../views/UserManagementView.vue'),
+    component: () => import('../views/SettingsView.vue'),
   },
   {
     path: '/login',

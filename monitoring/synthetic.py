@@ -1,0 +1,257 @@
+from __future__ import annotations
+
+import asyncio
+import ipaddress
+import logging
+import socket
+import ssl
+import time
+import urllib.parse
+import urllib.request
+from datetime import datetime, timezone
+from typing import Any, Dict, Optional
+
+logger = logging.getLogger(__name__)
+
+# Restricted IP ranges for SSRF defense
+RESTRICTED_NETWORKS = [
+    ipaddress.ip_network("127.0.0.0/8"),
+    ipaddress.ip_network("169.254.0.0/16"),
+    ipaddress.ip_network("0.0.0.0/8"),
+    ipaddress.ip_network("::1/128"),
+    ipaddress.ip_network("fe80::/10"),
+]
+
+
+def validate_probe_target(host_or_ip: str) -> None:
+    """
+    Validates destination address against SSRF vulnerabilities (loopback & cloud metadata).
+    Raises ValueError if target resolves to a restricted network.
+    """
+    cleaned = host_or_ip.strip()
+    try:
+        ip_obj = ipaddress.ip_address(cleaned)
+        for net in RESTRICTED_NETWORKS:
+            if ip_obj in net:
+                raise ValueError(
+                    f"SSRF Protection: Access to restricted network {net} is forbidden ({cleaned})"
+                )
+    except ValueError as e:
+        if "SSRF Protection" in str(e):
+            raise
+        # If it's a hostname, resolve it and check resolved IP
+        try:
+            resolved_ip = socket.gethostbyname(cleaned)
+            ip_obj = ipaddress.ip_address(resolved_ip)
+            for net in RESTRICTED_NETWORKS:
+                if ip_obj in net:
+                    raise ValueError(
+                        f"SSRF Protection: Hostname {cleaned} resolved to restricted IP {resolved_ip}"
+                    )
+        except (socket.gaierror, ValueError) as res_err:
+            if "SSRF Protection" in str(res_err):
+                raise
+            # Unresolvable hostname is handled during probe execution
+
+
+async def run_tcp_probe(
+    host: str,
+    port: int,
+    timeout: float = 5.0,
+) -> Dict[str, Any]:
+    """
+    Executes an asynchronous TCP connect probe to verify service port reachability.
+    """
+    try:
+        validate_probe_target(host)
+    except ValueError as e:
+        return {"success": False, "latency_ms": None, "port": port, "error": str(e)}
+
+    start_time = time.perf_counter()
+    writer = None
+    try:
+        reader, writer = await asyncio.wait_for(
+            asyncio.open_connection(host, port), timeout=timeout
+        )
+        latency_ms = (time.perf_counter() - start_time) * 1000.0
+        return {
+            "success": True,
+            "latency_ms": round(latency_ms, 2),
+            "port": port,
+            "error": None,
+        }
+    except asyncio.TimeoutError:
+        return {
+            "success": False,
+            "latency_ms": None,
+            "port": port,
+            "error": f"Connection timed out after {timeout}s",
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "latency_ms": None,
+            "port": port,
+            "error": f"{type(e).__name__}: {e}",
+        }
+    finally:
+        if writer:
+            try:
+                writer.close()
+                await writer.wait_closed()
+            except Exception:
+                pass
+
+
+def _sync_http_probe(
+    url: str,
+    expected_status: int = 200,
+    timeout: float = 10.0,
+) -> Dict[str, Any]:
+    """Synchronous HTTP worker function executed inside asyncio.to_thread."""
+    parsed = urllib.parse.urlparse(url)
+    if not parsed.hostname:
+        return {
+            "success": False,
+            "status_code": None,
+            "latency_ms": None,
+            "error": "Invalid URL: hostname missing",
+        }
+
+    validate_probe_target(parsed.hostname)
+
+    req = urllib.request.Request(
+        url,
+        headers={"User-Agent": "LNMP-Synthetic-Monitor/3.0.0"},
+        method="GET",
+    )
+
+    start_time = time.perf_counter()
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as response:
+            latency_ms = (time.perf_counter() - start_time) * 1000.0
+            status_code = response.getcode()
+            is_success = status_code == expected_status
+            return {
+                "success": is_success,
+                "status_code": status_code,
+                "latency_ms": round(latency_ms, 2),
+                "error": None
+                if is_success
+                else f"Expected status {expected_status}, got {status_code}",
+            }
+    except urllib.error.HTTPError as e:
+        latency_ms = (time.perf_counter() - start_time) * 1000.0
+        status_code = e.code
+        is_success = status_code == expected_status
+        return {
+            "success": is_success,
+            "status_code": status_code,
+            "latency_ms": round(latency_ms, 2),
+            "error": None
+            if is_success
+            else f"Expected status {expected_status}, got {status_code}",
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "status_code": None,
+            "latency_ms": None,
+            "error": f"{type(e).__name__}: {e}",
+        }
+
+
+async def run_http_probe(
+    url: str,
+    expected_status: int = 200,
+    timeout: float = 10.0,
+) -> Dict[str, Any]:
+    """
+    Executes an asynchronous HTTP/HTTPS probe verifying status code and response latency.
+    """
+    try:
+        return await asyncio.to_thread(
+            _sync_http_probe, url, expected_status, timeout
+        )
+    except Exception as e:
+        return {
+            "success": False,
+            "status_code": None,
+            "latency_ms": None,
+            "error": str(e),
+        }
+
+
+def _sync_ssl_probe(
+    host: str,
+    port: int = 443,
+    timeout: float = 5.0,
+) -> Dict[str, Any]:
+    """Synchronous SSL certificate inspection executed in asyncio.to_thread."""
+    validate_probe_target(host)
+
+    context = ssl.create_default_context()
+    context.check_hostname = False
+    context.verify_mode = ssl.CERT_NONE
+
+    start_time = time.perf_counter()
+    try:
+        with socket.create_connection((host, port), timeout=timeout) as sock:
+            with context.wrap_socket(sock, server_hostname=host) as ssock:
+                cert = ssock.getpeercert(binary_form=False)
+                latency_ms = (time.perf_counter() - start_time) * 1000.0
+
+                if not cert or "notAfter" not in cert:
+                    # Fallback binary form decode
+                    bin_cert = ssock.getpeercert(binary_form=True)
+                    if not bin_cert:
+                        return {
+                            "success": True,
+                            "days_until_expiry": None,
+                            "latency_ms": round(latency_ms, 2),
+                            "error": None,
+                        }
+
+                # Standard format: 'May 15 12:00:00 2027 GMT'
+                not_after_str = cert.get("notAfter")
+                expiry_dt = datetime.strptime(
+                    not_after_str, "%b %d %H:%M:%S %Y %Z"
+                ).replace(tzinfo=timezone.utc)
+                now_dt = datetime.now(timezone.utc)
+                days_left = (expiry_dt - now_dt).days
+
+                return {
+                    "success": True,
+                    "days_until_expiry": days_left,
+                    "expires_at": expiry_dt.isoformat(),
+                    "latency_ms": round(latency_ms, 2),
+                    "error": None,
+                }
+    except Exception as e:
+        return {
+            "success": False,
+            "days_until_expiry": None,
+            "expires_at": None,
+            "latency_ms": None,
+            "error": f"{type(e).__name__}: {e}",
+        }
+
+
+async def run_ssl_probe(
+    host: str,
+    port: int = 443,
+    timeout: float = 5.0,
+) -> Dict[str, Any]:
+    """
+    Executes an asynchronous SSL probe inspecting certificate expiry and handshake latency.
+    """
+    try:
+        return await asyncio.to_thread(_sync_ssl_probe, host, port, timeout)
+    except Exception as e:
+        return {
+            "success": False,
+            "days_until_expiry": None,
+            "expires_at": None,
+            "latency_ms": None,
+            "error": str(e),
+        }

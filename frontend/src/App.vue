@@ -3,20 +3,25 @@
     <header class="app-header" v-if="showNav">
       <div class="header-inner">
         <div class="brand">
-          <span class="brand-name">lnmp</span>
-          <span class="brand-version">v2.0(beta)</span>
+          <span class="brand-name">LNMP</span>
+          <span class="brand-version">v3.0.0</span>
         </div>
-        <nav class="header-nav">
+        <nav class="header-nav" aria-label="Main Navigation">
           <RouterLink to="/" class="nav-link">Dashboard</RouterLink>
-          <RouterLink to="/users" class="nav-link" v-if="isAdmin">User Management</RouterLink>
+          <RouterLink to="/topology" class="nav-link">Topology Map</RouterLink>
+          <RouterLink to="/settings" class="nav-link" v-if="isAdmin">Admin Settings</RouterLink>
         </nav>
         <div class="header-actions">
-          <button class="theme-toggle" @click="toggleTheme"
-                  :title="isDark ? 'Switch to light mode' : 'Switch to dark mode'">
+          <button 
+            class="theme-toggle" 
+            @click="toggleTheme"
+            :title="isDark ? 'Switch to light mode' : 'Switch to dark mode'"
+            :aria-label="isDark ? 'Switch to light mode' : 'Switch to dark mode'"
+          >
             {{ isDark ? '☀' : '☾' }}
           </button>
           <span class="user-badge" v-if="currentUser">
-            {{ currentUser }} <span class="role-tag" v-if="isAdmin">(Admin)</span>
+            {{ currentUser }} <span class="role-tag" v-if="isAdmin">(ADMIN)</span>
           </span>
           <button class="btn-sign-out" @click="handleLogout">
             Sign Out
@@ -24,11 +29,17 @@
         </div>
       </div>
     </header>
+
+    <!-- Accessible live region for real-time announcements -->
+    <div class="sr-only" aria-live="polite" aria-atomic="true">
+      {{ liveAnnouncement }}
+    </div>
+
     <main class="app-main">
       <RouterView />
     </main>
 
-    <!-- Forced Password Change Modal (Initial Setup / Admin Reset) -->
+    <!-- Forced Password Change Modal -->
     <div v-if="displayPasswordModal" class="modal-overlay">
       <div class="modal-card">
         <div class="modal-header">
@@ -39,12 +50,12 @@
             For security reasons, you are required to change your default or temporary password before continuing.
           </div>
           
-          <div v-if="changePasswordError" class="alert-error">
+          <div v-if="changePasswordError" class="alert-error" role="alert">
             {{ changePasswordError }}
           </div>
 
           <div class="form-group">
-            <label>Current Password *</label>
+            <label for="current-password">Current Password *</label>
             <input 
               id="current-password"
               name="current-password"
@@ -57,7 +68,7 @@
             />
           </div>
           <div class="form-group">
-            <label>New Password *</label>
+            <label for="new-password">New Password *</label>
             <input 
               id="new-password"
               name="new-password"
@@ -70,7 +81,7 @@
             />
           </div>
           <div class="form-group">
-            <label>Confirm New Password *</label>
+            <label for="confirm-password">Confirm New Password *</label>
             <input 
               id="confirm-password"
               name="confirm-password"
@@ -94,14 +105,16 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter, useRoute, RouterLink, RouterView } from 'vue-router'
 import { logout, changePassword } from './services/api.js'
 import { currentUser, isAdmin, mustChangePassword, loadUserFromStorage, setUserState, clearUserState } from './services/auth.js'
 
 const router = useRouter()
 const route = useRoute()
-const isDark = ref(false)
+const isDark = ref(true)
+const liveAnnouncement = ref('')
+let globalSse = null
 
 const noNavRoutes = ['/login', '/change-password']
 const showNav = computed(() => !noNavRoutes.includes(route.path))
@@ -129,6 +142,26 @@ onMounted(() => {
   }
   
   loadUserFromStorage()
+
+  // Global SSE listener for accessibility screen reader announcements
+  try {
+    globalSse = new EventSource('/api/v1/events/stream')
+    globalSse.onmessage = (e) => {
+      if (!e.data) return
+      try {
+        const payload = JSON.parse(e.data)
+        if (payload.type === 'STATE_TRANSITION') {
+          liveAnnouncement.value = `Network update: Endpoint state transitioned to ${payload.detailed_state}`
+        } else if (payload.type === 'NODE_STATE_CHANGE') {
+          liveAnnouncement.value = `Topology update: Node status is now ${payload.new_state}`
+        }
+      } catch (err) {}
+    }
+  } catch (err) {}
+})
+
+onUnmounted(() => {
+  if (globalSse) globalSse.close()
 })
 
 function toggleTheme() {
@@ -200,8 +233,24 @@ body { margin: 0; padding: 0; }
 a { text-decoration: none; color: inherit; }
 button { cursor: pointer; border: none; background: none; }
 
+/* ── Screen Reader Live Announcement ── */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border-width: 0;
+}
+
 /* ── CSS Variables Design System ── */
 :root {
+  --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+
   --bg-app: #f5f5f5;
   --bg-surface: #ffffff;
   --bg-surface-hover: #f9f9f9;
@@ -229,11 +278,11 @@ button { cursor: pointer; border: none; background: none; }
   --text-2xl: 1.5rem;     /* 24px */
   
   /* Semantic Status Variables */
-  --status-up-color: #16a34a;        /* High-contrast green */
-  --status-warn-color: #b45309;      /* Darker amber for light mode legibility */
-  --status-down-color: #dc2626;      /* High-contrast red */
+  --status-up-color: #16a34a;
+  --status-warn-color: #b45309;
+  --status-down-color: #dc2626;
   
-  /* Status Colors (Identical in both themes) */
+  /* Status Colors */
   --color-up: #16a34a;
   --color-up-bg: rgba(22, 163, 74, 0.1);
   --color-up-unstable: #d97706;
@@ -245,13 +294,12 @@ button { cursor: pointer; border: none; background: none; }
   --color-unknown: #6b7280;
   --color-unknown-bg: rgba(107, 114, 128, 0.1);
 
-  /* Backwards-compatibility Aliases */
   --canvas-bg: var(--bg-app);
   --card-bg: var(--bg-surface);
   --card-border: var(--border-color);
 }
 
-/* ── Focus Outlines for Keyboard Accessibility ── */
+/* ── Focus Outlines for Keyboard Accessibility (WCAG 2.1 AA) ── */
 :focus-visible {
   outline: 2px solid #2563EB;
   outline-offset: 2px;
@@ -263,11 +311,11 @@ html.dark :focus-visible {
 
 html.dark {
   --bg-app: #0d0d0d;
-  --bg-surface: #1a1a1a;
-  --bg-surface-hover: #222222;
-  --bg-surface-selected: #2a2a2a;
-  --border-color: #3a3a3a;
-  --border-color-strong: #404040;
+  --bg-surface: #161616;
+  --bg-surface-hover: #1f1f1f;
+  --bg-surface-selected: #262626;
+  --border-color: #333333;
+  --border-color-strong: #444444;
   --text-primary: #f0f0f0;
   --text-secondary: #b5b5b5;
   --text-muted: #808080;
@@ -277,18 +325,16 @@ html.dark {
   --shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
   --shadow-hover: 0 4px 12px rgba(0, 0, 0, 0.6);
   
-  /* Dark Mode Semantic Refinements */
-  --status-up-color: #4ade80;        /* Glowing green */
-  --status-warn-color: #f59e0b;      /* Bright amber */
-  --status-down-color: #f87171;      /* Bright red */
+  --status-up-color: #4ade80;
+  --status-warn-color: #f59e0b;
+  --status-down-color: #f87171;
   --color-unknown: #808080;
   --color-unknown-bg: rgba(128, 128, 128, 0.15);
 }
 
 /* ── Base ── */
 body {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI',
-    Roboto, 'Helvetica Neue', Arial, sans-serif;
+  font-family: var(--font-sans);
   background-color: var(--bg-app);
   color: var(--text-primary);
   font-size: 14px;
@@ -326,15 +372,18 @@ body {
   color: var(--text-primary);
 }
 
-.brand-icon { font-size: 20px; }
+.brand-name {
+  letter-spacing: 0.05em;
+}
 
 .brand-version {
   font-size: 11px;
-  font-weight: 400;
+  font-weight: 700;
   color: var(--text-muted);
   background: var(--bg-surface-selected);
   padding: 2px 6px;
   border-radius: 4px;
+  font-family: var(--font-mono);
 }
 
 .header-nav {
@@ -349,13 +398,18 @@ body {
   color: var(--text-secondary);
   font-size: 14px;
   font-weight: 500;
-  transition: background 0.15s, color 0.15s;
+  transition: color 0.15s, background-color 0.15s;
 }
 
-.nav-link:hover,
-.nav-link.router-link-active {
-  background: var(--bg-surface-selected);
+.nav-link:hover {
   color: var(--text-primary);
+  background: var(--bg-surface-hover);
+}
+
+.nav-link.router-link-active {
+  color: var(--text-primary);
+  font-weight: 600;
+  background: var(--bg-surface-selected);
 }
 
 .header-actions {
@@ -365,257 +419,159 @@ body {
 }
 
 .theme-toggle {
-  width: 32px;
-  height: 32px;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
   font-size: 16px;
+  padding: 6px 10px;
+  border-radius: var(--radius);
   color: var(--text-secondary);
-  background: var(--bg-surface-selected);
-  transition: background 0.15s;
+  border: 1px solid var(--border-color);
+  background: var(--bg-surface);
+  transition: all 0.15s ease;
 }
 
-.theme-toggle:hover { background: var(--border-color); }
+.theme-toggle:hover {
+  color: var(--text-primary);
+  background: var(--bg-surface-hover);
+}
 
 .user-badge {
   font-size: 13px;
   color: var(--text-secondary);
-  padding: 4px 12px;
-  background: var(--bg-surface-selected);
-  border-radius: 20px;
-  border: 1px solid var(--border-color);
-  font-weight: 500;
+  font-family: var(--font-mono);
 }
 
 .role-tag {
   font-size: 11px;
-  color: var(--text-secondary);
-  font-weight: 400;
-  margin-left: 2px;
+  color: #3B82F6;
+  font-weight: 700;
 }
 
 .btn-sign-out {
+  padding: 6px 12px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border-color);
+  background: var(--bg-surface);
+  color: var(--text-secondary);
   font-size: 13px;
   font-weight: 500;
-  color: var(--text-primary);
-  padding: 6px 14px;
-  border: 1px solid var(--border-color-strong);
-  border-radius: var(--radius);
-  background: transparent;
-  transition: background 0.15s;
+  transition: all 0.15s ease;
 }
 
-.btn-sign-out:hover { background: var(--bg-surface-selected); }
+.btn-sign-out:hover {
+  color: var(--text-primary);
+  background: var(--bg-surface-hover);
+}
 
 /* ── Main Layout ── */
 .app-main {
-  flex: 1;
   max-width: 1400px;
-  width: 100%;
   margin: 0 auto;
-  padding: 32px 24px;
+  padding: 24px;
+  width: 100%;
+  flex: 1;
+  box-sizing: border-box;
 }
 
-/* ── Shared Badges & Indicators ── */
-.badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 4px 10px;
-  border-radius: 20px;
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-}
-
-.badge-up {
-  color: var(--color-up);
-  background: var(--color-up-bg);
-}
-.badge-up-unstable {
-  color: var(--color-up-unstable);
-  background: var(--color-up-unstable-bg);
-}
-.badge-down-unstable {
-  color: var(--color-down-unstable);
-  background: var(--color-down-unstable-bg);
-}
-.badge-down {
-  color: var(--color-down);
-  background: var(--color-down-bg);
-}
-.badge-unknown {
-  color: var(--color-unknown);
-  background: var(--color-unknown-bg);
-}
-
-.status-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  display: inline-block;
-  flex-shrink: 0;
-}
-
-.dot-up { background: var(--color-up); }
-.dot-up-unstable { background: var(--color-up-unstable); }
-.dot-down-unstable { background: var(--color-down-unstable); }
-.dot-down { background: var(--color-down); }
-.dot-unknown { background: var(--color-unknown); }
-
-/* ── Global High Contrast Button System ── */
-button {
-  font-family: inherit;
-  cursor: pointer;
-  border-radius: var(--radius);
-  font-size: 14px;
-  font-weight: 600;
-  transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
-}
-
+/* ── Generic Buttons ── */
 .btn-primary {
-  background-color: #2563EB;
-  color: #FFFFFF;
-  border: 1px solid #1D4ED8;
+  background: var(--accent);
+  color: var(--text-inverse);
   padding: 8px 16px;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+  border-radius: var(--radius);
+  font-size: 13px;
+  font-weight: 600;
+  transition: all 0.15s ease;
 }
 
 .btn-primary:hover:not(:disabled) {
-  background-color: #1D4ED8;
-  border-color: #1E40AF;
+  opacity: 0.9;
 }
 
 .btn-primary:disabled {
-  opacity: 0.6;
+  opacity: 0.5;
   cursor: not-allowed;
 }
 
 .btn-secondary {
-  background-color: var(--bg-surface-selected);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
   color: var(--text-primary);
-  border: 1px solid var(--border-color-strong);
   padding: 8px 16px;
+  border-radius: var(--radius);
+  font-size: 13px;
+  font-weight: 600;
+  transition: all 0.15s ease;
 }
 
 .btn-secondary:hover:not(:disabled) {
-  background-color: var(--border-color);
-  color: var(--text-primary);
+  background: var(--bg-surface-hover);
 }
 
 .btn-danger {
-  background-color: #DC2626;
-  color: #FFFFFF;
-  border: 1px solid #B91C1C;
+  background: #DC2626;
+  color: white;
   padding: 8px 16px;
+  border-radius: var(--radius);
+  font-size: 13px;
+  font-weight: 600;
 }
 
 .btn-danger:hover:not(:disabled) {
-  background-color: #B91C1C;
+  background: #B91C1C;
 }
 
-/* ── Modal Overlay & Card System ── */
+/* ── Modals ── */
 .modal-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.75);
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(4px);
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 9999;
-  backdrop-filter: blur(6px);
+  z-index: 200;
   padding: 16px;
 }
 
 .modal-card {
   background: var(--bg-surface);
-  border: 1px solid var(--border-color-strong);
-  border-radius: 12px;
-  width: 460px;
-  max-width: 95vw;
-  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5), 0 8px 10px -6px rgba(0, 0, 0, 0.5);
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  width: 100%;
+  max-width: 500px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
   overflow: hidden;
-  display: flex;
-  flex-direction: column;
-}
-
-.modal-card.wide {
-  width: 600px;
 }
 
 .modal-header {
-  padding: 18px 24px;
+  padding: 16px 20px;
   border-bottom: 1px solid var(--border-color);
-  background: var(--bg-surface-selected);
   display: flex;
   justify-content: space-between;
   align-items: center;
+  background: var(--bg-surface-selected);
+}
+
+.modal-header h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-primary);
 }
 
 .btn-close {
-  background: transparent;
-  border: none;
-  color: var(--text-secondary);
-  font-size: 1.25rem;
-  padding: 4px;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: color 0.15s ease;
+  font-size: 16px;
+  color: var(--text-muted);
 }
 
 .btn-close:hover {
   color: var(--text-primary);
 }
 
-.modal-header h3 {
-  margin: 0;
-  font-size: 1.15rem;
-  font-weight: 700;
-  color: var(--text-primary);
-}
-
 .modal-form {
-  padding: 24px;
+  padding: 20px;
   display: flex;
   flex-direction: column;
-  gap: 18px;
-}
-
-.alert-info {
-  background: rgba(37, 99, 235, 0.15);
-  border: 1px solid rgba(37, 99, 235, 0.3);
-  color: #60A5FA;
-  padding: 12px 16px;
-  border-radius: 8px;
-  font-size: 0.85rem;
-  line-height: 1.4;
-}
-
-:global(html:not(.dark)) .alert-info {
-  background: #EFF6FF;
-  border-color: #93C5FD;
-  color: #1D4ED8;
-}
-
-.alert-error {
-  background: rgba(220, 38, 38, 0.15);
-  border: 1px solid rgba(220, 38, 38, 0.3);
-  color: #F87171;
-  padding: 12px 16px;
-  border-radius: 8px;
-  font-size: 0.85rem;
-  line-height: 1.4;
-}
-
-:global(html:not(.dark)) .alert-error {
-  background: #FEF2F2;
-  border-color: #FCA5A5;
-  color: #DC2626;
+  gap: 16px;
 }
 
 .form-group {
@@ -625,68 +581,38 @@ button {
 }
 
 .form-group label {
-  font-size: 0.82rem;
-  color: var(--text-secondary);
+  font-size: 13px;
   font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-}
-
-.form-group label {
-  font-size: var(--text-xs);
-  text-transform: uppercase;
-  color: var(--text-muted);
-  font-weight: 700;
-  letter-spacing: 0.05em;
-  margin-bottom: 0.25rem;
-}
-
-.form-group input, .form-select, .form-textarea {
-  background: var(--bg-app);
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius);
-  padding: 10px 12px;
   color: var(--text-primary);
-  font-size: var(--text-base);
-  width: 100%;
-  outline: none;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
-.form-group input:focus, .form-select:focus, .form-textarea:focus {
-  border-color: #049f6c;
-  box-shadow: 0 0 0 3px rgba(4, 159, 108, 0.15);
+.form-input, .form-select, input[type="text"], input[type="password"] {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  color: var(--text-primary);
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-family: inherit;
 }
 
-/* ── Global Spinner System ── */
-.spinner-sm {
-  display: inline-block;
-  width: 12px;
-  height: 12px;
-  border: 2px solid rgba(255, 255, 255, 0.2);
-  border-top-color: #3b82f6;
-  border-radius: 50%;
-  animation: spin 0.8s infinite linear;
-}
-html:not(.dark) .spinner-sm {
-  border: 2px solid rgba(0, 0, 0, 0.12);
-  border-top-color: #3b82f6;
-}
-
-@keyframes spin {
-  to { transform: rotate(360deg); }
+.form-input:focus, .form-select:focus, input:focus {
+  border-color: var(--accent);
 }
 
 .modal-actions {
   display: flex;
   justify-content: flex-end;
-  gap: 12px;
+  gap: 10px;
   margin-top: 8px;
 }
 
 .full-width-btn {
   width: 100%;
-  padding: 12px;
-  font-size: 0.95rem;
+}
+
+.tnum {
+  font-feature-settings: "tnum";
+  font-variant-numeric: tabular-nums;
 }
 </style>

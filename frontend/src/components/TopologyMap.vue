@@ -9,6 +9,10 @@
         <span class="status-badge" :class="stabilized ? 'badge-stabilized' : 'badge-stabilizing'">
           {{ stabilized ? (layoutDirection === 'UD' ? '● Layout Fixed (Vertical)' : '● Layout Fixed (Horizontal)') : '◌ Stabilizing Hierarchical Layout...' }}
         </span>
+        <span class="sse-indicator" :class="sseConnected ? 'sse-live' : 'sse-connecting'">
+          <span class="pulse-dot"></span>
+          {{ sseConnected ? 'Live SSE' : 'Reconnecting...' }}
+        </span>
       </div>
       <div class="toolbar-right">
         <button class="btn-secondary" @click="toggleLayoutDirection" :title="layoutDirection === 'UD' ? 'Switch to Horizontal (Left-to-Right) view' : 'Switch to Vertical (Top-to-Bottom) view'">
@@ -37,18 +41,50 @@
         <button class="btn-primary" @click="fetchTopology">Retry</button>
       </div>
 
-      <!-- Legend Overlay -->
+      <!-- Dynamic Legend Overlay -->
       <div class="map-legend">
         <div class="legend-title">Topology Legend</div>
         <div class="legend-items">
-          <div class="legend-item"><span class="node-icon square state-root"></span> LNMP Engine (Root)</div>
-          <div class="legend-item"><span class="node-icon circle state-up"></span> Monitored UP</div>
-          <div class="legend-item"><span class="node-icon circle state-unstable"></span> Monitored UNSTABLE</div>
-          <div class="legend-item"><span class="node-icon circle state-down"></span> Monitored DOWN</div>
-          <div class="legend-item"><span class="node-icon hexagon state-transit"></span> Transit Router</div>
-          <div class="legend-item"><span class="node-icon hexagon state-failure-point"></span> Failure Point (RCA)</div>
-          <div class="legend-item"><span class="node-icon hexagon state-inferred-down"></span> Transit INFERRED DOWN</div>
-          <div class="legend-item"><span class="l2-pill">L2</span> Layer 2 Segment</div>
+          <div class="legend-item">
+            <span class="node-icon square state-root"></span>
+            <span>LNMP Engine</span>
+            <span class="count-badge glow-root">{{ legendCounts.root }}</span>
+          </div>
+          <div class="legend-item">
+            <span class="node-icon circle state-up"></span>
+            <span>Monitored UP</span>
+            <span class="count-badge glow-up">{{ legendCounts.up }}</span>
+          </div>
+          <div class="legend-item">
+            <span class="node-icon circle state-unstable"></span>
+            <span>Monitored UNSTABLE</span>
+            <span class="count-badge glow-unstable">{{ legendCounts.unstable }}</span>
+          </div>
+          <div class="legend-item">
+            <span class="node-icon circle state-down"></span>
+            <span>Monitored DOWN</span>
+            <span class="count-badge glow-down">{{ legendCounts.down }}</span>
+          </div>
+          <div class="legend-item">
+            <span class="node-icon hexagon state-transit"></span>
+            <span>Transit Router</span>
+            <span class="count-badge glow-transit">{{ legendCounts.transit }}</span>
+          </div>
+          <div class="legend-item" v-if="legendCounts.failurePoint > 0">
+            <span class="node-icon hexagon state-failure-point"></span>
+            <span>Failure Point (RCA)</span>
+            <span class="count-badge glow-failure">{{ legendCounts.failurePoint }}</span>
+          </div>
+          <div class="legend-item" v-if="legendCounts.inferredDown > 0">
+            <span class="node-icon hexagon state-inferred-down"></span>
+            <span>Transit INFERRED DOWN</span>
+            <span class="count-badge glow-inferred">{{ legendCounts.inferredDown }}</span>
+          </div>
+          <div class="legend-item" v-if="legendCounts.l2 > 0">
+            <span class="l2-pill">L2</span>
+            <span>Layer 2 Segment</span>
+            <span class="count-badge">{{ legendCounts.l2 }}</span>
+          </div>
         </div>
       </div>
 
@@ -112,7 +148,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted, nextTick, watch } from 'vue'
+import { ref, reactive, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
 import { Network } from 'vis-network'
 import { DataSet } from 'vis-data'
 import { getTopology } from '../services/api.js'
@@ -124,13 +160,25 @@ const error = ref(null)
 const networkInitialized = ref(false)
 const stabilized = ref(false)
 const layoutDirection = ref('UD')
+const sseConnected = ref(false)
 
 const selectedNode = ref(null)
+
+const legendCounts = reactive({
+  root: 1,
+  up: 0,
+  unstable: 0,
+  down: 0,
+  transit: 0,
+  failurePoint: 0,
+  inferredDown: 0,
+  l2: 0,
+})
 
 let network = null
 let nodesDataSet = null
 let edgesDataSet = null
-let refreshInterval = null
+let eventSource = null
 
 // Dark theme monitoring
 const isDark = ref(true)
@@ -150,6 +198,19 @@ function formatNodeType(type) {
   if (type === 'root') return 'LNMP Engine (Root)'
   if (type === 'monitored') return 'Monitored Target'
   return 'Transit Router'
+}
+
+function updateLegendCounts() {
+  if (!nodesDataSet) return
+  const allNodes = nodesDataSet.get()
+  legendCounts.root = allNodes.filter(n => (n.rawNode?.type === 'root' || n.shape === 'square')).length
+  legendCounts.up = allNodes.filter(n => (n.rawNode?.type === 'monitored' || n.shape === 'dot') && (n.rawNode?.status === 'UP' || n.rawNode?.state === 'UP')).length
+  legendCounts.unstable = allNodes.filter(n => (n.rawNode?.status === 'UP-UNSTABLE' || n.rawNode?.status === 'DOWN-UNSTABLE' || n.rawNode?.state === 'UP-UNSTABLE' || n.rawNode?.state === 'DOWN-UNSTABLE')).length
+  legendCounts.down = allNodes.filter(n => (n.rawNode?.type === 'monitored' || n.shape === 'dot') && (n.rawNode?.status === 'DOWN' || n.rawNode?.state === 'DOWN')).length
+  legendCounts.transit = allNodes.filter(n => (n.rawNode?.type === 'transit' || n.shape === 'hexagon') && n.rawNode?.status !== 'FAILURE_POINT' && n.rawNode?.status !== 'INFERRED_DOWN').length
+  legendCounts.failurePoint = allNodes.filter(n => n.rawNode?.status === 'FAILURE_POINT' || n.rawNode?.state === 'FAILURE_POINT').length
+  legendCounts.inferredDown = allNodes.filter(n => n.rawNode?.status === 'INFERRED_DOWN' || n.rawNode?.state === 'INFERRED_DOWN').length
+  legendCounts.l2 = allNodes.filter(n => n.rawNode?.is_l2_segment).length
 }
 
 // Visual Node Styling & Categorization
@@ -316,7 +377,7 @@ function formatVisData(nodesData, edgesData) {
       color: colors,
       group: node.subnet || 'default',
       font: { color: isDark.value ? '#F3F4F6' : '#111111', size: 12, face: 'Inter, sans-serif' },
-      rawNode: node
+      rawNode: { ...node, status: nodeStatus, state: nodeStatus }
     }
   })
 
@@ -435,14 +496,11 @@ async function fetchTopology() {
 
       network = new Network(container.value, { nodes: nodesDataSet, edges: edgesDataSet }, options)
 
-      // Listen to stabilizationIterationsDone and immediately execute physics: false
-      // to freeze node positions and prevent canvas shaking during live polling updates.
       network.on('stabilizationIterationsDone', () => {
         network.setOptions({ physics: { enabled: false } })
         stabilized.value = true
       })
 
-      // Click Inspector Listener
       network.on('click', (params) => {
         if (params.nodes && params.nodes.length > 0) {
           const nodeId = params.nodes[0]
@@ -455,11 +513,11 @@ async function fetchTopology() {
 
       networkInitialized.value = true
     } else {
-      // Dynamic update without moving node positions
       nodesDataSet.update(visNodes)
       edgesDataSet.update(visEdges)
     }
 
+    updateLegendCounts()
   } catch (err) {
     console.error('Failed to fetch topology:', err)
     error.value = 'Failed to load live network topology.'
@@ -474,6 +532,55 @@ function resetView() {
   }
 }
 
+function initSSE() {
+  const sseUrl = '/api/v1/events/stream'
+  try {
+    eventSource = new EventSource(sseUrl)
+
+    eventSource.onopen = () => {
+      sseConnected.value = true
+    }
+
+    eventSource.onmessage = (event) => {
+      if (!event.data) return
+      try {
+        const payload = JSON.parse(event.data)
+        if (payload.type === 'NODE_STATE_CHANGE' && payload.endpoint_id && nodesDataSet) {
+          const nodeId = payload.endpoint_id
+          const existing = nodesDataSet.get(nodeId)
+          if (existing) {
+            const nodeType = existing.rawNode?.node_type || existing.rawNode?.type || 'monitored'
+            const colors = getNodeColors(payload.new_state, nodeType)
+            nodesDataSet.update({
+              id: nodeId,
+              color: colors,
+              rawNode: {
+                ...existing.rawNode,
+                status: payload.new_state,
+                state: payload.new_state
+              }
+            })
+            // Update currently inspected node if open
+            if (selectedNode.value && selectedNode.value.id === nodeId) {
+              selectedNode.value.status = payload.new_state
+              selectedNode.value.state = payload.new_state
+            }
+            updateLegendCounts()
+          }
+        }
+      } catch (e) {
+        // Heartbeat or malformed payload
+      }
+    }
+
+    eventSource.onerror = () => {
+      sseConnected.value = false
+    }
+  } catch (e) {
+    sseConnected.value = false
+  }
+}
+
 onMounted(() => {
   isDark.value = document.documentElement.classList.contains('dark')
   themeObserver = new MutationObserver(() => {
@@ -485,14 +592,11 @@ onMounted(() => {
   })
 
   fetchTopology()
-  // 15-second auto-refresh
-  refreshInterval = setInterval(() => {
-    fetchTopology()
-  }, 15000)
+  initSSE()
 })
 
 onUnmounted(() => {
-  if (refreshInterval) clearInterval(refreshInterval)
+  if (eventSource) eventSource.close()
   if (network) network.destroy()
   if (themeObserver) themeObserver.disconnect()
 })
@@ -521,6 +625,12 @@ onUnmounted(() => {
   z-index: 10;
 }
 
+.toolbar-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
 .topology-title {
   font-size: 1.2rem;
   font-weight: 600;
@@ -535,7 +645,6 @@ onUnmounted(() => {
   font-size: 0.8rem;
   padding: 4px 10px;
   border-radius: 9999px;
-  margin-left: 12px;
 }
 
 .badge-stabilized {
@@ -550,12 +659,46 @@ onUnmounted(() => {
   border: 1px solid rgba(245, 158, 11, 0.3);
 }
 
+.sse-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 9999px;
+  font-family: var(--font-mono);
+}
+
+.sse-live {
+  background: rgba(16, 185, 129, 0.15);
+  color: #10B981;
+  border: 1px solid rgba(16, 185, 129, 0.3);
+}
+
+.sse-connecting {
+  background: rgba(245, 158, 11, 0.15);
+  color: #F59E0B;
+  border: 1px solid rgba(245, 158, 11, 0.3);
+}
+
+.pulse-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: pulse 2s infinite ease-in-out;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(0.85); }
+}
+
 .toolbar-right {
   display: flex;
   gap: 10px;
 }
-
-
 
 .canvas-wrapper {
   flex: 1;
@@ -588,35 +731,38 @@ onUnmounted(() => {
   left: 20px;
   background: var(--bg-surface);
   border: 1px solid var(--border-color);
-  padding: 12px 16px;
+  padding: 14px 18px;
   border-radius: 8px;
   z-index: 10;
   font-size: 0.85rem;
   color: var(--text-secondary);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
 }
 
 .legend-title {
   font-weight: 600;
-  margin-bottom: 8px;
+  margin-bottom: 10px;
   color: var(--text-primary);
 }
 
 .legend-items {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 8px;
 }
 
 .legend-item {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
+  font-family: var(--font-sans);
 }
 
 .node-icon {
   width: 12px;
   height: 12px;
   display: inline-block;
+  flex-shrink: 0;
 }
 
 .node-icon.square { border-radius: 2px; }
@@ -630,6 +776,24 @@ onUnmounted(() => {
 .state-transit { background: #6B7280; }
 .state-failure-point { background: #F97316; border: 1px solid #EF4444; }
 .state-inferred-down { background: #7F1D1D; }
+
+.count-badge {
+  margin-left: auto;
+  font-size: 0.75rem;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 9999px;
+  font-family: var(--font-mono);
+  font-feature-settings: "tnum";
+}
+
+.glow-root { background: rgba(59, 130, 246, 0.2); color: #60A5FA; }
+.glow-up { background: rgba(16, 185, 129, 0.2); color: #34D399; }
+.glow-unstable { background: rgba(245, 158, 11, 0.2); color: #FBBF24; }
+.glow-down { background: rgba(239, 68, 68, 0.2); color: #F87171; }
+.glow-transit { background: rgba(107, 114, 128, 0.2); color: #9CA3AF; }
+.glow-failure { background: rgba(249, 115, 22, 0.2); color: #FB923C; }
+.glow-inferred { background: rgba(153, 27, 27, 0.3); color: #FCA5A5; }
 
 .l2-pill {
   background: rgba(59, 130, 246, 0.2);
@@ -683,8 +847,6 @@ onUnmounted(() => {
   color: var(--text-muted);
 }
 
-
-
 .drawer-body {
   padding: 20px;
   overflow-y: auto;
@@ -737,44 +899,5 @@ onUnmounted(() => {
 
 @keyframes spin {
   to { transform: rotate(360deg); }
-}
-
-/* Light mode contrast overrides */
-</style>
-
-<style>
-html:not(.dark) .badge-stabilized {
-  background: rgba(22, 163, 74, 0.1);
-  color: #15803d;
-  border-color: rgba(22, 163, 74, 0.2);
-}
-html:not(.dark) .badge-stabilizing {
-  background: rgba(180, 83, 9, 0.1);
-  color: #b45309;
-  border-color: rgba(180, 83, 9, 0.2);
-}
-html:not(.dark) .status-up {
-  background: rgba(22, 163, 74, 0.1);
-  color: #15803d;
-}
-html:not(.dark) .status-unstable {
-  background: rgba(180, 83, 9, 0.1);
-  color: #b45309;
-}
-html:not(.dark) .status-down {
-  background: rgba(220, 38, 38, 0.1);
-  color: #b91c1c;
-}
-html:not(.dark) .status-inferred-down {
-  background: rgba(220, 38, 38, 0.15);
-  color: #b91c1c;
-  border-color: rgba(220, 38, 38, 0.3);
-}
-html:not(.dark) .l2-pill {
-  background: rgba(37, 99, 235, 0.1);
-  color: #1d4ed8;
-}
-html:not(.dark) .meta-value.text-blue {
-  color: #1d4ed8;
 }
 </style>
