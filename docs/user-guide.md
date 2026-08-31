@@ -1,52 +1,63 @@
-# LNMP User & Operator Guide — Version 2.0 (Beta)
+# LNMP User & Operator Guide — Version 3.0.0
 
-Welcome to the LNMP Network Monitoring Platform user guide. This document explains how to navigate the web dashboard, use the interactive topology visualizer, and manage monitored endpoints.
-
----
-
-## 1. Authentication & Security
-
-LNMP employs enterprise-grade session and authentication security:
-* **Browser Password Autofill:** The login page supports native browser credential managers (Chrome, Edge, Safari, Firefox, Bitwarden) for instant 1-click login and secure credential saving.
-* **Sliding 2-Hour Session Inactivity:** Active operators will never be interrupted while working. As long as you interact with the dashboard, your session slides forward. If idle for 2 hours, the session expires safely.
-* **Concurrent Device Quotas:** Accounts are allowed up to 2 active sessions. Logging in on a 3rd device automatically evicts your oldest session without locking you out.
-* **IP-Scoped Lockouts:** If an attacker or wrong password is submitted 5 times from one IP, only that IP is locked out for 15 minutes. Legitimate operators at other locations remain unaffected.
-* **Forced Initial Password Reset:** New users must update their temporary password on first login.
+Welcome to the LNMP Network Monitoring Platform v3.0.0 user guide. This document explains how to navigate the web dashboard, use the interactive topology visualizer, interpret multi-protocol probes, and manage system settings.
 
 ---
 
-## 2. Dashboard Overview (`/`)
+## 1. Authentication & Session Security
 
-The main dashboard provides a real-time overview of the monitored network:
-* **Global Health Metrics:** Displays active endpoints, uptime percentages, and active incidents.
-* **Telemetry Charts:** RTT latency curves plotted against dynamic historical baselines (`Z > 3.0` triggers).
-* **Active Incidents Table:** Sorted list of all currently failing or anomalous endpoints with direct links to root-cause diagnostics.
+LNMP v3.0.0 provides enterprise-grade session protection:
+* **Browser Password Autofill:** The login page supports native browser credential managers (Chrome, Edge, Safari, Firefox, Bitwarden, 1Password) for 1-click authentication.
+* **Sliding 2-Hour Inactivity Timeout:** Sessions slide forward on active requests. If idle for 120 minutes, sessions expire automatically.
+* **Concurrent Device Quotas:** Accounts are allowed up to 2 active sessions (managed via FIFO rotation).
+* **IP-Scoped Lockouts:** Brute-force protection isolates failed attempts by `<Client_IP>:<Username>`, ensuring legitimate users on other networks are never locked out.
+* **Forced Initial Password Reset:** First-time logins require setting a secure replacement password before platform access is granted.
+
+---
+
+## 2. Real-Time Dashboard Overview (`/`)
+
+The v3.0.0 dashboard provides instantaneous fleet telemetry:
+
+### Global Network Health KPI Strip
+* **Summary Ribbon:** Displays total monitored devices, count of `🟢 UP`, `🟡 UNSTABLE`, `🔴 DOWN` devices, and the aggregate **Fleet SLA %**.
+* **Interactive Filter Pills:** Clicking any state card (e.g. `🔴 DOWN`) instantly filters the endpoint list without triggering a page reload.
+
+### Dual View Switcher
+* **Visual Card Grid:** Rich visual cards showcasing live status badges, latency indicators, packet loss bars, and quick diagnostic links.
+* **Dense Sortable Data Table:** High-density tabular view displaying Hostname, IP, Detailed Operational State, Average Latency, Packet Loss %, and 30-Day SLA Uptime %. Columns are sortable for rapid fleet triage.
+
+### Real-Time Telemetry Stream
+* Connected directly to Server-Sent Events (SSE). An indicator badge in the top right confirms connection status (`🟢 Live SSE` / `🟡 Reconnecting...`).
 
 ---
 
 ## 3. Interactive Topology Map (`/topology`)
 
-The topology map visualizes the network hierarchy and root cause dependencies:
+Visualizes the parent-child network hierarchy with crossing-free routing:
 
-* **Horizontal (LR) ⇄ Vertical (UD) Layout Switcher:** Use the toolbar button to toggle between:
-  - **Vertical View (Top-to-Bottom):** Root engine at the top, transit routers in the middle, endpoints at the bottom.
-  - **Horizontal View (Left-to-Right):** Wide-screen layout flowing from left to right.
-* **Crossing-Free Edge Routing:** Built with **BFS DAG Hop Layering**, Sugiyama barycenter reduction, and Gansner block shifting, automatically organizing devices into discrete hop tiers and eliminating tangled, overlapping link wires.
-* **Node Categories & States:**
-  - 🟦 **Square (Blue):** LNMP Engine (Root)
-  - 🟩 **Circle (Green):** Monitored Endpoint `UP`
-  - 🟧 **Circle (Amber):** Monitored Endpoint `UNSTABLE`
-  - 🟥 **Circle (Red):** Monitored Endpoint `DOWN`
-  - ⬡ **Hexagon (Grey):** Transit Router `UP`
-  - ⬡ **Hexagon (Orange/Red):** Transit Router `FAILURE_POINT` (Root Cause)
-  - ⬡ **Hexagon (Dark Red):** Transit Router `INFERRED_DOWN`
-  - 🏷️ **Pill (Blue):** `[L2 Segment]` Layer 2 Broadcast Segment
+### Features & Controls
+* **Layout Switcher:** Toggle between **Vertical View (Top-to-Bottom)** and **Horizontal View (Left-to-Right)**.
+* **Frozen-Physics Real-Time Recoloring:** State changes update node colors in real time via SSE without recalculating coordinates or causing canvas movement.
+* **Dynamic Legend Badges:** Glowing count badges in the legend show live counts of Root, UP, UNSTABLE, DOWN, and Transit nodes.
+* **Topological Root Cause Analysis (RCA):**
+  - When an upstream transit gateway fails, dependent nodes are automatically classified as `INFERRED_DOWN`, preventing alert fatigue.
 
 ---
 
-## 4. Endpoint Details & Root Cause Diagnostics (`/endpoints/:id`)
+## 4. Endpoint Details & Synthetic Probes (`/endpoints/:id`)
 
-Clicking any endpoint opens its comprehensive diagnostic drawer:
+Clicking any endpoint opens its diagnostic view:
 * **24-Hour Telemetry Graphs:** Interactive latency and packet loss curves with TimescaleDB continuous aggregate baselines.
-* **Automated Failure Traceroutes:** View hop-by-hop JSON snapshots captured at the exact moment of failure.
-* **Root Cause Analysis (RCA):** Differentiates local interface failures from upstream transit backbone failures.
+* **Multi-Protocol Synthetic Metrics:** View TCP connect latency, HTTP response codes, and SSL certificate expiration remaining days.
+* **High-Fidelity Traceroutes:** View hop-by-hop latency breakdowns and identify failure transit boundaries.
+
+---
+
+## 5. Admin Settings Panel (`/settings`)
+
+Administrators can tune platform behavior in real time:
+* **Performance & Storage Engine:** Toggle between **Standard Mode (PostgreSQL-Native)** and **Memory Acceleration Mode (Redis)**.
+* **Network Discovery:** Enable or disable Layer-2 Subnet Auto-Bypass.
+* **Security Policies:** Adjust session inactivity timeout (15m – 24h) and brute-force lockout thresholds.
+* **User Governance:** Create, update, or deactivate operator and administrator accounts and issue temporary password resets.
