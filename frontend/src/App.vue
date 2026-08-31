@@ -9,6 +9,7 @@
         <nav class="header-nav" aria-label="Main Navigation">
           <RouterLink to="/" class="nav-link">Dashboard</RouterLink>
           <RouterLink to="/topology" class="nav-link">Topology Map</RouterLink>
+          <RouterLink to="/reports" class="nav-link">Reports & SLA</RouterLink>
           <RouterLink to="/settings" class="nav-link" v-if="isAdmin">Admin Settings</RouterLink>
         </nav>
         <div class="header-actions">
@@ -258,8 +259,8 @@ button { cursor: pointer; border: none; background: none; }
 
 /* ── CSS Variables Design System ── */
 :root {
-  --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-  --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
 
   --bg-app: #f5f5f5;
   --bg-surface: #ffffff;
@@ -350,6 +351,10 @@ body {
   font-size: 14px;
   line-height: 1.5;
   transition: background-color 0.2s, color 0.2s;
+}
+
+.tnum, table, th, td, .metric-value, .kpi-value, .sla-badge {
+  font-variant-numeric: tabular-nums;
 }
 
 #app { min-height: 100vh; display: flex; flex-direction: column; }

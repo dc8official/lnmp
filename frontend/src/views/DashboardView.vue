@@ -18,7 +18,7 @@
       </div>
       <div class="toolbar-right">
         <!-- Dual View Switcher -->
-        <div class="view-switcher" v-if="activeTab === 'endpoints'">
+        <div class="view-switcher">
           <button 
             class="btn-view" 
             :class="{ active: viewMode === 'grid' }" 
@@ -110,29 +110,8 @@
       </div>
     </div>
 
-    <!-- Console Tabs -->
-    <div class="dashboard-tabs">
-      <button 
-        class="tab-btn" 
-        :class="{ active: activeTab === 'endpoints' }" 
-        @click="activeTab = 'endpoints'"
-      >
-        Monitored Endpoints
-        <span class="tab-badge tnum" v-if="filteredEndpoints.length !== endpoints.length">
-          {{ filteredEndpoints.length }} / {{ endpoints.length }}
-        </span>
-      </button>
-      <button 
-        class="tab-btn" 
-        :class="{ active: activeTab === 'topology' }" 
-        @click="activeTab = 'topology'"
-      >
-        Topology Map
-      </button>
-    </div>
-
     <!-- Endpoints Content -->
-    <div v-if="activeTab === 'endpoints'">
+    <div>
       <div v-if="error" class="alert-error" role="alert">
         {{ error }}
       </div>
@@ -228,12 +207,12 @@
                 <td class="font-mono tnum">{{ ep.ip_address }}</td>
                 <td><span class="device-tag">{{ ep.device_type }}</span></td>
                 <td>
-                  <span class="status-pill" :class="getStateClass(ep.current_state?.detailed_state || ep.endpoint_status)">
-                    {{ ep.current_state?.detailed_state || ep.endpoint_status }}
+                  <span class="status-pill" :class="getStateClass(ep.current_detailed_state || ep.current_operational_state || ep.endpoint_status)">
+                    {{ ep.current_detailed_state || ep.current_operational_state || ep.endpoint_status }}
                   </span>
                 </td>
                 <td class="font-mono tnum text-right">
-                  {{ ep.current_state?.avg_rtt_ms != null ? ep.current_state.avg_rtt_ms.toFixed(1) + ' ms' : '—' }}
+                  {{ ep.avg_rtt_ms != null ? ep.avg_rtt_ms.toFixed(1) + ' ms' : (ep.current_state?.avg_rtt_ms != null ? ep.current_state.avg_rtt_ms.toFixed(1) + ' ms' : '—') }}
                 </td>
                 <td class="font-mono tnum text-right">
                   {{ getLossPct(ep) }}
@@ -273,11 +252,6 @@
           </div>
         </div>
       </transition>
-    </div>
-
-    <!-- Topology Map Content -->
-    <div v-else-if="activeTab === 'topology'">
-      <TopologyMap />
     </div>
 
     <!-- Add / Edit Endpoint Modal -->
@@ -376,7 +350,6 @@ import {
 } from '../services/api.js'
 import { user, isAdmin, loadUserFromStorage, clearUserState } from '../services/auth.js'
 import EndpointCard from '../components/EndpointCard.vue'
-import TopologyMap from '../components/TopologyMap.vue'
 
 const router = useRouter()
 
@@ -397,8 +370,6 @@ const sortAsc = ref(true)
 
 const selectedIds = ref([])
 const exporting = ref(false)
-
-const activeTab = ref('endpoints')
 
 // Form states
 const displayDialog = ref(false)
@@ -425,24 +396,32 @@ const kpiStats = computed(() => {
   let down = 0
 
   endpoints.value.forEach(ep => {
-    const st = ep.current_state?.detailed_state || ep.endpoint_status || 'UP'
-    if (st === 'UP') up++
-    else if (st === 'UP-UNSTABLE' || st === 'DOWN-UNSTABLE') unstable++
-    else if (st === 'DOWN') down++
-    else up++
+    const op = ep.current_operational_state || ep.endpoint_status || 'UP'
+    const det = ep.current_detailed_state || op
+    if (det === 'UP' || (op === 'UP' && !det.includes('UNSTABLE'))) {
+      up++
+    } else if (det === 'UP-UNSTABLE' || det === 'DOWN-UNSTABLE' || op === 'UNSTABLE') {
+      unstable++
+    } else if (det === 'DOWN' || op === 'DOWN') {
+      down++
+    } else {
+      up++
+    }
   })
 
-  const sla = total > 0 ? (((up + unstable * 0.5) / total) * 100).toFixed(1) : '100.0'
-  return { total, up, unstable, down, sla }
+  const totalSla = endpoints.value.reduce((sum, ep) => sum + (parseFloat(ep.uptime_percentage_24h) || 100.0), 0)
+  const fleetSla = total > 0 ? (totalSla / total).toFixed(2) : '100.00'
+  return { total, up, unstable, down, sla: fleetSla }
 })
 
 const filteredEndpoints = computed(() => {
   if (statusFilter.value === 'ALL') return endpoints.value
   return endpoints.value.filter(ep => {
-    const st = ep.current_state?.detailed_state || ep.endpoint_status || 'UP'
-    if (statusFilter.value === 'UP') return st === 'UP'
-    if (statusFilter.value === 'UNSTABLE') return st === 'UP-UNSTABLE' || st === 'DOWN-UNSTABLE'
-    if (statusFilter.value === 'DOWN') return st === 'DOWN'
+    const op = ep.current_operational_state || ep.endpoint_status || 'UP'
+    const det = ep.current_detailed_state || op
+    if (statusFilter.value === 'UP') return det === 'UP' || (op === 'UP' && !det.includes('UNSTABLE'))
+    if (statusFilter.value === 'UNSTABLE') return det === 'UP-UNSTABLE' || det === 'DOWN-UNSTABLE' || op === 'UNSTABLE'
+    if (statusFilter.value === 'DOWN') return det === 'DOWN' || op === 'DOWN'
     return true
   })
 })
@@ -454,8 +433,8 @@ const sortedEndpoints = computed(() => {
     let valB = b[sortKey.value]
 
     if (sortKey.value === 'detailed_state') {
-      valA = a.current_state?.detailed_state || a.endpoint_status || ''
-      valB = b.current_state?.detailed_state || b.endpoint_status || ''
+      valA = a.current_detailed_state || a.current_operational_state || a.endpoint_status || ''
+      valB = b.current_detailed_state || b.current_operational_state || b.endpoint_status || ''
     } else if (sortKey.value === 'avg_rtt_ms') {
       valA = a.current_state?.avg_rtt_ms ?? 99999
       valB = b.current_state?.avg_rtt_ms ?? 99999
@@ -463,8 +442,8 @@ const sortedEndpoints = computed(() => {
       valA = a.current_state?.failed_count ?? 0
       valB = b.current_state?.failed_count ?? 0
     } else if (sortKey.value === 'uptime_pct') {
-      valA = a.current_state?.health_score ?? 100
-      valB = b.current_state?.health_score ?? 100
+      valA = parseFloat(a.uptime_percentage_24h) ?? 100
+      valB = parseFloat(b.uptime_percentage_24h) ?? 100
     }
 
     if (valA < valB) return sortAsc.value ? -1 : 1
@@ -503,15 +482,19 @@ function getStateClass(st) {
 }
 
 function getLossPct(ep) {
-  const succ = ep.current_state?.success_count ?? 5
-  const fail = ep.current_state?.failed_count ?? 0
+  const succ = ep.success_count ?? ep.current_state?.success_count ?? 5
+  const fail = ep.failed_count ?? ep.current_state?.failed_count ?? 0
   const tot = succ + fail
   if (tot === 0) return '0%'
   return `${Math.round((fail / tot) * 100)}%`
 }
 
 function getUptimePct(ep) {
-  const hs = ep.current_state?.health_score
+  if (ep.uptime_percentage_24h != null) {
+    const val = parseFloat(ep.uptime_percentage_24h)
+    return !isNaN(val) ? `${val.toFixed(1)}%` : '100.0%'
+  }
+  const hs = ep.current_health_score ?? ep.current_state?.health_score
   if (hs != null) return `${hs.toFixed(1)}%`
   return '100.0%'
 }
@@ -539,14 +522,13 @@ const exportSelectedCSV = async () => {
     const blob = new Blob([response.data], { type: 'text/csv' })
     const link = document.createElement('a')
     link.href = window.URL.createObjectURL(blob)
-    link.download = `batch_telemetry_${Date.now()}.csv`
+    link.download = `telemetry_export_${Date.now()}.csv`
     document.body.appendChild(link)
     link.click()
     document.body.removeChild(link)
-    selectedIds.value = []
   } catch (err) {
-    console.error('Failed to export CSV:', err)
-    alert('Failed to export selected telemetry CSV.')
+    console.error('Batch export failed:', err)
+    alert('Failed to export CSV. Check server logs.')
   } finally {
     exporting.value = false
   }
@@ -661,6 +643,10 @@ function initSSE() {
         if (payload.type === 'STATE_TRANSITION' && payload.endpoint_id) {
           const ep = endpoints.value.find(e => e.id === payload.endpoint_id)
           if (ep) {
+            ep.current_operational_state = payload.operational_state
+            ep.current_detailed_state = payload.detailed_state
+            ep.avg_rtt_ms = payload.avg_rtt_ms
+            ep.current_health_score = payload.health_score
             ep.current_state = {
               ...ep.current_state,
               operational_state: payload.operational_state,
