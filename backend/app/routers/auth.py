@@ -167,20 +167,15 @@ async def get_current_user(
             token = auth_header.split(" ", 1)[1]
     if not token:
         logger.warning(
-            "Auth failure on %s %s from IP %s: Missing authentication token",
-            request.method,
+            "Authentication failed: Missing credentials for request to %s",
             request.url.path,
-            client_ip,
         )
         raise HTTPException(status_code=401, detail="Not authenticated.")
 
     payload = decode_access_token(token)
     if payload is None:
         logger.warning(
-            "Auth failure on %s %s from IP %s: JWT token is expired, tampered, or invalid",
-            request.method,
-            request.url.path,
-            client_ip,
+            "Authentication failed: Session token is expired, tampered, or invalid"
         )
         raise HTTPException(status_code=401, detail="Session expired or invalid.")
 
@@ -188,21 +183,13 @@ async def get_current_user(
     jti = payload.get("jti")
     if not user_id_str:
         logger.warning(
-            "Auth failure on %s %s from IP %s: Token missing subject claims",
-            request.method,
-            request.url.path,
-            client_ip,
+            "Authentication failed: Token missing required claims"
         )
         raise HTTPException(status_code=401, detail="Invalid token claims.")
 
     if not is_session_active(str(user_id_str), jti):
         logger.warning(
-            "Auth eviction on %s %s from IP %s: User %s session (JTI: %s) evicted",
-            request.method,
-            request.url.path,
-            client_ip,
-            user_id_str,
-            jti,
+            "Authentication session evicted (quota exceeded or expired)"
         )
         raise HTTPException(
             status_code=401,
@@ -220,11 +207,7 @@ async def get_current_user(
     is_active = getattr(user, "is_active", False) if user else False
     if not user or not is_active:
         logger.warning(
-            "Auth rejection on %s %s from IP %s: User %s is disabled or inactive in database",
-            request.method,
-            request.url.path,
-            client_ip,
-            user_id_str,
+            "Authentication rejected: User account is inactive or disabled"
         )
         raise HTTPException(
             status_code=401, detail="User account is inactive or disabled."
