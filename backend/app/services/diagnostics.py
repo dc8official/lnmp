@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import ipaddress
 import json
 import logging
 import re
@@ -8,16 +9,47 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 from uuid import UUID
 
-from sqlalchemy import text
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.models.audit_log import AuditLog
+from app.models.diagnostic_trace import EndpointDiagnosticTrace
+from app.models.rca_incident import EndpointRCAIncident
 
 logger = logging.getLogger(__name__)
 
-# Semaphore to throttle concurrent traceroute commands (max 5 concurrent)
-trace_semaphore = asyncio.Semaphore(5)
+# Concurrency semaphore for traceroute execution (max 3 concurrent, 500ms pacing)
+trace_semaphore = asyncio.Semaphore(3)
 
 # Async Queue for sequential topology discovery
 discovery_queue: asyncio.Queue[tuple[UUID, str]] = asyncio.Queue()
+
+
+def is_local_subnet_destination(target_ip: str) -> bool:
+    """
+    Determines if the destination target IP belongs to the local /24 subnet
+    of any active network interface. If so, Layer-2 auto-bypass is activated.
+    """
+    try:
+        target_obj = ipaddress.ip_address(target_ip.strip())
+        if target_obj.is_loopback:
+            return True
+
+        import psutil
+
+        addrs = psutil.net_if_addrs()
+        for nic_name, nic_addrs in addrs.items():
+            for addr in nic_addrs:
+                if addr.family.name == "AF_INET" and addr.address and addr.netmask:
+                    if not addr.address.startswith("127."):
+                        local_net = ipaddress.ip_network(
+                            f"{addr.address}/24", strict=False
+                        )
+                        if target_obj in local_net:
+                            return True
+    except Exception:
+        pass
+    return False
 
 
 def sanitize_traceroute_hops(
@@ -35,7 +67,6 @@ def sanitize_traceroute_hops(
             return [{"hop": 1, "ip": target_ip, "rtt_ms": None}]
         return []
 
-    # If target_ip is not provided, strip trailing no-reply hops
     clean_hops = list(hops)
     if not target_ip:
         while clean_hops and clean_hops[-1].get("ip") is None:
@@ -48,7 +79,11 @@ def sanitize_traceroute_hops(
         is_null = h.get("ip") is None
         if is_null:
             if not prev_was_null:
-                collapsed_hops.append({"hop": h.get("hop"), "ip": None, "rtt_ms": None})
+                collapsed_hops.append({
+                    "hop": h.get("hop"),
+                    "ip": None,
+                    "rtt_ms": None,
+                })
                 prev_was_null = True
         else:
             collapsed_hops.append(h)
@@ -58,7 +93,11 @@ def sanitize_traceroute_hops(
     if target_ip:
         last_hop = collapsed_hops[-1] if collapsed_hops else None
         if not last_hop or last_hop.get("ip") != target_ip:
-            next_hop_num = ((last_hop.get("hop") or len(collapsed_hops)) + 1) if last_hop else 1
+            next_hop_num = (
+                ((last_hop.get("hop") or len(collapsed_hops)) + 1)
+                if last_hop
+                else 1
+            )
             collapsed_hops.append({
                 "hop": next_hop_num,
                 "ip": target_ip,
@@ -70,7 +109,8 @@ def sanitize_traceroute_hops(
 
 def _parse_trace_output(stdout_str: str) -> List[Dict[str, Any]]:
     """
-    Parses stdout from either traceroute or tracepath into structured hops.
+    Parses stdout from traceroute or tracepath into structured hops.
+    Supports multi-probe (-q 2) outputs by calculating average latency across probes.
     """
     hops: List[Dict[str, Any]] = []
     seen_hops = set()
@@ -80,7 +120,6 @@ def _parse_trace_output(stdout_str: str) -> List[Dict[str, Any]]:
         if not line or line.startswith("traceroute"):
             continue
 
-        # Match hop number for tracepath ('1:') or traceroute ('1 ')
         hop_match = re.match(r"^\s*(\d+)[:\s]\s*(.*)$", line)
         if not hop_match:
             continue
@@ -96,15 +135,24 @@ def _parse_trace_output(stdout_str: str) -> List[Dict[str, Any]]:
 
         remainder = hop_match.group(2).strip()
 
-        if "no reply" in remainder.lower() or remainder.startswith("*") or remainder == "* * *":
+        if (
+            "no reply" in remainder.lower()
+            or remainder == "*"
+            or remainder == "* *"
+            or remainder == "* * *"
+        ):
             hops.append({"hop": hop_num, "ip": None, "rtt_ms": None})
             continue
 
         ip_match = re.search(r"(\d{1,3}(?:\.\d{1,3}){3})", remainder)
-        rtt_match = re.search(r"([\d\.]+)\s*ms", remainder)
-
         hop_ip = ip_match.group(1) if ip_match else None
-        rtt_ms = float(rtt_match.group(1)) if rtt_match else None
+
+        # Extract all RTT values (multi-probe -q 2)
+        rtt_matches = re.findall(r"([\d\.]+)\s*ms", remainder)
+        rtt_ms = None
+        if rtt_matches:
+            rtt_values = [float(val) for val in rtt_matches]
+            rtt_ms = round(sum(rtt_values) / len(rtt_values), 3)
 
         hops.append({
             "hop": hop_num,
@@ -117,24 +165,37 @@ def _parse_trace_output(stdout_str: str) -> List[Dict[str, Any]]:
 
 async def run_traceroute(target_ip: str) -> Dict[str, Any]:
     """
-    Executes asynchronous route discovery:
-    1. Attempts ICMP Echo mode `traceroute -I` (best for WAN/carrier discovery).
-    2. Falls back to fast unprivileged UDP `traceroute`.
-    3. Falls back to `tracepath` if traceroute is not installed.
+    Executes high-fidelity asynchronous route discovery:
+    1. Layer-2 Subnet Auto-Bypass: if target is on local /24, immediately register 1-hop adjacency.
+    2. Primary: ICMP Echo mode `traceroute -n -q 2 -w 3 -m 30 -I <target_ip>` (60s hard cap).
+    3. Fallback 1: Fast UDP `traceroute -n -q 2 -w 3 -m 30 <target_ip>` (60s hard cap).
+    4. Fallback 2: `tracepath -n -m 30 <target_ip>` (60s hard cap).
     """
-    hops: List[Dict[str, Any]] = []
     timestamp = datetime.now(timezone.utc).isoformat()
+
+    # 1. Layer-2 Subnet Auto-Bypass
+    if is_local_subnet_destination(target_ip):
+        logger.info(
+            "Layer-2 Auto-Bypass: Destination %s is on local subnet. Registering 1-hop adjacency.",
+            target_ip,
+        )
+        return {
+            "target_ip": target_ip,
+            "hops": [{"hop": 1, "ip": target_ip, "rtt_ms": 0.5, "is_l2": True}],
+            "timestamp": timestamp,
+        }
+
     stdout_str = ""
 
-    # 1. Try ICMP traceroute (-I) with 1 probe per hop, 1s timeout
+    # 2. Primary: ICMP traceroute (-I) with 2 probes, 3s timeout
     try:
         proc = await asyncio.create_subprocess_exec(
             "traceroute",
             "-n",
             "-q",
-            "1",
+            "2",
             "-w",
-            "1",
+            "3",
             "-m",
             "30",
             "-I",
@@ -143,22 +204,22 @@ async def run_traceroute(target_ip: str) -> Dict[str, Any]:
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
-        stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=20.0)
+        stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=60.0)
         if proc.returncode == 0:
             stdout_str = stdout.decode("utf-8", errors="ignore")
     except Exception:
         stdout_str = ""
 
-    # 2. Try standard fast unprivileged traceroute if ICMP mode returned empty/failed
+    # 3. Fallback: UDP traceroute
     if not stdout_str:
         try:
             proc = await asyncio.create_subprocess_exec(
                 "traceroute",
                 "-n",
                 "-q",
-                "1",
+                "2",
                 "-w",
-                "1",
+                "3",
                 "-m",
                 "30",
                 "--",
@@ -166,13 +227,13 @@ async def run_traceroute(target_ip: str) -> Dict[str, Any]:
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
-            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=20.0)
+            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=60.0)
             if proc.returncode == 0:
                 stdout_str = stdout.decode("utf-8", errors="ignore")
         except Exception:
             stdout_str = ""
 
-    # 3. Fallback to tracepath if traceroute is unavailable
+    # 4. Fallback: tracepath
     if not stdout_str:
         try:
             proc = await asyncio.create_subprocess_exec(
@@ -185,7 +246,7 @@ async def run_traceroute(target_ip: str) -> Dict[str, Any]:
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
-            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=20.0)
+            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=60.0)
             stdout_str = stdout.decode("utf-8", errors="ignore")
         except Exception as e:
             logger.warning(
@@ -196,9 +257,7 @@ async def run_traceroute(target_ip: str) -> Dict[str, Any]:
             )
             stdout_str = ""
 
-    if stdout_str:
-        hops = _parse_trace_output(stdout_str)
-
+    hops = _parse_trace_output(stdout_str) if stdout_str else []
     sanitized_hops = sanitize_traceroute_hops(hops, target_ip=target_ip)
 
     return {
@@ -210,10 +269,12 @@ async def run_traceroute(target_ip: str) -> Dict[str, Any]:
 
 async def run_throttled_traceroute(target_ip: str) -> Dict[str, Any]:
     """
-    Executes run_traceroute under the concurrency semaphore (max 5 concurrent).
+    Executes run_traceroute under the concurrency semaphore (max 3 concurrent) with 500ms pacing.
     """
     async with trace_semaphore:
-        return await run_traceroute(target_ip)
+        result = await run_traceroute(target_ip)
+        await asyncio.sleep(0.5)
+        return result
 
 
 async def save_diagnostic_trace(
@@ -223,30 +284,17 @@ async def save_diagnostic_trace(
     trace_data: Dict[str, Any],
 ) -> Optional[UUID]:
     """
-    Persists a diagnostic trace record into endpoint_diagnostic_traces table.
+    Persists a diagnostic trace record into endpoint_diagnostic_traces table using ORM model.
     """
     try:
-        query = text("""
-            INSERT INTO endpoint_diagnostic_traces (
-                endpoint_id,
-                trigger_reason,
-                trace_data
-            ) VALUES (
-                CAST(:endpoint_id AS uuid),
-                :trigger_reason,
-                :trace_data
-            ) RETURNING id
-        """)
-        result = await db.execute(
-            query,
-            {
-                "endpoint_id": str(endpoint_id),
-                "trigger_reason": trigger_reason,
-                "trace_data": json.dumps(trace_data),
-            },
+        trace_record = EndpointDiagnosticTrace(
+            endpoint_id=endpoint_id,
+            trigger_reason=trigger_reason,
+            trace_data=trace_data,
         )
-        row = result.fetchone()
-        return UUID(str(row.id)) if row else None
+        db.add(trace_record)
+        await db.flush()
+        return trace_record.id
     except Exception as e:
         logger.error(
             "Failed to save diagnostic trace for endpoint %s: %s: %s",
@@ -263,44 +311,45 @@ async def cleanup_old_diagnostic_traces(
     audit_retention_days: int = 90,
 ) -> int:
     """
-    Purges diagnostic trace records older than specified retention_days (default 14 days),
-    audit logs older than audit_retention_days (default 90 days), and resolved RCA incidents (default 90 days).
+    Purges diagnostic trace records older than retention_days (default 14 days),
+    audit logs older than audit_retention_days (default 90 days), and resolved RCA incidents.
     """
     total_purged = 0
+    now = datetime.now(timezone.utc)
     try:
         # 1. Purge diagnostic traces
-        query_traces = text("""
-            DELETE FROM endpoint_diagnostic_traces
-            WHERE timestamp < NOW() - (INTERVAL '1 day' * :retention_days)
-        """)
-        res_traces = await db.execute(query_traces, {"retention_days": retention_days})
+        cutoff_traces = now - (retention_days * asyncio.timedelta(days=1) if hasattr(asyncio, "timedelta") else __import__("datetime").timedelta(days=retention_days))
+        stmt_traces = delete(EndpointDiagnosticTrace).where(
+            EndpointDiagnosticTrace.timestamp < cutoff_traces
+        )
+        res_traces = await db.execute(stmt_traces)
         traces_count = res_traces.rowcount or 0
         total_purged += traces_count
-        if traces_count > 0:
-            logger.info("Purged %d diagnostic traces older than %d days.", traces_count, retention_days)
 
-        # 2. Purge old audit logs
-        query_audit = text("""
-            DELETE FROM audit_logs
-            WHERE timestamp < NOW() - (INTERVAL '1 day' * :audit_days)
-        """)
-        res_audit = await db.execute(query_audit, {"audit_days": audit_retention_days})
+        # 2. Purge audit logs
+        cutoff_audit = now - __import__("datetime").timedelta(days=audit_retention_days)
+        stmt_audit = delete(AuditLog).where(
+            AuditLog.timestamp < cutoff_audit
+        )
+        res_audit = await db.execute(stmt_audit)
         audit_count = res_audit.rowcount or 0
         total_purged += audit_count
-        if audit_count > 0:
-            logger.info("Purged %d audit logs older than %d days.", audit_count, audit_retention_days)
 
         # 3. Purge old resolved RCA incidents
-        query_rca = text("""
-            DELETE FROM endpoint_rca_incidents
-            WHERE is_resolved = TRUE AND incident_timestamp < NOW() - (INTERVAL '1 day' * :rca_days)
-        """)
-        res_rca = await db.execute(query_rca, {"rca_days": audit_retention_days})
+        stmt_rca = delete(EndpointRCAIncident).where(
+            EndpointRCAIncident.is_resolved == True,  # noqa: E712
+            EndpointRCAIncident.incident_timestamp < cutoff_audit,
+        )
+        res_rca = await db.execute(stmt_rca)
         rca_count = res_rca.rowcount or 0
         total_purged += rca_count
-        if rca_count > 0:
-            logger.info("Purged %d resolved RCA incidents older than %d days.", rca_count, audit_retention_days)
 
+        logger.info(
+            "Retention cleanup completed: purged %d traces, %d audit logs, %d RCA incidents.",
+            traces_count,
+            audit_count,
+            rca_count,
+        )
         return total_purged
     except Exception as e:
         logger.error("Failed to execute database retention cleanup: %s", e)
@@ -333,7 +382,6 @@ async def start_discovery_worker(db_session_factory) -> asyncio.Task:
                     )
                     await db.commit()
                 discovery_queue.task_done()
-                # 500ms delay between discovery runs
                 await asyncio.sleep(0.5)
             except asyncio.CancelledError:
                 break

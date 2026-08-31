@@ -21,12 +21,15 @@ from app.services.auth_service import (
     clear_failed_attempts,
     create_access_token,
     decode_access_token,
+    get_trusted_client_ip,
     hash_password,
+    hash_password_async,
     invalidate_session,
     is_account_locked,
     is_session_active,
     record_failed_attempt,
     verify_password,
+    verify_password_async,
 )
 
 logger = logging.getLogger(__name__)
@@ -35,19 +38,8 @@ cookie_name = "lnmp_access_token"
 
 
 def get_client_ip(request: Request) -> str:
-    """Extracts client source IP address, respecting X-Forwarded-For if behind a reverse proxy."""
-    try:
-        if hasattr(request, "headers") and hasattr(request.headers, "get"):
-            forwarded = request.headers.get("X-Forwarded-For")
-            if forwarded and isinstance(forwarded, str):
-                return str(forwarded.split(",")[0].strip())
-        if getattr(request, "client", None) and getattr(request.client, "host", None):
-            host = request.client.host
-            if isinstance(host, str):
-                return str(host.strip())
-    except Exception:
-        pass
-    return "127.0.0.1"
+    """Extracts client source IP address with trusted proxy validation."""
+    return get_trusted_client_ip(request)
 
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -77,7 +69,8 @@ async def login(
         record_failed_attempt(client_ip, payload.username)
         raise HTTPException(status_code=401, detail="Invalid username or password.")
 
-    if not verify_password(payload.password, password_hash):
+    is_valid = await verify_password_async(payload.password, password_hash)
+    if not is_valid:
         record_failed_attempt(client_ip, payload.username)
         raise HTTPException(status_code=401, detail="Invalid username or password.")
 
@@ -271,7 +264,10 @@ async def change_password(
     must_change_password = getattr(user, "must_change_password", False)
 
     if request.old_password and request.old_password.strip():
-        if not verify_password(request.old_password.strip(), password_hash):
+        is_valid = await verify_password_async(
+            request.old_password.strip(), password_hash
+        )
+        if not is_valid:
             raise HTTPException(status_code=400, detail="Invalid current password.")
     elif not must_change_password:
         raise HTTPException(status_code=400, detail="Current password is required.")
@@ -283,7 +279,7 @@ async def change_password(
         )
 
     clean_new_pass = request.new_password.strip()
-    hashed = hash_password(clean_new_pass)
+    hashed = await hash_password_async(clean_new_pass)
 
     await auth_repo.update_password(user_uuid, hashed, must_change_password=False)
     await auth_repo.create_audit_log(

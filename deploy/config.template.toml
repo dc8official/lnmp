@@ -7,8 +7,8 @@ user = "netmon_user"
 
 [monitoring]
 interval_seconds = 60
-ping_count = 10
-ping_interval_seconds = 6
+ping_count = 5
+ping_interval_seconds = 8
 state_confirmation_cycles = 3
 retention_days = 730
 
@@ -22,6 +22,13 @@ session_timeout_minutes = 120
 max_active_sessions_per_user = 2
 hsts_enabled = true
 # Secret key loaded from environment variable: NETMON_SECRET_KEY
+
+[redis]
+host = "127.0.0.1"
+port = 6379
+db = 0
+enabled = true
+performance_mode = false
 
 [logging]
 level = "INFO"

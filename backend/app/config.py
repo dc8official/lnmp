@@ -62,6 +62,17 @@ class LoggingSettings(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
 
+class RedisSettings(BaseModel):
+    host: str = "127.0.0.1"
+    port: int = Field(default=6379, ge=1, le=65535)
+    db: int = Field(default=0, ge=0, le=15)
+    password: Optional[str] = None
+    enabled: bool = True
+    performance_mode: bool = False
+
+    model_config = ConfigDict(extra="ignore")
+
+
 def resolve_config_file() -> Optional[Path]:
     """Resolves configuration file path from environment or standard locations."""
     env_path_str = os.environ.get("NETMON_CONFIG_PATH")
@@ -99,6 +110,7 @@ class Settings(BaseSettings):
     api: ApiSettings = Field(default_factory=ApiSettings)
     security: SecuritySettings = Field(default_factory=SecuritySettings)
     logging: LoggingSettings = Field(default_factory=LoggingSettings)
+    redis: RedisSettings = Field(default_factory=RedisSettings)
 
     model_config = SettingsConfigDict(
         env_prefix="NETMON_",

@@ -140,7 +140,7 @@ fi
 print_header "Step 4: Installing system packages"
 
 PACKAGES="postgresql-16 postgresql-client-16 \
-timescaledb-2-postgresql-16 timescaledb-tools \
+timescaledb-2-postgresql-16 timescaledb-tools redis-server \
 python3-venv python3-pip traceroute iputils-tracepath iputils-ping libcap2-bin \
 nodejs nginx certbot python3-certbot-nginx"
 
@@ -440,6 +440,7 @@ for service in netmon-engine netmon-api; do
 done
 
 run "Reloading systemd daemon" systemctl daemon-reload
+run "Enabling Redis service" bash -c "systemctl enable redis-server 2>/dev/null || systemctl enable redis 2>/dev/null || true"
 run "Enabling netmon-engine" systemctl enable netmon-engine
 run "Enabling netmon-api" systemctl enable netmon-api
 
@@ -497,6 +498,7 @@ fi
 # ============================================================
 print_header "Step 18: Starting services"
 
+run "Starting Redis service" bash -c "systemctl start redis-server 2>/dev/null || systemctl start redis 2>/dev/null || true"
 run "Starting netmon-api" systemctl start netmon-api
 run "Starting netmon-engine" systemctl start netmon-engine
 

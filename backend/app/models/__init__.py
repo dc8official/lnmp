@@ -6,6 +6,7 @@ from app.models.endpoint_event import EndpointEvent
 from app.models.rca_incident import EndpointRCAIncident
 from app.models.system_setting import AppSetting, SystemSetting
 from app.models.user import Role, User
+from app.models.user_session import UserSession
 
 __all__ = [
     "Endpoint",
@@ -18,4 +19,5 @@ __all__ = [
     "EndpointDiagnosticTrace",
     "EndpointBaselineRoute",
     "EndpointRCAIncident",
+    "UserSession",
 ]

@@ -1,18 +1,36 @@
 from __future__ import annotations
+
+import asyncio
+import ipaddress
+import logging
+import secrets
 from datetime import datetime, timedelta, timezone
-from typing import Optional, List, Dict
+from typing import Any, Dict, List, Optional, Sequence
+
 from argon2 import PasswordHasher
 from argon2.exceptions import (
-    VerifyMismatchError,
-    VerificationError,
     InvalidHashError,
+    VerificationError,
+    VerifyMismatchError,
 )
 from jose import JWTError, jwt
+
 from app.config import settings
 
-import secrets
+logger = logging.getLogger(__name__)
 
 _ph = PasswordHasher()
+
+# Default trusted reverse proxy CIDR networks
+DEFAULT_TRUSTED_PROXIES = [
+    ipaddress.ip_network("127.0.0.0/8"),
+    ipaddress.ip_network("10.0.0.0/8"),
+    ipaddress.ip_network("172.16.0.0/12"),
+    ipaddress.ip_network("192.168.0.0/16"),
+    ipaddress.ip_network("::1/128"),
+    ipaddress.ip_network("fc00::/7"),
+    ipaddress.ip_network("fe80::/10"),
+]
 
 # IP-Scoped Failed Login Tracker:
 # Key format: "<client_ip>:<username>" -> {"count": int, "last_attempt": datetime, "locked_until": datetime}
@@ -25,7 +43,7 @@ _active_user_sessions: dict[str, list[str]] = {}
 READABLE_WORDS = [
     "Atlas", "Beacon", "Cedar", "Drift", "Ember", "Falcon", "Gravel", "Haven",
     "Iris", "Jasper", "Kestrel", "Lunar", "Matrix", "Nexus", "Opal", "Pulse",
-    "Quartz", "Ridge", "Solar", "Titan", "Vortex", "Zenith", "Anchor", "Breeze"
+    "Quartz", "Ridge", "Solar", "Titan", "Vortex", "Zenith", "Anchor", "Breeze",
 ]
 
 
@@ -36,17 +54,89 @@ def generate_readable_password() -> str:
 
 
 def hash_password(password: str) -> str:
+    """Synchronous Argon2id hashing."""
     return _ph.hash(password)
 
 
+async def hash_password_async(password: str) -> str:
+    """Non-blocking Argon2id hashing delegated to asyncio worker thread."""
+    return await asyncio.to_thread(_ph.hash, password)
+
+
 def verify_password(plain: str, hashed: str) -> bool:
+    """Synchronous Argon2id password verification."""
     try:
         return _ph.verify(hashed, plain)
     except (VerifyMismatchError, VerificationError, InvalidHashError):
         return False
+    except Exception:
+        return False
+
+
+async def verify_password_async(plain: str, hashed: str) -> bool:
+    """Non-blocking Argon2id password verification delegated to asyncio worker thread."""
+    return await asyncio.to_thread(verify_password, plain, hashed)
 
 
 ALGORITHM = "HS256"
+
+
+# ---------------------------------------------------------------------------
+# Trusted Reverse Proxy Header Security
+# ---------------------------------------------------------------------------
+def is_ip_in_networks(
+    ip_str: str,
+    networks: Optional[Sequence[ipaddress.IPv4Network | ipaddress.IPv6Network]] = None,
+) -> bool:
+    """Checks if an IP string belongs to any of the specified trusted networks."""
+    try:
+        ip_obj = ipaddress.ip_address(ip_str.strip())
+        target_nets = networks or DEFAULT_TRUSTED_PROXIES
+        return any(ip_obj in net for net in target_nets)
+    except ValueError:
+        return False
+
+
+def get_trusted_client_ip(
+    request: Any,
+    trusted_cidrs: Optional[Sequence[str]] = None,
+) -> str:
+    """
+    Extracts the validated client IP address:
+    - If the direct peer connection (request.client.host) is from a trusted proxy CIDR,
+      inspects X-Forwarded-For to find the true source IP.
+    - If the direct connection is NOT from a trusted proxy, ignores X-Forwarded-For
+      to prevent header spoofing attacks.
+    """
+    peer_ip = "127.0.0.1"
+    if getattr(request, "client", None) and getattr(request.client, "host", None):
+        peer_ip = str(request.client.host).strip()
+
+    trusted_nets = (
+        [ipaddress.ip_network(c.strip()) for c in trusted_cidrs if c.strip()]
+        if trusted_cidrs
+        else DEFAULT_TRUSTED_PROXIES
+    )
+
+    if not is_ip_in_networks(peer_ip, trusted_nets):
+        return peer_ip
+
+    if hasattr(request, "headers") and hasattr(request.headers, "get"):
+        forwarded = request.headers.get("X-Forwarded-For")
+        if forwarded and isinstance(forwarded, str):
+            # Parse right-to-left through the forwarded chain
+            parts = [p.strip() for p in forwarded.split(",") if p.strip()]
+            for candidate in reversed(parts):
+                if not is_ip_in_networks(candidate, trusted_nets):
+                    return candidate
+            if parts:
+                return parts[0]
+
+        real_ip = request.headers.get("X-Real-IP")
+        if real_ip and isinstance(real_ip, str) and real_ip.strip():
+            return real_ip.strip()
+
+    return peer_ip
 
 
 # ---------------------------------------------------------------------------
@@ -64,6 +154,15 @@ def register_session(user_id: str, jti: str, max_sessions: int = 2) -> None:
         # Evict oldest session(s)
         active_list = active_list[-max_sessions:]
     _active_user_sessions[u_id] = active_list
+
+    try:
+        from app.services.driver_manager import driver_manager
+
+        loop = asyncio.get_running_loop()
+        store = driver_manager.get_session_store()
+        loop.create_task(store.register_session(u_id, jti, max_sessions=max_sessions))
+    except Exception:
+        pass
 
 
 def is_session_active(user_id: str, jti: Optional[str]) -> bool:
@@ -85,14 +184,35 @@ def invalidate_session(user_id: str, jti: Optional[str]) -> None:
         return
     u_id = str(user_id)
     if u_id in _active_user_sessions:
-        _active_user_sessions[u_id] = [s for s in _active_user_sessions[u_id] if s != jti]
+        _active_user_sessions[u_id] = [
+            s for s in _active_user_sessions[u_id] if s != jti
+        ]
         if not _active_user_sessions[u_id]:
             _active_user_sessions.pop(u_id, None)
+
+    try:
+        from app.services.driver_manager import driver_manager
+
+        loop = asyncio.get_running_loop()
+        store = driver_manager.get_session_store()
+        loop.create_task(store.invalidate_session(u_id, jti))
+    except Exception:
+        pass
 
 
 def invalidate_all_user_sessions(user_id: str) -> None:
     """Invalidates all sessions for a user (e.g. on password reset or account deactivation)."""
-    _active_user_sessions.pop(str(user_id), None)
+    u_id = str(user_id)
+    _active_user_sessions.pop(u_id, None)
+
+    try:
+        from app.services.driver_manager import driver_manager
+
+        loop = asyncio.get_running_loop()
+        store = driver_manager.get_session_store()
+        loop.create_task(store.invalidate_all_user_sessions(u_id))
+    except Exception:
+        pass
 
 
 def create_access_token(
@@ -110,9 +230,8 @@ def create_access_token(
         "username": username,
         "role": role_name,
         "jti": session_id,
-        "exp": datetime.now(timezone.utc) + timedelta(
-            minutes=settings.security.session_timeout_minutes
-        ),
+        "exp": datetime.now(timezone.utc)
+        + timedelta(minutes=settings.security.session_timeout_minutes),
     }
     return jwt.encode(
         payload,
@@ -148,9 +267,13 @@ def _prune_expired_attempts() -> None:
     """Prunes expired account lockout entries and enforces max memory allocation bounds."""
     now = datetime.now(timezone.utc)
     expired = [
-        k for k, data in _failed_attempts.items()
-        if (data.get("locked_until") and data["locked_until"] <= now) or
-           (data.get("last_attempt") and now - data["last_attempt"] > timedelta(minutes=30))
+        k
+        for k, data in _failed_attempts.items()
+        if (data.get("locked_until") and data["locked_until"] <= now)
+        or (
+            data.get("last_attempt")
+            and now - data["last_attempt"] > timedelta(minutes=30)
+        )
     ]
     for k in expired:
         _failed_attempts.pop(k, None)
@@ -158,13 +281,16 @@ def _prune_expired_attempts() -> None:
     if len(_failed_attempts) > MAX_FAILED_ATTEMPTS_ENTRIES:
         sorted_keys = sorted(
             _failed_attempts.keys(),
-            key=lambda k: _failed_attempts[k].get("last_attempt") or datetime.min.replace(tzinfo=timezone.utc)
+            key=lambda k: _failed_attempts[k].get("last_attempt")
+            or datetime.min.replace(tzinfo=timezone.utc),
         )
         for k in sorted_keys[: len(_failed_attempts) - MAX_FAILED_ATTEMPTS_ENTRIES]:
             _failed_attempts.pop(k, None)
 
 
-def is_account_locked(client_ip_or_username: str, username: Optional[str] = None) -> bool:
+def is_account_locked(
+    client_ip_or_username: str, username: Optional[str] = None
+) -> bool:
     """Checks if the (client_ip, username) combination is currently locked out."""
     _prune_expired_attempts()
     if username is None:
@@ -185,7 +311,9 @@ def is_account_locked(client_ip_or_username: str, username: Optional[str] = None
     return False
 
 
-def record_failed_attempt(client_ip_or_username: str, username: Optional[str] = None) -> None:
+def record_failed_attempt(
+    client_ip_or_username: str, username: Optional[str] = None
+) -> None:
     """Records a failed login attempt for the specific (client_ip, username) pair."""
     _prune_expired_attempts()
     if username is None:
@@ -204,7 +332,9 @@ def record_failed_attempt(client_ip_or_username: str, username: Optional[str] = 
     _failed_attempts[key] = entry
 
 
-def clear_failed_attempts(client_ip_or_username: str, username: Optional[str] = None) -> None:
+def clear_failed_attempts(
+    client_ip_or_username: str, username: Optional[str] = None
+) -> None:
     """Clears failed attempts for the specific (client_ip, username) upon successful authentication."""
     if username is None:
         client_ip = "127.0.0.1"

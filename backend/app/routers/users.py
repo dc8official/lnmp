@@ -17,7 +17,11 @@ from app.schemas.users import (
     UpdateUserRequest,
     UserSummary,
 )
-from app.services.auth_service import generate_readable_password, hash_password
+from app.services.auth_service import (
+    generate_readable_password,
+    hash_password,
+    hash_password_async,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -83,7 +87,7 @@ async def create_user(
         plain_password = generate_readable_password()
         generated_pass = plain_password
 
-    hashed = hash_password(plain_password)
+    hashed = await hash_password_async(plain_password)
 
     new_user = await auth_repo.create_user(
         username=request.username,
@@ -150,7 +154,7 @@ async def reset_password(
         plain_password = generate_readable_password()
         generated_pass = plain_password
 
-    hashed = hash_password(plain_password)
+    hashed = await hash_password_async(plain_password)
 
     await auth_repo.update_password(user_id, hashed, must_change_password=True)
 
