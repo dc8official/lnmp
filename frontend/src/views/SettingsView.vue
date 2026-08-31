@@ -257,11 +257,11 @@
 <script setup>
 import { ref, reactive, onMounted } from 'vue'
 import { getUsers, createUser, resetUserPassword, updateUser, deleteUser } from '../services/api.js'
+import { currentUser, loadUserFromStorage } from '../services/auth.js'
 
 const saving = ref(false)
 const alertMessage = ref(null)
 const alertType = ref('alert-success')
-const currentUser = ref('')
 
 const settings = reactive({
   performanceMode: false,
@@ -379,13 +379,7 @@ async function saveAllSettings() {
 }
 
 onMounted(async () => {
-  const storedUser = localStorage.getItem('user')
-  if (storedUser) {
-    try {
-      const parsed = JSON.parse(storedUser)
-      currentUser.value = parsed.username
-    } catch (e) {}
-  }
+  loadUserFromStorage()
   const savedSettings = localStorage.getItem('netmon_settings')
   if (savedSettings) {
     try {

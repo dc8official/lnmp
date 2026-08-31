@@ -433,6 +433,7 @@
 import { ref, onMounted, onBeforeUnmount, computed } from 'vue'
 import { useRoute, useRouter, RouterLink } from 'vue-router'
 import { getEndpoint, getUptimeReport, getEndpointEvents, updateEndpoint, refreshEndpointBaseline, logout } from '../services/api.js'
+import { user, isAdmin, loadUserFromStorage, clearUserState } from '../services/auth.js'
 import StateTimeline from '../components/StateTimeline.vue'
 import RTTTrendPanel from '../components/RTTTrendPanel.vue'
 import EndpointRcaDetail from '../components/EndpointRcaDetail.vue'
@@ -456,9 +457,6 @@ const toggleTheme = () => {
     document.documentElement.classList.remove('dark')
   }
 }
-
-const user = ref(null)
-const isAdmin = computed(() => user.value?.role === 'ADMIN')
 
 const showSettingsModal = ref(false)
 const savingSettings = ref(false)
@@ -709,7 +707,7 @@ const handleLogout = async () => {
   } catch (err) {
     console.error('Logout error on backend', err)
   } finally {
-    localStorage.removeItem('user')
+    clearUserState()
     router.push('/login')
   }
 }
@@ -723,10 +721,7 @@ onMounted(() => {
     document.documentElement.classList.remove('dark')
   }
 
-  const storedUser = localStorage.getItem('user')
-  if (storedUser) {
-    user.value = JSON.parse(storedUser)
-  }
+  loadUserFromStorage()
   loadData()
 
   // Establish a 60-second polling interval to fetch fresh telemetry data

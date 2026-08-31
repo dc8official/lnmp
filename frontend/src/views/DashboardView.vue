@@ -374,6 +374,7 @@ import {
   deleteEndpoint, 
   exportBatchTelemetry
 } from '../services/api.js'
+import { user, isAdmin, loadUserFromStorage, clearUserState } from '../services/auth.js'
 import EndpointCard from '../components/EndpointCard.vue'
 import TopologyMap from '../components/TopologyMap.vue'
 
@@ -383,7 +384,6 @@ const endpoints = ref([])
 const loading = ref(false)
 const error = ref(null)
 const lastRefreshed = ref(null)
-const user = ref(null)
 const sseConnected = ref(false)
 let eventSource = null
 
@@ -417,8 +417,6 @@ const form = ref({
   description: '',
   monitoring_enabled: true
 })
-
-const isAdmin = computed(() => user.value?.role === 'ADMIN')
 
 const kpiStats = computed(() => {
   const total = endpoints.value.length
@@ -563,7 +561,7 @@ const fetchEndpoints = async () => {
     lastRefreshed.value = new Date()
   } catch (err) {
     if (err.response?.status === 401) {
-      localStorage.removeItem('user')
+      clearUserState()
       router.push('/login')
     } else {
       error.value = err.response?.data?.detail || err.response?.data?.error?.message || 'Failed to connect to backend engine.'
@@ -685,14 +683,7 @@ function initSSE() {
 }
 
 onMounted(async () => {
-  const storedUser = localStorage.getItem('user')
-  if (storedUser) {
-    try {
-      user.value = JSON.parse(storedUser)
-    } catch (e) {
-      console.error(e)
-    }
-  }
+  loadUserFromStorage()
   await fetchEndpoints()
   initSSE()
 })
