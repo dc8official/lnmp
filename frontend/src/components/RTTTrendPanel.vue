@@ -212,10 +212,10 @@ const chartOptions = computed(() => {
 
 <style scoped>
 .rtt-trend-panel {
-  background: #000000;
+  background: var(--bg-surface);
   padding: 1.5rem;
   border: 1px solid var(--border-color);
-  border-radius: 4px;
+  border-radius: var(--radius, 6px);
   box-shadow: none;
   margin-bottom: 1.5rem;
   height: 350px;
@@ -234,14 +234,8 @@ const chartOptions = computed(() => {
   justify-content: center;
   height: 100%;
   color: var(--text-muted);
-  font-family: monospace;
-  font-size: 1rem;
+  font-family: var(--font-mono, monospace);
+  font-size: 0.875rem;
   transition: color 0.2s;
-}
-</style>
-
-<style>
-html:not(.dark) .rtt-trend-panel {
-  background: #ffffff;
 }
 </style>

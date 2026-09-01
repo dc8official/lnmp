@@ -15,6 +15,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import AsyncSessionLocal, get_db
+from app.models.endpoint import Endpoint
 from app.models.endpoint_event import EndpointEvent
 from app.repositories.endpoint_repo import EndpointRepository
 from app.repositories.report_repo import ReportRepository
@@ -36,17 +37,20 @@ router = APIRouter(prefix="/reports", tags=["reports"])
 
 def parse_datetime_param(val: str, is_end: bool = False) -> datetime:
     try:
-        if "T" in val or " " in val:
-            dt = datetime.fromisoformat(val)
+        val_str = str(val).strip()
+        if "T" in val_str or " " in val_str:
+            clean_val = val_str.replace("Z", "+00:00")
+            dt = datetime.fromisoformat(clean_val)
             if dt.tzinfo is None:
                 return dt.replace(tzinfo=timezone.utc)
             return dt.astimezone(timezone.utc)
         else:
-            d = date.fromisoformat(val)
+            d = date.fromisoformat(val_str)
             if is_end:
                 return datetime(d.year, d.month, d.day, 23, 59, 59, tzinfo=timezone.utc)
             return datetime(d.year, d.month, d.day, 0, 0, 0, tzinfo=timezone.utc)
-    except (ValueError, AttributeError, TypeError):
+    except (ValueError, AttributeError, TypeError) as e:
+        logger.error(f"Failed to parse datetime parameter '{val}': {e}")
         raise HTTPException(
             status_code=400, detail=f"Invalid ISO 8601 date format: {val}"
         )
@@ -190,7 +194,8 @@ async def get_endpoint_events(
     start_date: str = Query(...),
     end_date: str = Query(...),
     page: int = Query(default=1, ge=1),
-    size: int = Query(default=100, ge=1, le=1500),
+    size: Optional[int] = Query(default=None, ge=1, le=1500),
+    page_size: Optional[int] = Query(default=None, ge=1, le=1500),
     current_user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -198,9 +203,10 @@ async def get_endpoint_events(
     end_dt = parse_datetime_param(end_date, is_end=True)
     _validate_date_range(start_dt, end_dt)
 
+    effective_size = page_size or size or 100
     rep_repo = ReportRepository(db)
-    limit = size
-    offset = (page - 1) * size
+    limit = effective_size
+    offset = (page - 1) * effective_size
 
     event_rows, total = await rep_repo.get_events(
         endpoint_id=endpoint_id,
@@ -229,14 +235,14 @@ async def get_endpoint_events(
         for ev in event_rows
     ]
 
-    total_pages = ceil(total / size) if total > 0 else 1
+    total_pages = ceil(total / effective_size) if total > 0 else 1
 
     return APIResponse.success(
         data=events,
         meta=PaginationMeta(
             total=total,
             page=page,
-            page_size=size,
+            page_size=effective_size,
             total_pages=total_pages,
         ),
     )
@@ -267,6 +273,9 @@ async def csv_generator(
     writer = csv.writer(output)
     writer.writerow([
         "Endpoint_ID",
+        "Hostname",
+        "IP_Address",
+        "Device_Type",
         "Timestamp",
         "Operational_State",
         "Detailed_State",
@@ -285,7 +294,13 @@ async def csv_generator(
             rows = []
             async with AsyncSessionLocal() as session:
                 stmt = (
-                    select(EndpointEvent)
+                    select(
+                        EndpointEvent,
+                        Endpoint.hostname,
+                        Endpoint.ip_address,
+                        Endpoint.device_type,
+                    )
+                    .join(Endpoint, EndpointEvent.endpoint_id == Endpoint.id)
                     .where(
                         EndpointEvent.endpoint_id.in_(endpoint_ids),
                         EndpointEvent.start_time >= start_time,
@@ -296,13 +311,21 @@ async def csv_generator(
                     .offset(offset)
                 )
                 result = await session.execute(stmt)
-                rows = result.scalars().all()
+                rows = result.all()
 
             if not rows:
                 break
 
-            for ev in rows:
+            for row in rows:
+                ev = row[0]
+                hostname = row[1]
+                ip_addr = str(row[2])
+                device_type = row[3]
+
                 endpoint_id_str = sanitize_csv_field(str(ev.endpoint_id))
+                hostname_str = sanitize_csv_field(hostname)
+                ip_str = sanitize_csv_field(ip_addr)
+                dev_type_str = sanitize_csv_field(device_type)
                 ts_str = sanitize_csv_field(
                     ev.start_time.isoformat().replace("+00:00", "Z")
                     if ev.start_time
@@ -323,6 +346,9 @@ async def csv_generator(
 
                 writer.writerow([
                     endpoint_id_str,
+                    hostname_str,
+                    ip_str,
+                    dev_type_str,
                     ts_str,
                     op_state,
                     det_state,

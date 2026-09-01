@@ -196,8 +196,9 @@ async def refresh_baseline_route(
     if mac_addr:
         if old_mac and old_mac != mac_addr:
             logger.warning(
-                "Gateway MAC drift / failover detected for %s: %s -> %s (FHRP: %s)",
-                target_ip, old_mac, mac_addr, fhrp_type or "Standard"
+                "Gateway MAC drift / failover detected for target %s (FHRP Protocol: %s)",
+                target_ip,
+                fhrp_type or "Standard",
             )
         gateway_mac_cache[target_ip] = mac_addr
 

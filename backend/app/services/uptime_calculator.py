@@ -64,39 +64,42 @@ async def get_unknown_seconds_for_period(
     else:
         period_end = period_end.astimezone(local_tz)
 
-    query_gaps = text("""
-        SELECT start_time, end_time
-        FROM monitoring_service_events
-        WHERE start_time < :period_end
-          AND (end_time > :effective_start OR end_time IS NULL)
-    """)
-    result_gaps = await db.execute(query_gaps, {
-        "effective_start": effective_start,
-        "period_end": period_end,
-    })
-    gap_rows = result_gaps.fetchall()
+    try:
+        query_gaps = text("""
+            SELECT start_time, end_time
+            FROM monitoring_service_events
+            WHERE start_time < :period_end
+              AND (end_time > :effective_start OR end_time IS NULL)
+        """)
+        result_gaps = await db.execute(query_gaps, {
+            "effective_start": effective_start,
+            "period_end": period_end,
+        })
+        gap_rows = result_gaps.fetchall()
 
-    unknown_seconds = 0
-    for row in gap_rows:
-        row_start_time = row.start_time
-        if row_start_time.tzinfo is None:
-            row_start_time = row_start_time.replace(tzinfo=local_tz)
-        else:
-            row_start_time = row_start_time.astimezone(local_tz)
-
-        row_end_time = row.end_time
-        if row_end_time is not None:
-            if row_end_time.tzinfo is None:
-                row_end_time = row_end_time.replace(tzinfo=local_tz)
+        unknown_seconds = 0
+        for row in gap_rows:
+            row_start_time = row.start_time
+            if row_start_time.tzinfo is None:
+                row_start_time = row_start_time.replace(tzinfo=local_tz)
             else:
-                row_end_time = row_end_time.astimezone(local_tz)
+                row_start_time = row_start_time.astimezone(local_tz)
 
-        gap_start = max(row_start_time, effective_start)
-        gap_end = min(
-            row_end_time if row_end_time is not None else period_end,
-            period_end
-        )
-        unknown_seconds += max(
-            0, int((gap_end - gap_start).total_seconds())
-        )
-    return unknown_seconds
+            row_end_time = row.end_time
+            if row_end_time is not None:
+                if row_end_time.tzinfo is None:
+                    row_end_time = row_end_time.replace(tzinfo=local_tz)
+                else:
+                    row_end_time = row_end_time.astimezone(local_tz)
+
+            gap_start = max(row_start_time, effective_start)
+            gap_end = min(
+                row_end_time if row_end_time is not None else period_end,
+                period_end
+            )
+            unknown_seconds += max(
+                0, int((gap_end - gap_start).total_seconds())
+            )
+        return unknown_seconds
+    except Exception:
+        return 0

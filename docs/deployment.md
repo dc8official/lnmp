@@ -39,9 +39,12 @@ cd lnmp/deploy
 To perform an in-place upgrade from v2.x to v3.0.0:
 
 ```bash
-cd /opt/netmon/noop/deploy
-sudo ./upgrade.sh
+cd ~/lnmp
+git pull origin main
+sudo ./deploy/upgrade.sh
 ```
+
+*(Alternatively, if upgrading directly on the host without a local git clone, you can run `sudo bash /opt/netmon/noop/deploy/upgrade.sh`)*
 
 ### Automated Upgrade Lifecycle Steps:
 1. **Pre-Upgrade Database Backup**: Automatically creates a timestamped SQL backup at `/var/backups/netmon/netmon_backup_<TIMESTAMP>.sql` before any changes. If the backup fails, the upgrade aborts immediately.

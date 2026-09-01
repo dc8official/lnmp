@@ -1,89 +1,93 @@
 <template>
   <div class="login-wrapper">
-    <div class="glass-container">
-      <Card class="login-card">
-        <template #title>
-          <div class="brand-header">
-            <h2>lnmp v3.0.0</h2>
-            <p class="brand-subtitle">Network Uptime Monitoring Platform</p>
+    <div class="login-container">
+      <div class="login-card">
+        <div class="brand-header">
+          <h1 class="brand-title">lnmp v3.0.0</h1>
+          <p class="brand-subtitle">Network Uptime Monitoring Platform</p>
+        </div>
+
+        <form 
+          @submit.prevent="handleLogin" 
+          action="/api/v1/auth/login" 
+          method="post" 
+          autocomplete="on" 
+          class="login-form"
+        >
+          <div v-if="error" class="error-container" role="alert">
+            <Message severity="error" :closable="false">{{ error }}</Message>
           </div>
-        </template>
-        <template #content>
-          <form @submit.prevent="handleLogin" method="post" action="" autocomplete="on" class="login-form">
-            <div v-if="error" class="error-container">
-              <Message severity="error" :closable="false">{{ error }}</Message>
-            </div>
 
-            <div class="form-group">
-              <label for="username">Username</label>
-              <div class="input-with-icon">
-                <i class="pi pi-user field-icon"></i>
-                <input 
-                  id="username" 
-                  name="username"
-                  type="text"
-                  autocomplete="username"
-                  v-model="username" 
-                  @input="syncValues"
-                  @change="syncValues"
-                  @blur="syncValues"
-                  placeholder="Enter your username" 
-                  required 
-                  class="p-inputtext p-component full-width"
-                  :disabled="loading"
-                />
-              </div>
+          <div class="form-group">
+            <label for="username">Username</label>
+            <div class="input-with-icon">
+              <i class="pi pi-user field-icon" aria-hidden="true"></i>
+              <input 
+                id="username" 
+                name="username"
+                type="text"
+                autocomplete="username"
+                autocorrect="off"
+                autocapitalize="off"
+                spellcheck="false"
+                v-model="username" 
+                placeholder="Enter your username" 
+                required 
+                class="login-input"
+                :disabled="loading"
+              />
             </div>
+          </div>
 
-            <div class="form-group">
-              <label for="password">Password</label>
-              <div class="input-with-icon password-wrapper">
-                <i class="pi pi-lock field-icon"></i>
-                <input 
-                  id="password" 
-                  name="password"
-                  :type="showPassword ? 'text' : 'password'"
-                  autocomplete="current-password"
-                  v-model="password" 
-                  @input="syncValues"
-                  @change="syncValues"
-                  @blur="syncValues"
-                  placeholder="Enter your password" 
-                  required 
-                  class="p-inputtext p-component full-width password-input"
-                  :disabled="loading"
-                />
-                <i 
-                  class="pi toggle-icon"
-                  :class="showPassword ? 'pi-eye-slash' : 'pi-eye'"
-                  @click="showPassword = !showPassword"
-                  title="Toggle password visibility"
-                ></i>
-              </div>
+          <div class="form-group">
+            <label for="password">Password</label>
+            <div class="input-with-icon password-wrapper">
+              <i class="pi pi-lock field-icon" aria-hidden="true"></i>
+              <input 
+                id="password" 
+                name="password"
+                :type="showPassword ? 'text' : 'password'"
+                autocomplete="current-password"
+                v-model="password" 
+                placeholder="Enter your password" 
+                required 
+                class="login-input password-input"
+                :disabled="loading"
+              />
+              <i 
+                class="pi toggle-icon"
+                :class="showPassword ? 'pi-eye-slash' : 'pi-eye'"
+                @click="showPassword = !showPassword"
+                title="Toggle password visibility"
+                tabindex="0"
+                @keydown.enter="showPassword = !showPassword"
+                role="button"
+                aria-label="Toggle password visibility"
+              ></i>
             </div>
+          </div>
 
-            <button 
-              type="submit" 
-              class="submit-button p-button p-component" 
-              :disabled="loading"
-            >
-              <i v-if="loading" class="pi pi-spin pi-spinner" style="margin-right: 0.5rem;"></i>
-              <i v-else class="pi pi-sign-in" style="margin-right: 0.5rem;"></i>
-              <span>{{ loading ? 'Signing In...' : 'Sign In' }}</span>
-            </button>
-          </form>
-        </template>
-      </Card>
+          <button 
+            type="submit" 
+            name="login-submit"
+            class="submit-button" 
+            :disabled="loading"
+          >
+            <i v-if="loading" class="pi pi-spin pi-spinner" style="margin-right: 0.5rem;"></i>
+            <i v-else class="pi pi-sign-in" style="margin-right: 0.5rem;"></i>
+            <span>{{ loading ? 'Signing In...' : 'Sign In' }}</span>
+          </button>
+        </form>
+      </div>
     </div>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { login } from '../services/api.js'
 import { setUserState } from '../services/auth.js'
-import Card from 'primevue/card'
 import Message from 'primevue/message'
 
 const router = useRouter()
@@ -93,39 +97,20 @@ const showPassword = ref(false)
 const loading = ref(false)
 const error = ref(null)
 
-const syncValues = () => {
-  const uEl = document.getElementById('username')
-  const pEl = document.getElementById('password')
-  if (uEl && uEl.value) username.value = uEl.value
-  if (pEl && pEl.value) password.value = pEl.value
-}
-
-onMounted(() => {
-  // Sync in case browser password manager auto-populates the fields without triggering Vue events
-  syncValues()
-  setTimeout(syncValues, 200)
-  setTimeout(syncValues, 600)
-  setTimeout(syncValues, 1200)
-})
-
 const handleLogin = async () => {
-  loading.value = true
-  error.value = null
-  
-  // Directly extract values from DOM elements as fallback if browser autofill didn't fire Vue reactive input events
-  const uEl = document.getElementById('username')
-  const pEl = document.getElementById('password')
-  const userInput = (uEl?.value || username.value || '').trim()
-  const passInput = pEl?.value || password.value || ''
+  const u = (username.value || '').trim()
+  const p = password.value || ''
 
-  if (!userInput || !passInput) {
+  if (!u || !p) {
     error.value = 'Please enter both username and password.'
-    loading.value = false
     return
   }
 
+  loading.value = true
+  error.value = null
+
   try {
-    const response = await login(userInput, passInput)
+    const response = await login(u, p)
     const payloadData = response.data?.data || response.data
     setUserState({
       username: payloadData.username,
@@ -138,7 +123,7 @@ const handleLogin = async () => {
       const status = err.response.status
       const detail = err.response.data?.detail
       if (status === 403) {
-        error.value = detail || 'Account temporarily locked for 15 minutes due to multiple failed login attempts from this location.'
+        error.value = detail || 'Account temporarily locked for 15 minutes due to multiple failed login attempts.'
       } else if (status === 401) {
         error.value = detail || 'Invalid username or password. Please verify your credentials.'
       } else if (status === 429) {
@@ -159,177 +144,161 @@ const handleLogin = async () => {
 
 <style scoped>
 .login-wrapper {
-  min-height: 100vh;
   display: flex;
   justify-content: center;
   align-items: center;
-  background-color: #0A0A0A;
-  padding: 1rem;
+  min-height: 100vh;
+  background-color: var(--bg-app);
+  background-image: 
+    radial-gradient(at 0% 0%, rgba(128, 128, 128, 0.05) 0px, transparent 50%),
+    radial-gradient(at 100% 100%, rgba(128, 128, 128, 0.03) 0px, transparent 50%);
+  padding: 1.5rem;
+  transition: background-color 0.2s ease;
 }
-.glass-container {
+
+.login-container {
   width: 100%;
-  max-width: 440px;
-  background-color: #000000;
-  border-radius: 8px;
-  border: 1px solid #262626;
-  box-shadow: none;
+  max-width: 420px;
 }
+
 .login-card {
-  background: transparent !important;
-  border: none !important;
-  box-shadow: none !important;
-  padding: 1.5rem 1rem;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius, 8px);
+  box-shadow: var(--shadow-hover);
+  padding: 2rem;
+  transition: background-color 0.2s ease, border-color 0.2s ease;
 }
+
 .brand-header {
   text-align: center;
   margin-bottom: 2rem;
 }
-.brand-icon {
-  font-size: 2rem;
-  color: #FFFFFF;
-  background-color: #0A0A0A;
-  border: 1px solid #262626;
-  padding: 0.85rem;
-  border-radius: 4px;
-  margin-bottom: 1rem;
+
+.brand-title {
+  font-size: 1.75rem;
+  font-weight: 800;
+  color: var(--text-primary);
+  letter-spacing: -0.04em;
+  margin: 0;
+  text-transform: lowercase;
 }
-h2 {
-  font-size: 1.5rem;
-  font-weight: 700;
-  color: #FFFFFF;
-  margin-bottom: 0.25rem;
-  letter-spacing: -0.02em;
-}
+
 .brand-subtitle {
-  color: #D0D0D0;
-  font-size: 0.85rem;
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+  margin-top: 0.35rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-weight: 600;
 }
+
 .login-form {
   display: flex;
   flex-direction: column;
   gap: 1.25rem;
 }
+
 .error-container {
   margin-bottom: 0.5rem;
 }
+
 .form-group {
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
 }
-label {
-  font-size: 0.8rem;
+
+.form-group label {
+  font-size: 0.8125rem;
   font-weight: 600;
-  color: #D0D0D0;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
+  color: var(--text-secondary);
+  letter-spacing: -0.01em;
 }
+
 .input-with-icon {
   position: relative;
   display: flex;
   align-items: center;
 }
+
 .field-icon {
   position: absolute;
-  left: 0.75rem;
-  color: #D0D0D0;
-  z-index: 10;
+  left: 0.875rem;
+  color: var(--text-muted);
   pointer-events: none;
+  font-size: 0.9375rem;
+  z-index: 1;
 }
-.full-width {
+
+.login-input {
+  padding-left: 2.5rem;
+  height: 2.625rem;
+  background: var(--bg-surface-hover);
+  border: 1px solid var(--border-color);
+  color: var(--text-primary);
+  border-radius: var(--radius-sm, 6px);
+  font-size: 0.875rem;
+  font-family: var(--font-sans);
+  transition: all 0.15s ease;
   width: 100%;
-  padding-left: 2.25rem !important;
 }
-.password-input {
-  padding-right: 2.5rem !important;
+
+.login-input:focus {
+  outline: none;
+  border-color: var(--text-primary);
+  box-shadow: 0 0 0 1px var(--text-primary);
+  background: var(--bg-surface);
 }
+
+.password-wrapper .login-input {
+  padding-right: 2.5rem;
+}
+
 .toggle-icon {
   position: absolute;
-  right: 0.75rem;
-  color: #888888;
+  right: 0.875rem;
+  color: var(--text-muted);
   cursor: pointer;
-  z-index: 10;
+  font-size: 0.9375rem;
   padding: 0.25rem;
-  font-size: 1rem;
+  transition: color 0.15s ease;
 }
-.toggle-icon:hover {
-  color: #FFFFFF;
-}
-.p-inputtext,
-:deep(.p-inputtext) {
-  background-color: #000000 !important;
-  border: 1px solid #262626 !important;
-  color: #FFFFFF !important;
-  border-radius: 4px !important;
-  font-size: 0.95rem;
-  padding: 0.65rem 0.75rem 0.65rem 2.25rem;
-}
-.p-inputtext:focus,
-:deep(.p-inputtext:focus) {
-  border-color: #049f6c !important;
-}
-.submit-button {
-  background-color: #FFFFFF !important;
-  border-color: #FFFFFF !important;
-  color: #000000 !important;
-  padding: 0.75rem !important;
-  font-size: 0.9rem !important;
-  font-weight: 700 !important;
-  margin-top: 1rem;
-  width: 100%;
-  border-radius: 4px !important;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  transition: background-color 0.2s ease, border-color 0.2s ease;
-}
-.submit-button:hover {
-  background-color: #e5e5e5 !important;
-  border-color: #e5e5e5 !important;
-}
- 
-/* Light Mode Overrides */
-</style>
 
-<style>
-html:not(.dark) .login-wrapper {
-  background: radial-gradient(circle at 50% 50%, #f8fafc 0%, #e2e8f0 100%);
+.toggle-icon:hover {
+  color: var(--text-primary);
 }
-html:not(.dark) .glass-container {
-  background-color: #ffffff;
-  border: 1px solid #e2e8f0;
+
+.submit-button {
+  height: 2.625rem;
+  margin-top: 0.5rem;
+  background: var(--accent);
+  color: var(--text-inverse);
+  border: none;
+  font-weight: 600;
+  font-size: 0.875rem;
+  font-family: var(--font-sans);
+  border-radius: var(--radius-sm, 6px);
+  cursor: pointer;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  transition: opacity 0.15s ease, transform 0.15s ease;
 }
-html:not(.dark) .brand-icon {
-  color: #0f172a;
-  background-color: #f8fafc;
-  border: 1px solid #cbd5e1;
+
+.submit-button:hover:not(:disabled) {
+  opacity: 0.9;
+  transform: translateY(-1px);
 }
-html:not(.dark) h2 {
-  color: #0f172a;
+
+.submit-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
-html:not(.dark) .brand-subtitle {
-  color: #475569;
-}
-html:not(.dark) label {
-  color: #334155;
-}
-html:not(.dark) .field-icon {
-  color: #64748b;
-}
-html:not(.dark) .p-inputtext {
-  background-color: #ffffff !important;
-  border: 1px solid #cbd5e1 !important;
-  color: #0f172a !important;
-}
-html:not(.dark) .p-inputtext:focus {
-  border-color: #049f6c !important;
-}
-html:not(.dark) .submit-button {
-  background-color: #0f172a !important;
-  border-color: #0f172a !important;
-  color: #ffffff !important;
-}
-html:not(.dark) .submit-button:hover {
-  background-color: #334155 !important;
-  border-color: #334155 !important;
+
+@media (max-width: 480px) {
+  .login-container {
+    max-width: 100%;
+  }
 }
 </style>

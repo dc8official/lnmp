@@ -75,12 +75,15 @@ cd lnmp/deploy
 
 ### 2. Upgrading to v3.0.0 (Zero Historical Data Loss)
 
-Run the automated in-place upgrade utility from your git clone directory or `/opt/netmon/noop`:
+To upgrade an existing installation to Version 3.0.0:
 
 ```bash
-cd /opt/netmon/noop/deploy
-sudo ./upgrade.sh
+cd ~/lnmp
+git pull origin main
+sudo ./deploy/upgrade.sh
 ```
+
+*(Alternatively, if running directly on the production host without a cloned repository, you can execute `sudo bash /opt/netmon/noop/deploy/upgrade.sh`)*
 
 The upgrade utility automatically executes:
 1. **Pre-Upgrade Backup**: Dumps a timestamped PostgreSQL SQL backup to `/var/backups/netmon/`.

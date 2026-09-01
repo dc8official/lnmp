@@ -105,13 +105,13 @@ export function getAuditLogs(params = {}) {
   return api.get('/reports/audit-logs', { params })
 }
 
-export function exportBatchTelemetry(endpointIds, startDate, endDate) {
+export function exportBatchTelemetry(endpointIds, startTime, endTime) {
   return api.post(
-    '/reports/telemetry/export-batch',
+    '/telemetry/export/batch',
     {
       endpoint_ids: endpointIds,
-      start_date: startDate,
-      end_date: endDate,
+      start_time: startTime,
+      end_time: endTime,
     },
     {
       responseType: 'blob',

@@ -13,6 +13,11 @@ const routes = [
     component: () => import('../components/TopologyMap.vue'),
   },
   {
+    path: '/reports',
+    name: 'Reports',
+    component: () => import('../views/ReportsView.vue'),
+  },
+  {
     path: '/settings',
     name: 'Settings',
     component: () => import('../views/SettingsView.vue'),

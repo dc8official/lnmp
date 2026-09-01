@@ -406,16 +406,6 @@ async function confirmDelete(u) {
     }
   }
 }
-
-onMounted(() => {
-  const stored = localStorage.getItem('user')
-  if (stored) {
-    try {
-      currentUser.value = JSON.parse(stored).username || ''
-    } catch (e) {}
-  }
-  fetchUsers()
-})
 </script>
 
 <style scoped>

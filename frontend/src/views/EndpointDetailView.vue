@@ -433,6 +433,7 @@
 import { ref, onMounted, onBeforeUnmount, computed } from 'vue'
 import { useRoute, useRouter, RouterLink } from 'vue-router'
 import { getEndpoint, getUptimeReport, getEndpointEvents, updateEndpoint, refreshEndpointBaseline, logout } from '../services/api.js'
+import { user, isAdmin, loadUserFromStorage, clearUserState } from '../services/auth.js'
 import StateTimeline from '../components/StateTimeline.vue'
 import RTTTrendPanel from '../components/RTTTrendPanel.vue'
 import EndpointRcaDetail from '../components/EndpointRcaDetail.vue'
@@ -456,9 +457,6 @@ const toggleTheme = () => {
     document.documentElement.classList.remove('dark')
   }
 }
-
-const user = ref(null)
-const isAdmin = computed(() => user.value?.role === 'ADMIN')
 
 const showSettingsModal = ref(false)
 const savingSettings = ref(false)
@@ -709,7 +707,7 @@ const handleLogout = async () => {
   } catch (err) {
     console.error('Logout error on backend', err)
   } finally {
-    localStorage.removeItem('user')
+    clearUserState()
     router.push('/login')
   }
 }
@@ -723,10 +721,7 @@ onMounted(() => {
     document.documentElement.classList.remove('dark')
   }
 
-  const storedUser = localStorage.getItem('user')
-  if (storedUser) {
-    user.value = JSON.parse(storedUser)
-  }
+  loadUserFromStorage()
   loadData()
 
   // Establish a 60-second polling interval to fetch fresh telemetry data
@@ -1489,36 +1484,5 @@ h2 {
 
 .btn-discovery:hover {
   background: rgba(59, 130, 246, 0.25);
-}
-</style>
-
-<style>
-/* Global light-theme overrides to prevent SFC compilation bugs */
-html:not(.dark) .detail-wrapper {
-  background-color: #ffffff;
-}
-html:not(.dark) .app-nav {
-  background-color: #ffffff;
-  border-bottom: 1px solid #cbd5e1;
-}
-html:not(.dark) .overview-card,
-html:not(.dark) .toolbar-card,
-html:not(.dark) .visualizer-container,
-html:not(.dark) .metric-card {
-  background-color: #fafafa !important;
-  border: 1px solid #cbd5e1 !important;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02) !important;
-}
-html:not(.dark) .nav-arrow-btn:hover:not(:disabled) {
-  background-color: rgba(0, 0, 0, 0.05);
-}
-html:not(.dark) .btn-discovery {
-  background: #EFF6FF;
-  color: #1D4ED8;
-  border-color: #93C5FD;
-}
-html:not(.dark) .btn-discovery:hover {
-  background: #DBEAFE;
-  color: #1E40AF;
 }
 </style>

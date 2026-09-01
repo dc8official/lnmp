@@ -1,4 +1,10 @@
+import os
+import sys
 from logging.config import fileConfig
+
+# Ensure backend directory is in sys.path so 'app' module can be imported
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+
 from alembic import context
 from app.database import Base, sync_engine
 

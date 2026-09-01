@@ -66,6 +66,7 @@ class EndpointRepository(BaseRepository[Endpoint]):
                 EndpointEvent.operational_state.label("current_operational_state"),
                 EndpointEvent.detailed_state.label("current_detailed_state"),
                 EndpointEvent.health_score.label("current_health_score"),
+                EndpointEvent.avg_rtt_ms.label("avg_rtt_ms"),
                 EndpointEvent.start_time.label("last_seen"),
             )
             .distinct(EndpointEvent.endpoint_id)
@@ -99,6 +100,7 @@ class EndpointRepository(BaseRepository[Endpoint]):
                 func.coalesce(
                     latest_event_sub.c.current_health_score, 0.0
                 ).label("current_health_score"),
+                latest_event_sub.c.avg_rtt_ms,
                 latest_event_sub.c.last_seen,
                 func.coalesce(up_counts_sub.c.up_events_count, 0).label(
                     "up_events_count"
@@ -144,6 +146,7 @@ class EndpointRepository(BaseRepository[Endpoint]):
                 "current_operational_state": row.current_operational_state,
                 "current_detailed_state": row.current_detailed_state,
                 "current_health_score": float(row.current_health_score),
+                "avg_rtt_ms": float(row.avg_rtt_ms) if row.avg_rtt_ms is not None else None,
                 "last_seen": row.last_seen,
                 "up_events_count": int(row.up_events_count),
             })
@@ -158,9 +161,11 @@ class EndpointRepository(BaseRepository[Endpoint]):
         """Fetch a single endpoint joined with latest operational state and 24h UP event counts."""
         latest_event_sub = (
             select(
+                EndpointEvent.endpoint_id,
                 EndpointEvent.operational_state.label("current_operational_state"),
                 EndpointEvent.detailed_state.label("current_detailed_state"),
                 EndpointEvent.health_score.label("current_health_score"),
+                EndpointEvent.avg_rtt_ms.label("avg_rtt_ms"),
                 EndpointEvent.start_time.label("last_seen"),
             )
             .where(EndpointEvent.endpoint_id == endpoint_id)
@@ -192,10 +197,14 @@ class EndpointRepository(BaseRepository[Endpoint]):
                 func.coalesce(
                     latest_event_sub.c.current_health_score, 0.0
                 ).label("current_health_score"),
+                latest_event_sub.c.avg_rtt_ms,
                 latest_event_sub.c.last_seen,
                 func.coalesce(up_count_sub, 0).label("up_events_count"),
             )
-            .outerjoin(latest_event_sub, True)
+            .outerjoin(
+                latest_event_sub,
+                Endpoint.id == latest_event_sub.c.endpoint_id,
+            )
             .where(
                 Endpoint.id == endpoint_id,
                 Endpoint.endpoint_status != "DELETED",
@@ -229,6 +238,7 @@ class EndpointRepository(BaseRepository[Endpoint]):
             "current_operational_state": row.current_operational_state,
             "current_detailed_state": row.current_detailed_state,
             "current_health_score": float(row.current_health_score),
+            "avg_rtt_ms": float(row.avg_rtt_ms) if row.avg_rtt_ms is not None else None,
             "last_seen": row.last_seen,
             "up_events_count": int(row.up_events_count),
         }

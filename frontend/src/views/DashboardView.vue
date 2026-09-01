@@ -18,7 +18,7 @@
       </div>
       <div class="toolbar-right">
         <!-- Dual View Switcher -->
-        <div class="view-switcher" v-if="activeTab === 'endpoints'">
+        <div class="view-switcher">
           <button 
             class="btn-view" 
             :class="{ active: viewMode === 'grid' }" 
@@ -110,29 +110,8 @@
       </div>
     </div>
 
-    <!-- Console Tabs -->
-    <div class="dashboard-tabs">
-      <button 
-        class="tab-btn" 
-        :class="{ active: activeTab === 'endpoints' }" 
-        @click="activeTab = 'endpoints'"
-      >
-        Monitored Endpoints
-        <span class="tab-badge tnum" v-if="filteredEndpoints.length !== endpoints.length">
-          {{ filteredEndpoints.length }} / {{ endpoints.length }}
-        </span>
-      </button>
-      <button 
-        class="tab-btn" 
-        :class="{ active: activeTab === 'topology' }" 
-        @click="activeTab = 'topology'"
-      >
-        Topology Map
-      </button>
-    </div>
-
     <!-- Endpoints Content -->
-    <div v-if="activeTab === 'endpoints'">
+    <div>
       <div v-if="error" class="alert-error" role="alert">
         {{ error }}
       </div>
@@ -205,7 +184,10 @@
                 <th @click="handleSort('uptime_pct')" class="sortable-th text-right">
                   24h Uptime {{ sortKey === 'uptime_pct' ? (sortAsc ? '▲' : '▼') : '' }}
                 </th>
-                <th class="text-right">Actions</th>
+                <th @click="handleSort('last_seen')" class="sortable-th">
+                  Last Seen {{ sortKey === 'last_seen' ? (sortAsc ? '▲' : '▼') : '' }}
+                </th>
+                <th class="text-right" v-if="isAdmin">Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -228,12 +210,13 @@
                 <td class="font-mono tnum">{{ ep.ip_address }}</td>
                 <td><span class="device-tag">{{ ep.device_type }}</span></td>
                 <td>
-                  <span class="status-pill" :class="getStateClass(ep.current_state?.detailed_state || ep.endpoint_status)">
-                    {{ ep.current_state?.detailed_state || ep.endpoint_status }}
+                  <span class="status-pill" :class="getStateClass(ep.current_detailed_state || ep.current_operational_state)">
+                    <span class="status-dot"></span>
+                    {{ ep.current_detailed_state || ep.current_operational_state || 'UNKNOWN' }}
                   </span>
                 </td>
                 <td class="font-mono tnum text-right">
-                  {{ ep.current_state?.avg_rtt_ms != null ? ep.current_state.avg_rtt_ms.toFixed(1) + ' ms' : '—' }}
+                  {{ ep.avg_rtt_ms != null ? ep.avg_rtt_ms.toFixed(1) + ' ms' : (ep.current_state?.avg_rtt_ms != null ? ep.current_state.avg_rtt_ms.toFixed(1) + ' ms' : '—') }}
                 </td>
                 <td class="font-mono tnum text-right">
                   {{ getLossPct(ep) }}
@@ -241,10 +224,13 @@
                 <td class="font-mono tnum text-right font-bold">
                   {{ getUptimePct(ep) }}
                 </td>
-                <td class="text-right" @click.stop>
+                <td class="font-mono tnum text-muted">
+                  {{ formatTimeAgo(ep.last_seen) }}
+                </td>
+                <td class="text-right" @click.stop v-if="isAdmin">
                   <div class="table-actions">
                     <button class="btn-action" @click="openEditDialog(ep)" title="Edit">✎</button>
-                    <button class="btn-action text-down" v-if="isAdmin" @click="confirmDeleteEndpoint(ep.id)" title="Delete">✕</button>
+                    <button class="btn-action text-down" @click="confirmDeleteEndpoint(ep.id)" title="Delete">✕</button>
                   </div>
                 </td>
               </tr>
@@ -273,11 +259,6 @@
           </div>
         </div>
       </transition>
-    </div>
-
-    <!-- Topology Map Content -->
-    <div v-else-if="activeTab === 'topology'">
-      <TopologyMap />
     </div>
 
     <!-- Add / Edit Endpoint Modal -->
@@ -374,8 +355,8 @@ import {
   deleteEndpoint, 
   exportBatchTelemetry
 } from '../services/api.js'
+import { user, isAdmin, loadUserFromStorage, clearUserState } from '../services/auth.js'
 import EndpointCard from '../components/EndpointCard.vue'
-import TopologyMap from '../components/TopologyMap.vue'
 
 const router = useRouter()
 
@@ -383,7 +364,6 @@ const endpoints = ref([])
 const loading = ref(false)
 const error = ref(null)
 const lastRefreshed = ref(null)
-const user = ref(null)
 const sseConnected = ref(false)
 let eventSource = null
 
@@ -397,8 +377,6 @@ const sortAsc = ref(true)
 
 const selectedIds = ref([])
 const exporting = ref(false)
-
-const activeTab = ref('endpoints')
 
 // Form states
 const displayDialog = ref(false)
@@ -418,8 +396,6 @@ const form = ref({
   monitoring_enabled: true
 })
 
-const isAdmin = computed(() => user.value?.role === 'ADMIN')
-
 const kpiStats = computed(() => {
   const total = endpoints.value.length
   let up = 0
@@ -427,24 +403,32 @@ const kpiStats = computed(() => {
   let down = 0
 
   endpoints.value.forEach(ep => {
-    const st = ep.current_state?.detailed_state || ep.endpoint_status || 'UP'
-    if (st === 'UP') up++
-    else if (st === 'UP-UNSTABLE' || st === 'DOWN-UNSTABLE') unstable++
-    else if (st === 'DOWN') down++
-    else up++
+    const op = ep.current_operational_state || ep.endpoint_status || 'UP'
+    const det = ep.current_detailed_state || op
+    if (det === 'UP' || (op === 'UP' && !det.includes('UNSTABLE'))) {
+      up++
+    } else if (det === 'UP-UNSTABLE' || det === 'DOWN-UNSTABLE' || op === 'UNSTABLE') {
+      unstable++
+    } else if (det === 'DOWN' || op === 'DOWN') {
+      down++
+    } else {
+      up++
+    }
   })
 
-  const sla = total > 0 ? (((up + unstable * 0.5) / total) * 100).toFixed(1) : '100.0'
-  return { total, up, unstable, down, sla }
+  const totalSla = endpoints.value.reduce((sum, ep) => sum + (parseFloat(ep.uptime_percentage_24h) || 100.0), 0)
+  const fleetSla = total > 0 ? (totalSla / total).toFixed(2) : '100.00'
+  return { total, up, unstable, down, sla: fleetSla }
 })
 
 const filteredEndpoints = computed(() => {
   if (statusFilter.value === 'ALL') return endpoints.value
   return endpoints.value.filter(ep => {
-    const st = ep.current_state?.detailed_state || ep.endpoint_status || 'UP'
-    if (statusFilter.value === 'UP') return st === 'UP'
-    if (statusFilter.value === 'UNSTABLE') return st === 'UP-UNSTABLE' || st === 'DOWN-UNSTABLE'
-    if (statusFilter.value === 'DOWN') return st === 'DOWN'
+    const op = ep.current_operational_state || ep.endpoint_status || 'UP'
+    const det = ep.current_detailed_state || op
+    if (statusFilter.value === 'UP') return det === 'UP' || (op === 'UP' && !det.includes('UNSTABLE'))
+    if (statusFilter.value === 'UNSTABLE') return det === 'UP-UNSTABLE' || det === 'DOWN-UNSTABLE' || op === 'UNSTABLE'
+    if (statusFilter.value === 'DOWN') return det === 'DOWN' || op === 'DOWN'
     return true
   })
 })
@@ -456,17 +440,20 @@ const sortedEndpoints = computed(() => {
     let valB = b[sortKey.value]
 
     if (sortKey.value === 'detailed_state') {
-      valA = a.current_state?.detailed_state || a.endpoint_status || ''
-      valB = b.current_state?.detailed_state || b.endpoint_status || ''
+      valA = a.current_detailed_state || a.current_operational_state || a.endpoint_status || ''
+      valB = b.current_detailed_state || b.current_operational_state || b.endpoint_status || ''
     } else if (sortKey.value === 'avg_rtt_ms') {
-      valA = a.current_state?.avg_rtt_ms ?? 99999
-      valB = b.current_state?.avg_rtt_ms ?? 99999
+      valA = a.avg_rtt_ms ?? (a.current_state?.avg_rtt_ms ?? 99999)
+      valB = b.avg_rtt_ms ?? (b.current_state?.avg_rtt_ms ?? 99999)
     } else if (sortKey.value === 'packet_loss_pct') {
-      valA = a.current_state?.failed_count ?? 0
-      valB = b.current_state?.failed_count ?? 0
+      valA = a.failed_count ?? (a.current_state?.failed_count ?? 0)
+      valB = b.failed_count ?? (b.current_state?.failed_count ?? 0)
     } else if (sortKey.value === 'uptime_pct') {
-      valA = a.current_state?.health_score ?? 100
-      valB = b.current_state?.health_score ?? 100
+      valA = parseFloat(a.uptime_percentage_24h) || 100
+      valB = parseFloat(b.uptime_percentage_24h) || 100
+    } else if (sortKey.value === 'last_seen') {
+      valA = a.last_seen ? new Date(a.last_seen).getTime() : 0
+      valB = b.last_seen ? new Date(b.last_seen).getTime() : 0
     }
 
     if (valA < valB) return sortAsc.value ? -1 : 1
@@ -498,22 +485,39 @@ function handleSort(key) {
 }
 
 function getStateClass(st) {
-  if (st === 'UP') return 'status-up'
-  if (st === 'UP-UNSTABLE' || st === 'DOWN-UNSTABLE') return 'status-unstable'
-  if (st === 'DOWN') return 'status-down'
-  return ''
+  if (!st) return 'status-unknown'
+  const s = st.toUpperCase()
+  if (s === 'UP') return 'status-up'
+  if (s.includes('UNSTABLE')) return 'status-unstable'
+  if (s === 'DOWN') return 'status-down'
+  return 'status-unknown'
+}
+
+function formatTimeAgo(dateStr) {
+  if (!dateStr) return 'never'
+  const now = Date.now()
+  const past = new Date(dateStr).getTime()
+  const diff = Math.floor((now - past) / 1000)
+  if (diff < 60) return 'just now'
+  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`
+  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`
+  return `${Math.floor(diff / 86400)}d ago`
 }
 
 function getLossPct(ep) {
-  const succ = ep.current_state?.success_count ?? 5
-  const fail = ep.current_state?.failed_count ?? 0
+  const succ = ep.success_count ?? ep.current_state?.success_count ?? 5
+  const fail = ep.failed_count ?? ep.current_state?.failed_count ?? 0
   const tot = succ + fail
   if (tot === 0) return '0%'
   return `${Math.round((fail / tot) * 100)}%`
 }
 
 function getUptimePct(ep) {
-  const hs = ep.current_state?.health_score
+  if (ep.uptime_percentage_24h != null) {
+    const val = parseFloat(ep.uptime_percentage_24h)
+    return !isNaN(val) ? `${val.toFixed(1)}%` : '100.0%'
+  }
+  const hs = ep.current_health_score ?? ep.current_state?.health_score
   if (hs != null) return `${hs.toFixed(1)}%`
   return '100.0%'
 }
@@ -541,14 +545,13 @@ const exportSelectedCSV = async () => {
     const blob = new Blob([response.data], { type: 'text/csv' })
     const link = document.createElement('a')
     link.href = window.URL.createObjectURL(blob)
-    link.download = `batch_telemetry_${Date.now()}.csv`
+    link.download = `telemetry_export_${Date.now()}.csv`
     document.body.appendChild(link)
     link.click()
     document.body.removeChild(link)
-    selectedIds.value = []
   } catch (err) {
-    console.error('Failed to export CSV:', err)
-    alert('Failed to export selected telemetry CSV.')
+    console.error('Batch export failed:', err)
+    alert('Failed to export CSV. Check server logs.')
   } finally {
     exporting.value = false
   }
@@ -563,7 +566,7 @@ const fetchEndpoints = async () => {
     lastRefreshed.value = new Date()
   } catch (err) {
     if (err.response?.status === 401) {
-      localStorage.removeItem('user')
+      clearUserState()
       router.push('/login')
     } else {
       error.value = err.response?.data?.detail || err.response?.data?.error?.message || 'Failed to connect to backend engine.'
@@ -663,6 +666,10 @@ function initSSE() {
         if (payload.type === 'STATE_TRANSITION' && payload.endpoint_id) {
           const ep = endpoints.value.find(e => e.id === payload.endpoint_id)
           if (ep) {
+            ep.current_operational_state = payload.operational_state
+            ep.current_detailed_state = payload.detailed_state
+            ep.avg_rtt_ms = payload.avg_rtt_ms
+            ep.current_health_score = payload.health_score
             ep.current_state = {
               ...ep.current_state,
               operational_state: payload.operational_state,
@@ -685,14 +692,7 @@ function initSSE() {
 }
 
 onMounted(async () => {
-  const storedUser = localStorage.getItem('user')
-  if (storedUser) {
-    try {
-      user.value = JSON.parse(storedUser)
-    } catch (e) {
-      console.error(e)
-    }
-  }
+  loadUserFromStorage()
   await fetchEndpoints()
   initSSE()
 })
@@ -928,69 +928,6 @@ onUnmounted(() => {
   .endpoint-grid { grid-template-columns: repeat(4, 1fr); }
 }
 
-/* ── Dense Table ── */
-.table-card {
-  background: var(--bg-surface);
-  border: 1px solid var(--border-color);
-  border-radius: 8px;
-  overflow: hidden;
-}
-
-.table-responsive {
-  width: 100%;
-  overflow-x: auto;
-}
-
-.dense-table {
-  width: 100%;
-  border-collapse: collapse;
-  text-align: left;
-  font-size: 13px;
-}
-
-.dense-table th {
-  background: var(--bg-surface-selected);
-  color: var(--text-secondary);
-  font-weight: 600;
-  padding: 10px 14px;
-  border-bottom: 1px solid var(--border-color);
-  text-transform: uppercase;
-  font-size: 11px;
-  letter-spacing: 0.05em;
-  user-select: none;
-}
-
-.sortable-th {
-  cursor: pointer;
-}
-
-.sortable-th:hover {
-  color: var(--text-primary);
-}
-
-.dense-table td {
-  padding: 10px 14px;
-  border-bottom: 1px solid var(--border-color);
-  color: var(--text-primary);
-}
-
-.dense-table tr:last-child td {
-  border-bottom: none;
-}
-
-.clickable-row {
-  cursor: pointer;
-  transition: background 0.1s ease;
-}
-
-.clickable-row:hover td {
-  background: var(--bg-surface-hover);
-}
-
-.row-selected td {
-  background: var(--bg-surface-selected);
-}
-
 .device-tag {
   font-size: 11px;
   color: var(--text-secondary);
@@ -999,17 +936,6 @@ onUnmounted(() => {
   padding: 2px 6px;
   border-radius: 4px;
 }
-
-.status-pill {
-  padding: 2px 8px;
-  border-radius: 4px;
-  font-size: 11px;
-  font-weight: 700;
-}
-
-.status-up { background: rgba(16, 185, 129, 0.15); color: #10B981; }
-.status-unstable { background: rgba(245, 158, 11, 0.15); color: #F59E0B; }
-.status-down { background: rgba(239, 68, 68, 0.15); color: #EF4444; }
 
 .font-mono { font-family: var(--font-mono); }
 .font-bold { font-weight: 600; }
