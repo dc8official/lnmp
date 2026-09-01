@@ -204,6 +204,9 @@ async def list_endpoints(
             "current_operational_state": row["current_operational_state"],
             "current_detailed_state": row["current_detailed_state"],
             "current_health_score": row["current_health_score"],
+            "avg_rtt_ms": (
+                float(row["avg_rtt_ms"]) if row.get("avg_rtt_ms") is not None else None
+            ),
             "last_seen": row["last_seen"],
             "uptime_percentage_24h": uptime_percentage,
         })
@@ -268,6 +271,9 @@ async def get_endpoint(
         "current_operational_state": row["current_operational_state"],
         "current_detailed_state": row["current_detailed_state"],
         "current_health_score": row["current_health_score"],
+        "avg_rtt_ms": (
+            float(row["avg_rtt_ms"]) if row.get("avg_rtt_ms") is not None else None
+        ),
         "last_seen": row["last_seen"],
         "uptime_percentage_24h": uptime_percentage,
     }
@@ -523,7 +529,7 @@ async def delete_endpoint(
 @router.post("/{endpoint_id}/refresh-baseline", response_model=APIResponse)
 async def trigger_refresh_baseline(
     endpoint_id: UUID,
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
     from app.services.baseline_route import refresh_baseline_route

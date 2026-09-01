@@ -15,6 +15,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import AsyncSessionLocal, get_db
+from app.models.endpoint import Endpoint
 from app.models.endpoint_event import EndpointEvent
 from app.repositories.endpoint_repo import EndpointRepository
 from app.repositories.report_repo import ReportRepository
@@ -272,6 +273,9 @@ async def csv_generator(
     writer = csv.writer(output)
     writer.writerow([
         "Endpoint_ID",
+        "Hostname",
+        "IP_Address",
+        "Device_Type",
         "Timestamp",
         "Operational_State",
         "Detailed_State",
@@ -290,7 +294,13 @@ async def csv_generator(
             rows = []
             async with AsyncSessionLocal() as session:
                 stmt = (
-                    select(EndpointEvent)
+                    select(
+                        EndpointEvent,
+                        Endpoint.hostname,
+                        Endpoint.ip_address,
+                        Endpoint.device_type,
+                    )
+                    .join(Endpoint, EndpointEvent.endpoint_id == Endpoint.id)
                     .where(
                         EndpointEvent.endpoint_id.in_(endpoint_ids),
                         EndpointEvent.start_time >= start_time,
@@ -301,13 +311,21 @@ async def csv_generator(
                     .offset(offset)
                 )
                 result = await session.execute(stmt)
-                rows = result.scalars().all()
+                rows = result.all()
 
             if not rows:
                 break
 
-            for ev in rows:
+            for row in rows:
+                ev = row[0]
+                hostname = row[1]
+                ip_addr = str(row[2])
+                device_type = row[3]
+
                 endpoint_id_str = sanitize_csv_field(str(ev.endpoint_id))
+                hostname_str = sanitize_csv_field(hostname)
+                ip_str = sanitize_csv_field(ip_addr)
+                dev_type_str = sanitize_csv_field(device_type)
                 ts_str = sanitize_csv_field(
                     ev.start_time.isoformat().replace("+00:00", "Z")
                     if ev.start_time
@@ -328,6 +346,9 @@ async def csv_generator(
 
                 writer.writerow([
                     endpoint_id_str,
+                    hostname_str,
+                    ip_str,
+                    dev_type_str,
                     ts_str,
                     op_state,
                     det_state,

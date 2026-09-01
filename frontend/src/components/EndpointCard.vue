@@ -28,6 +28,9 @@
           <span :class="['status-dot', statusDotClass]"></span>
           {{ endpoint.current_detailed_state || 'UNKNOWN' }}
         </span>
+        <span class="card-latency font-mono tnum" v-if="endpoint.avg_rtt_ms != null">
+          {{ endpoint.avg_rtt_ms.toFixed(1) }} ms
+        </span>
       </div>
 
       <div class="card-meta">
@@ -225,6 +228,18 @@ const timeAgo = computed(() => {
 
 .status-row {
   display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.card-latency {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  background: var(--bg-surface-hover);
+  padding: 2px 6px;
+  border-radius: 4px;
+  border: 1px solid var(--border-color);
 }
 
 .card-meta {

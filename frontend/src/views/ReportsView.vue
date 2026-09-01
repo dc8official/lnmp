@@ -16,7 +16,7 @@
         </button>
         <button 
           class="btn-primary" 
-          @click="handleExportCsv" 
+          @click="openExportModal" 
           :disabled="exporting || endpoints.length === 0"
         >
           <i class="pi" :class="exporting ? 'pi-spin pi-spinner' : 'pi-download'" style="margin-right: 0.5rem;"></i>
@@ -209,6 +209,104 @@
         </table>
       </div>
     </div>
+
+    <!-- Interactive CSV Export Customizer Modal -->
+    <div v-if="showExportModal" class="modal-backdrop" @click.self="showExportModal = false">
+      <div class="modal-dialog">
+        <div class="modal-header">
+          <div class="modal-title-group">
+            <h2 class="modal-title">📊 Configure Telemetry CSV Export</h2>
+            <p class="modal-subtitle">Select endpoint scope, time window, and data columns for telemetry export</p>
+          </div>
+          <button class="btn-close" @click="showExportModal = false" aria-label="Close modal">✕</button>
+        </div>
+
+        <div class="modal-body">
+          <!-- Section 1: Target Scope -->
+          <div class="form-section">
+            <label class="section-label">Target Scope</label>
+            <div class="radio-options">
+              <label class="radio-label">
+                <input type="radio" value="all" v-model="exportScope" />
+                <span>All Monitored Endpoints ({{ endpoints.length }} nodes)</span>
+              </label>
+              <label class="radio-label">
+                <input type="radio" value="selected" v-model="exportScope" />
+                <span>Custom Target Selection ({{ exportSelectedIds.length }} selected)</span>
+              </label>
+            </div>
+
+            <!-- Target checklist if custom selection -->
+            <div v-if="exportScope === 'selected'" class="target-picker-box">
+              <div class="target-picker-header">
+                <label class="checkbox-label font-bold">
+                  <input type="checkbox" :checked="isAllExportSelected" @change="toggleSelectAllExport" />
+                  <span>Select All Targets</span>
+                </label>
+                <span class="target-count">{{ exportSelectedIds.length }} / {{ endpoints.length }}</span>
+              </div>
+              <div class="target-list">
+                <div v-for="ep in endpoints" :key="ep.id" class="target-item">
+                  <label class="checkbox-label">
+                    <input type="checkbox" :value="ep.id" v-model="exportSelectedIds" />
+                    <span class="target-name font-bold">{{ ep.hostname }}</span>
+                    <span class="target-ip font-mono tnum">{{ ep.ip_address }}</span>
+                    <span class="device-pill">{{ ep.device_type }}</span>
+                  </label>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Section 2: Time Window -->
+          <div class="form-section">
+            <label class="section-label">Export Time Window</label>
+            <div class="period-pills">
+              <button class="pill-btn" :class="{ active: exportRange === '24h' }" @click="exportRange = '24h'">24 Hours</button>
+              <button class="pill-btn" :class="{ active: exportRange === '7d' }" @click="exportRange = '7d'">7 Days</button>
+              <button class="pill-btn" :class="{ active: exportRange === '30d' }" @click="exportRange = '30d'">30 Days</button>
+              <button class="pill-btn" :class="{ active: exportRange === 'custom' }" @click="exportRange = 'custom'">Custom Range</button>
+            </div>
+            <div v-if="exportRange === 'custom'" class="custom-range-row mt-2">
+              <div class="date-group">
+                <label>Start (UTC)</label>
+                <input type="datetime-local" v-model="exportCustomStart" class="input-datetime" />
+              </div>
+              <div class="date-group">
+                <label>End (UTC)</label>
+                <input type="datetime-local" v-model="exportCustomEnd" class="input-datetime" />
+              </div>
+            </div>
+          </div>
+
+          <!-- Section 3: Telemetry Schema Preview -->
+          <div class="form-section">
+            <label class="section-label">Included CSV Columns</label>
+            <div class="column-chips">
+              <span class="column-chip active">✓ Endpoint ID</span>
+              <span class="column-chip active">✓ Hostname</span>
+              <span class="column-chip active">✓ IP Address</span>
+              <span class="column-chip active">✓ Device Type</span>
+              <span class="column-chip active">✓ Timestamp (ISO UTC)</span>
+              <span class="column-chip active">✓ Operational State</span>
+              <span class="column-chip active">✓ Detailed State</span>
+              <span class="column-chip active">✓ Health Score / Loss %</span>
+              <span class="column-chip active">✓ Avg Latency (RTT ms)</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="modal-footer">
+          <button class="btn-secondary" @click="showExportModal = false" :disabled="exporting">
+            Cancel
+          </button>
+          <button class="btn-primary" @click="triggerExport" :disabled="exporting || (exportScope === 'selected' && exportSelectedIds.length === 0)">
+            <i class="pi" :class="exporting ? 'pi-spin pi-spinner' : 'pi-download'" style="margin-right: 0.5rem;"></i>
+            <span>{{ exporting ? 'Generating CSV...' : '📥 Download CSV Export' }}</span>
+          </button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -386,23 +484,67 @@ function formatDuration(seconds) {
   return parts.join(' ') || `${seconds}s`
 }
 
-async function handleExportCsv() {
-  if (endpoints.value.length === 0) return
+const showExportModal = ref(false)
+const exportScope = ref('all')
+const exportSelectedIds = ref([])
+const exportRange = ref('24h')
+const exportCustomStart = ref(new Date(Date.now() - 24 * 3600 * 1000).toISOString().slice(0, 16))
+const exportCustomEnd = ref(new Date().toISOString().slice(0, 16))
+
+const isAllExportSelected = computed(() => {
+  return endpoints.value.length > 0 && exportSelectedIds.value.length === endpoints.value.length
+})
+
+function toggleSelectAllExport() {
+  if (isAllExportSelected.value) {
+    exportSelectedIds.value = []
+  } else {
+    exportSelectedIds.value = endpoints.value.map(e => e.id)
+  }
+}
+
+function openExportModal() {
+  exportScope.value = 'all'
+  exportRange.value = filterRange.value
+  exportSelectedIds.value = endpoints.value.map(e => e.id)
+  showExportModal.value = true
+}
+
+async function triggerExport() {
+  const targetIds = exportScope.value === 'all'
+    ? endpoints.value.map(ep => ep.id)
+    : exportSelectedIds.value
+
+  if (targetIds.length === 0) return
+
   exporting.value = true
-  const { start, end } = getQueryRange()
+  const now = new Date()
+  let start = ''
+  let end = now.toISOString()
+
+  if (exportRange.value === '24h') {
+    start = new Date(now.getTime() - 24 * 3600 * 1000).toISOString()
+  } else if (exportRange.value === '7d') {
+    start = new Date(now.getTime() - 7 * 24 * 3600 * 1000).toISOString()
+  } else if (exportRange.value === '30d') {
+    start = new Date(now.getTime() - 30 * 24 * 3600 * 1000).toISOString()
+  } else {
+    start = new Date(exportCustomStart.value).toISOString()
+    end = new Date(exportCustomEnd.value).toISOString()
+  }
 
   try {
-    const ids = endpoints.value.map(ep => ep.id)
-    const res = await exportBatchTelemetry(ids, start, end)
+    const res = await exportBatchTelemetry(targetIds, start, end)
     const blob = new Blob([res.data], { type: 'text/csv' })
     const url = window.URL.createObjectURL(blob)
     const link = document.createElement('a')
     link.href = url
-    link.download = `fleet_telemetry_report_${filterRange.value}_${Date.now()}.csv`
+    link.download = `fleet_telemetry_report_${exportRange.value}_${Date.now()}.csv`
     document.body.appendChild(link)
     link.click()
     document.body.removeChild(link)
     window.URL.revokeObjectURL(url)
+    showExportModal.value = false
   } catch (err) {
     console.error('CSV export failed:', err)
     alert('Failed to generate batch CSV export.')
@@ -437,14 +579,14 @@ onMounted(() => {
 .page-title {
   font-size: 1.5rem;
   font-weight: 700;
-  color: var(--text-primary, #fafafa);
+  color: var(--text-primary);
   margin: 0;
   letter-spacing: -0.02em;
 }
 
 .page-sub {
   font-size: 0.875rem;
-  color: var(--text-secondary, #a1a1aa);
+  color: var(--text-secondary);
   margin-top: 0.25rem;
 }
 
@@ -459,9 +601,9 @@ onMounted(() => {
   flex-direction: column;
   gap: 0.75rem;
   padding: 0.875rem 1rem;
-  background: var(--bg-surface, #121215);
-  border: 1px solid var(--border-color, #27272a);
-  border-radius: 8px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius, 8px);
 }
 
 .period-pills {
@@ -472,10 +614,10 @@ onMounted(() => {
 
 .pill-btn {
   padding: 0.375rem 0.875rem;
-  border-radius: 6px;
-  border: 1px solid var(--border-color, #27272a);
+  border-radius: var(--radius-sm, 6px);
+  border: 1px solid var(--border-color);
   background: transparent;
-  color: var(--text-secondary, #a1a1aa);
+  color: var(--text-secondary);
   font-size: 0.8125rem;
   font-weight: 600;
   cursor: pointer;
@@ -483,14 +625,14 @@ onMounted(() => {
 }
 
 .pill-btn:hover {
-  background: var(--bg-surface-elevated, #18181b);
-  color: var(--text-primary, #fafafa);
+  background: var(--bg-surface-hover);
+  color: var(--text-primary);
 }
 
 .pill-btn.active {
-  background: var(--text-primary, #fafafa);
-  color: var(--bg-primary, #09090b);
-  border-color: var(--text-primary, #fafafa);
+  background: var(--text-primary);
+  color: var(--bg-app);
+  border-color: var(--text-primary);
 }
 
 .custom-range-row {
@@ -499,7 +641,7 @@ onMounted(() => {
   align-items: flex-end;
   flex-wrap: wrap;
   padding-top: 0.5rem;
-  border-top: 1px solid var(--border-color, #27272a);
+  border-top: 1px solid var(--border-color);
 }
 
 .date-group {
@@ -510,25 +652,25 @@ onMounted(() => {
 
 .date-group label {
   font-size: 0.75rem;
-  color: var(--text-tertiary, #71717a);
+  color: var(--text-muted);
   font-weight: 600;
 }
 
 .input-datetime {
-  background: var(--bg-surface-elevated, #18181b);
-  border: 1px solid var(--border-color, #27272a);
-  color: var(--text-primary, #fafafa);
-  border-radius: 6px;
+  background: var(--bg-surface-hover);
+  border: 1px solid var(--border-color);
+  color: var(--text-primary);
+  border-radius: var(--radius-sm, 6px);
   padding: 0.375rem 0.625rem;
   font-size: 0.8125rem;
 }
 
 .btn-query {
   padding: 0.375rem 0.875rem;
-  background: var(--text-primary, #fafafa);
-  color: var(--bg-primary, #09090b);
+  background: var(--text-primary);
+  color: var(--bg-app);
   border: none;
-  border-radius: 6px;
+  border-radius: var(--radius-sm, 6px);
   font-weight: 600;
   font-size: 0.8125rem;
   cursor: pointer;
@@ -542,9 +684,9 @@ onMounted(() => {
 
 .kpi-card {
   padding: 1.25rem;
-  background: var(--bg-surface, #121215);
-  border: 1px solid var(--border-color, #27272a);
-  border-radius: 8px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius, 8px);
   display: flex;
   flex-direction: column;
   gap: 0.375rem;
@@ -552,20 +694,22 @@ onMounted(() => {
 
 .kpi-label {
   font-size: 0.8125rem;
-  color: var(--text-secondary, #a1a1aa);
+  color: var(--text-muted);
   font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
 }
 
 .kpi-value {
   font-size: 1.75rem;
   font-weight: 800;
-  color: var(--text-primary, #fafafa);
+  color: var(--text-primary);
   letter-spacing: -0.03em;
 }
 
 .kpi-sub {
   font-size: 0.75rem;
-  color: var(--text-tertiary, #71717a);
+  color: var(--text-muted);
 }
 
 .text-accent {
@@ -573,17 +717,17 @@ onMounted(() => {
 }
 
 .text-up {
-  color: #4ade80;
+  color: var(--status-up-color, #16a34a);
 }
 
 .text-down {
-  color: #f87171;
+  color: var(--status-down-color, #dc2626);
 }
 
 .table-card {
-  background: var(--bg-surface, #121215);
-  border: 1px solid var(--border-color, #27272a);
-  border-radius: 8px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius, 8px);
   overflow: hidden;
 }
 
@@ -594,28 +738,28 @@ onMounted(() => {
   align-items: center;
   flex-wrap: wrap;
   gap: 1rem;
-  border-bottom: 1px solid var(--border-color, #27272a);
+  border-bottom: 1px solid var(--border-color);
 }
 
 .table-card-header h3 {
   font-size: 1.125rem;
   font-weight: 700;
-  color: var(--text-primary, #fafafa);
+  color: var(--text-primary);
   margin: 0;
 }
 
 .table-sub {
   font-size: 0.8125rem;
-  color: var(--text-secondary, #a1a1aa);
+  color: var(--text-muted);
   margin-top: 0.25rem;
 }
 
 .search-input {
   width: 260px;
-  background: var(--bg-surface-elevated, #18181b);
-  border: 1px solid var(--border-color, #27272a);
-  color: var(--text-primary, #fafafa);
-  border-radius: 6px;
+  background: var(--bg-surface-hover);
+  border: 1px solid var(--border-color);
+  color: var(--text-primary);
+  border-radius: var(--radius-sm, 6px);
   padding: 0.45rem 0.75rem;
   font-size: 0.8125rem;
 }
@@ -633,10 +777,13 @@ onMounted(() => {
 
 .dense-table th {
   padding: 0.75rem 1rem;
-  background: var(--bg-surface-elevated, #18181b);
-  color: var(--text-secondary, #a1a1aa);
+  background: var(--bg-surface-selected);
+  color: var(--text-secondary);
   font-weight: 600;
-  border-bottom: 1px solid var(--border-color, #27272a);
+  border-bottom: 1px solid var(--border-color);
+  text-transform: uppercase;
+  font-size: 0.75rem;
+  letter-spacing: 0.05em;
 }
 
 .sortable-th {
@@ -645,7 +792,7 @@ onMounted(() => {
 }
 
 .sortable-th:hover {
-  color: var(--text-primary, #fafafa);
+  color: var(--text-primary);
 }
 
 .sort-icon {
@@ -656,13 +803,13 @@ onMounted(() => {
 
 .dense-table td {
   padding: 0.75rem 1rem;
-  border-bottom: 1px solid var(--border-color, #27272a);
-  color: var(--text-primary, #fafafa);
+  border-bottom: 1px solid var(--border-color);
+  color: var(--text-primary);
   vertical-align: middle;
 }
 
 .dense-table tbody tr:hover {
-  background: var(--bg-surface-elevated, #18181b);
+  background: var(--bg-surface-hover);
 }
 
 .host-col {
@@ -673,7 +820,7 @@ onMounted(() => {
 
 .host-name {
   font-weight: 600;
-  color: var(--text-primary, #fafafa);
+  color: var(--text-primary);
   text-decoration: none;
 }
 
@@ -683,7 +830,7 @@ onMounted(() => {
 
 .host-ip {
   font-size: 0.75rem;
-  color: var(--text-secondary, #a1a1aa);
+  color: var(--text-muted);
   font-family: var(--font-mono, monospace);
 }
 
@@ -691,10 +838,10 @@ onMounted(() => {
   font-size: 0.6875rem;
   font-weight: 600;
   padding: 0.15rem 0.4rem;
-  background: var(--bg-surface-elevated, #18181b);
-  border: 1px solid var(--border-color, #27272a);
-  border-radius: 4px;
-  color: var(--text-secondary, #a1a1aa);
+  background: var(--bg-surface-selected);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm, 4px);
+  color: var(--text-secondary);
   text-transform: uppercase;
 }
 
@@ -702,7 +849,7 @@ onMounted(() => {
   font-size: 0.6875rem;
   font-weight: 700;
   padding: 0.2rem 0.5rem;
-  border-radius: 4px;
+  border-radius: var(--radius-sm, 4px);
   text-transform: uppercase;
 }
 
@@ -727,7 +874,7 @@ onMounted(() => {
 .sla-badge {
   font-weight: 700;
   padding: 0.2rem 0.5rem;
-  border-radius: 4px;
+  border-radius: var(--radius-sm, 4px);
 }
 
 .sla-good {
@@ -748,23 +895,23 @@ onMounted(() => {
 .btn-inspect {
   font-size: 0.75rem;
   font-weight: 600;
-  color: var(--text-secondary, #a1a1aa);
+  color: var(--text-secondary);
   text-decoration: none;
   padding: 0.3rem 0.6rem;
-  border: 1px solid var(--border-color, #27272a);
-  border-radius: 4px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm, 4px);
   transition: all 0.15s ease;
 }
 
 .btn-inspect:hover {
-  background: var(--text-primary, #fafafa);
-  color: var(--bg-primary, #09090b);
+  background: var(--text-primary);
+  color: var(--bg-app);
 }
 
 .table-empty {
   text-align: center;
   padding: 3rem 1rem !important;
-  color: var(--text-secondary, #a1a1aa);
+  color: var(--text-muted);
 }
 
 .font-mono {
@@ -786,7 +933,7 @@ onMounted(() => {
   font-weight: 600;
   font-size: 0.8125rem;
   padding: 0.5rem 0.875rem;
-  border-radius: 6px;
+  border-radius: var(--radius-sm, 6px);
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -794,7 +941,7 @@ onMounted(() => {
 }
 
 .btn-primary:hover:not(:disabled) {
-  background: #e4e4e7;
+  opacity: 0.9;
 }
 
 .btn-primary:disabled {
@@ -804,17 +951,216 @@ onMounted(() => {
 
 .btn-secondary {
   background: transparent;
-  color: var(--text-primary, #fafafa);
-  border: 1px solid var(--border-color, #27272a);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
   font-weight: 600;
   font-size: 0.8125rem;
   padding: 0.5rem 0.875rem;
-  border-radius: 6px;
+  border-radius: var(--radius-sm, 6px);
   cursor: pointer;
   transition: all 0.15s ease;
 }
 
 .btn-secondary:hover:not(:disabled) {
-  background: var(--bg-surface-elevated, #18181b);
+  background: var(--bg-surface-hover);
+}
+
+/* ── Modal Customizer Styles ── */
+.modal-backdrop {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 200;
+  padding: 1rem;
+}
+
+.modal-dialog {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius, 8px);
+  width: 100%;
+  max-width: 640px;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.5);
+  animation: modalIn 0.15s ease-out;
+}
+
+@keyframes modalIn {
+  from { opacity: 0; transform: scale(0.98); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+.modal-header {
+  padding: 1.25rem 1.5rem;
+  border-bottom: 1px solid var(--border-color);
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+}
+
+.modal-title {
+  font-size: 1.125rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.modal-subtitle {
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+  margin: 0.25rem 0 0 0;
+}
+
+.btn-close {
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 1.125rem;
+  cursor: pointer;
+  padding: 0.25rem;
+  line-height: 1;
+}
+
+.btn-close:hover {
+  color: var(--text-primary);
+}
+
+.modal-body {
+  padding: 1.25rem 1.5rem;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.form-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.section-label {
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-secondary);
+}
+
+.radio-options {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.radio-label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.875rem;
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.target-picker-box {
+  background: var(--bg-surface-hover);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm, 6px);
+  padding: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  max-height: 180px;
+}
+
+.target-picker-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.target-count {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  font-family: var(--font-mono, monospace);
+}
+
+.target-list {
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+}
+
+.target-item {
+  padding: 0.25rem 0.375rem;
+  border-radius: 4px;
+}
+
+.target-item:hover {
+  background: var(--bg-surface-selected);
+}
+
+.checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.8125rem;
+  color: var(--text-primary);
+  cursor: pointer;
+  width: 100%;
+}
+
+.target-name {
+  color: var(--text-primary);
+}
+
+.target-ip {
+  color: var(--text-muted);
+  font-size: 0.75rem;
+}
+
+.mt-2 {
+  margin-top: 0.5rem;
+}
+
+.column-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.375rem;
+}
+
+.column-chip {
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 0.25rem 0.5rem;
+  border-radius: var(--radius-sm, 4px);
+  background: var(--bg-surface-selected);
+  border: 1px solid var(--border-color);
+  color: var(--text-secondary);
+}
+
+.column-chip.active {
+  color: var(--text-primary);
+  border-color: var(--border-color-strong, var(--border-color));
+}
+
+.modal-footer {
+  padding: 1rem 1.5rem;
+  border-top: 1px solid var(--border-color);
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.75rem;
 }
 </style>

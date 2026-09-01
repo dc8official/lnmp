@@ -184,7 +184,10 @@
                 <th @click="handleSort('uptime_pct')" class="sortable-th text-right">
                   24h Uptime {{ sortKey === 'uptime_pct' ? (sortAsc ? '▲' : '▼') : '' }}
                 </th>
-                <th class="text-right">Actions</th>
+                <th @click="handleSort('last_seen')" class="sortable-th">
+                  Last Seen {{ sortKey === 'last_seen' ? (sortAsc ? '▲' : '▼') : '' }}
+                </th>
+                <th class="text-right" v-if="isAdmin">Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -220,10 +223,13 @@
                 <td class="font-mono tnum text-right font-bold">
                   {{ getUptimePct(ep) }}
                 </td>
-                <td class="text-right" @click.stop>
+                <td class="font-mono tnum text-muted">
+                  {{ formatTimeAgo(ep.last_seen) }}
+                </td>
+                <td class="text-right" @click.stop v-if="isAdmin">
                   <div class="table-actions">
                     <button class="btn-action" @click="openEditDialog(ep)" title="Edit">✎</button>
-                    <button class="btn-action text-down" v-if="isAdmin" @click="confirmDeleteEndpoint(ep.id)" title="Delete">✕</button>
+                    <button class="btn-action text-down" @click="confirmDeleteEndpoint(ep.id)" title="Delete">✕</button>
                   </div>
                 </td>
               </tr>
@@ -436,14 +442,17 @@ const sortedEndpoints = computed(() => {
       valA = a.current_detailed_state || a.current_operational_state || a.endpoint_status || ''
       valB = b.current_detailed_state || b.current_operational_state || b.endpoint_status || ''
     } else if (sortKey.value === 'avg_rtt_ms') {
-      valA = a.current_state?.avg_rtt_ms ?? 99999
-      valB = b.current_state?.avg_rtt_ms ?? 99999
+      valA = a.avg_rtt_ms ?? (a.current_state?.avg_rtt_ms ?? 99999)
+      valB = b.avg_rtt_ms ?? (b.current_state?.avg_rtt_ms ?? 99999)
     } else if (sortKey.value === 'packet_loss_pct') {
-      valA = a.current_state?.failed_count ?? 0
-      valB = b.current_state?.failed_count ?? 0
+      valA = a.failed_count ?? (a.current_state?.failed_count ?? 0)
+      valB = b.failed_count ?? (b.current_state?.failed_count ?? 0)
     } else if (sortKey.value === 'uptime_pct') {
-      valA = parseFloat(a.uptime_percentage_24h) ?? 100
-      valB = parseFloat(b.uptime_percentage_24h) ?? 100
+      valA = parseFloat(a.uptime_percentage_24h) || 100
+      valB = parseFloat(b.uptime_percentage_24h) || 100
+    } else if (sortKey.value === 'last_seen') {
+      valA = a.last_seen ? new Date(a.last_seen).getTime() : 0
+      valB = b.last_seen ? new Date(b.last_seen).getTime() : 0
     }
 
     if (valA < valB) return sortAsc.value ? -1 : 1
@@ -475,10 +484,23 @@ function handleSort(key) {
 }
 
 function getStateClass(st) {
-  if (st === 'UP') return 'status-up'
-  if (st === 'UP-UNSTABLE' || st === 'DOWN-UNSTABLE') return 'status-unstable'
-  if (st === 'DOWN') return 'status-down'
+  if (!st) return ''
+  const s = st.toUpperCase()
+  if (s === 'UP') return 'status-up'
+  if (s.includes('UNSTABLE')) return 'status-unstable'
+  if (s === 'DOWN') return 'status-down'
   return ''
+}
+
+function formatTimeAgo(dateStr) {
+  if (!dateStr) return 'never'
+  const now = Date.now()
+  const past = new Date(dateStr).getTime()
+  const diff = Math.floor((now - past) / 1000)
+  if (diff < 60) return 'just now'
+  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`
+  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`
+  return `${Math.floor(diff / 86400)}d ago`
 }
 
 function getLossPct(ep) {

@@ -222,10 +222,10 @@ const handleLogin = async () => {
 .input-with-icon input {
   padding-left: 2.5rem;
   height: 2.625rem;
-  background: var(--bg-surface-elevated, #18181b);
-  border: 1px solid var(--border-color, #27272a);
-  color: var(--text-primary, #fafafa);
-  border-radius: 6px;
+  background: var(--bg-surface-hover);
+  border: 1px solid var(--border-color);
+  color: var(--text-primary);
+  border-radius: var(--radius-sm, 6px);
   font-size: 0.875rem;
   transition: all 0.15s ease;
   width: 100%;
@@ -233,9 +233,9 @@ const handleLogin = async () => {
 
 .input-with-icon input:focus {
   outline: none;
-  border-color: var(--border-focus, #e4e4e7);
-  box-shadow: 0 0 0 1px var(--border-focus, #e4e4e7);
-  background: var(--bg-surface, #121215);
+  border-color: var(--text-primary);
+  box-shadow: 0 0 0 1px var(--text-primary);
+  background: var(--bg-surface);
 }
 
 .password-wrapper input {
