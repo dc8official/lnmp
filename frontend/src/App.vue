@@ -486,104 +486,242 @@ body {
   box-sizing: border-box;
 }
 
-/* ── Generic Buttons ── */
+/* ── Unified Status Pill System (Inherited by all cards, tables, and views) ── */
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 8px;
+  border-radius: var(--radius-sm, 4px);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  font-family: var(--font-mono, monospace);
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+/* Status States */
+.status-up {
+  background: var(--color-up-bg);
+  color: var(--color-up);
+  border: 1px solid rgba(22, 163, 74, 0.35);
+}
+.status-up .status-dot {
+  background: var(--color-up);
+  box-shadow: 0 0 6px rgba(22, 163, 74, 0.7);
+}
+
+.status-unstable {
+  background: var(--color-up-unstable-bg);
+  color: var(--color-up-unstable);
+  border: 1px solid rgba(217, 119, 6, 0.35);
+}
+.status-unstable .status-dot {
+  background: var(--color-up-unstable);
+  box-shadow: 0 0 6px rgba(217, 119, 6, 0.7);
+}
+
+.status-down {
+  background: var(--color-down-bg);
+  color: var(--color-down);
+  border: 1px solid rgba(220, 38, 38, 0.35);
+}
+.status-down .status-dot {
+  background: var(--color-down);
+  box-shadow: 0 0 6px rgba(220, 38, 38, 0.7);
+}
+
+.status-unknown {
+  background: var(--color-unknown-bg);
+  color: var(--color-unknown);
+  border: 1px solid rgba(107, 114, 128, 0.35);
+}
+.status-unknown .status-dot {
+  background: var(--color-unknown);
+}
+
+/* ── Centralized Button System ── */
 .btn-primary {
   background: var(--accent);
   color: var(--text-inverse);
-  padding: 8px 16px;
-  border-radius: var(--radius);
-  font-size: 13px;
+  border: 1px solid transparent;
   font-weight: 600;
-  transition: all 0.15s ease;
+  font-size: 0.8125rem;
+  padding: 0.5rem 0.875rem;
+  border-radius: var(--radius-sm, 6px);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.375rem;
+  transition: opacity 0.15s ease, transform 0.15s ease;
+  font-family: var(--font-sans);
 }
-
 .btn-primary:hover:not(:disabled) {
   opacity: 0.9;
+  transform: translateY(-1px);
 }
-
 .btn-primary:disabled {
   opacity: 0.5;
   cursor: not-allowed;
 }
 
 .btn-secondary {
-  background: var(--bg-surface);
-  border: 1px solid var(--border-color);
+  background: transparent;
   color: var(--text-primary);
-  padding: 8px 16px;
-  border-radius: var(--radius);
-  font-size: 13px;
+  border: 1px solid var(--border-color);
   font-weight: 600;
-  transition: all 0.15s ease;
+  font-size: 0.8125rem;
+  padding: 0.5rem 0.875rem;
+  border-radius: var(--radius-sm, 6px);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.375rem;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+  font-family: var(--font-sans);
 }
-
 .btn-secondary:hover:not(:disabled) {
   background: var(--bg-surface-hover);
+  border-color: var(--border-color-strong);
 }
 
 .btn-danger {
-  background: #DC2626;
-  color: white;
-  padding: 8px 16px;
-  border-radius: var(--radius);
-  font-size: 13px;
+  background: var(--color-down);
+  color: #ffffff;
+  border: none;
   font-weight: 600;
+  font-size: 0.8125rem;
+  padding: 0.5rem 0.875rem;
+  border-radius: var(--radius-sm, 6px);
+  cursor: pointer;
+  transition: opacity 0.15s ease;
 }
-
 .btn-danger:hover:not(:disabled) {
-  background: #B91C1C;
+  opacity: 0.9;
 }
 
-/* ── Modals ── */
+.btn-small {
+  padding: 0.3rem 0.6rem;
+  font-size: 0.75rem;
+}
+
+/* ── Centralized Data Table System ── */
+.table-card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius, 8px);
+  overflow: hidden;
+  box-shadow: var(--shadow);
+}
+
+.table-responsive {
+  width: 100%;
+  overflow-x: auto;
+}
+
+.dense-table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+  font-size: 0.8125rem;
+}
+
+.dense-table th {
+  background: var(--bg-surface-selected);
+  color: var(--text-secondary);
+  font-weight: 600;
+  padding: 0.625rem 0.875rem;
+  border-bottom: 1px solid var(--border-color);
+  text-transform: uppercase;
+  font-size: 0.6875rem;
+  letter-spacing: 0.05em;
+  user-select: none;
+}
+
+.dense-table td {
+  padding: 0.625rem 0.875rem;
+  border-bottom: 1px solid var(--border-color);
+  color: var(--text-primary);
+  vertical-align: middle;
+}
+
+.dense-table tr:last-child td {
+  border-bottom: none;
+}
+
+.clickable-row {
+  cursor: pointer;
+  transition: background 0.1s ease;
+}
+
+.clickable-row:hover td {
+  background: var(--bg-surface-hover);
+}
+
+.row-selected td {
+  background: var(--bg-surface-selected);
+}
+
+.sortable-th {
+  cursor: pointer;
+}
+.sortable-th:hover {
+  color: var(--text-primary);
+}
+
+/* ── Centralized Modal System ── */
 .modal-overlay {
   position: fixed;
   inset: 0;
   background: rgba(0, 0, 0, 0.6);
   backdrop-filter: blur(4px);
   display: flex;
-  align-items: center;
   justify-content: center;
-  z-index: 200;
-  padding: 16px;
+  align-items: center;
+  z-index: 1000;
+  padding: 1rem;
 }
 
 .modal-card {
   background: var(--bg-surface);
   border: 1px solid var(--border-color);
-  border-radius: 10px;
+  border-radius: var(--radius, 8px);
+  box-shadow: var(--shadow-hover);
   width: 100%;
-  max-width: 500px;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
-  overflow: hidden;
+  max-width: 520px;
+  max-height: 90vh;
+  overflow-y: auto;
+  padding: 1.5rem;
 }
 
 .modal-header {
-  padding: 16px 20px;
-  border-bottom: 1px solid var(--border-color);
   display: flex;
   justify-content: space-between;
   align-items: center;
-  background: var(--bg-surface-selected);
+  margin-bottom: 1.25rem;
 }
 
 .modal-header h3 {
   margin: 0;
-  font-size: 16px;
+  font-size: 1.125rem;
   font-weight: 700;
   color: var(--text-primary);
 }
 
-.btn-close {
-  font-size: 16px;
-  color: var(--text-muted);
-}
-
-.btn-close:hover {
-  color: var(--text-primary);
-}
-
 .modal-form {
-  padding: 20px;
+  padding: 0;
   display: flex;
   flex-direction: column;
   gap: 16px;
@@ -618,8 +756,21 @@ body {
 .modal-actions {
   display: flex;
   justify-content: flex-end;
-  gap: 10px;
-  margin-top: 8px;
+  gap: 0.625rem;
+  margin-top: 1.5rem;
+}
+
+.btn-close {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  font-size: 1.25rem;
+  cursor: pointer;
+  padding: 0.25rem;
+  border-radius: var(--radius-sm, 4px);
+}
+.btn-close:hover {
+  color: var(--text-primary);
 }
 
 .full-width-btn {

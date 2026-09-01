@@ -181,7 +181,8 @@
                 <span class="device-pill">{{ row.device_type }}</span>
               </td>
               <td>
-                <span class="state-pill" :class="row.operational_state.toLowerCase()">
+                <span class="status-pill" :class="getStateClass(row.detailed_state || row.operational_state)">
+                  <span class="status-dot"></span>
                   {{ row.detailed_state || row.operational_state }}
                 </span>
               </td>
@@ -469,6 +470,15 @@ function getSlaClass(val) {
   return 'sla-bad'
 }
 
+function getStateClass(st) {
+  if (!st) return 'status-unknown'
+  const s = st.toUpperCase()
+  if (s === 'UP') return 'status-up'
+  if (s.includes('UNSTABLE')) return 'status-unstable'
+  if (s === 'DOWN') return 'status-down'
+  return 'status-unknown'
+}
+
 function formatDuration(seconds) {
   if (!seconds || seconds <= 0) return '0s'
   const d = Math.floor(seconds / 86400)
@@ -724,13 +734,6 @@ onMounted(() => {
   color: var(--status-down-color, #dc2626);
 }
 
-.table-card {
-  background: var(--bg-surface);
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius, 8px);
-  overflow: hidden;
-}
-
 .table-card-header {
   padding: 1.25rem 1.5rem;
   display: flex;
@@ -764,52 +767,10 @@ onMounted(() => {
   font-size: 0.8125rem;
 }
 
-.table-responsive {
-  overflow-x: auto;
-}
-
-.dense-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 0.8125rem;
-  text-align: left;
-}
-
-.dense-table th {
-  padding: 0.75rem 1rem;
-  background: var(--bg-surface-selected);
-  color: var(--text-secondary);
-  font-weight: 600;
-  border-bottom: 1px solid var(--border-color);
-  text-transform: uppercase;
-  font-size: 0.75rem;
-  letter-spacing: 0.05em;
-}
-
-.sortable-th {
-  cursor: pointer;
-  user-select: none;
-}
-
-.sortable-th:hover {
-  color: var(--text-primary);
-}
-
 .sort-icon {
   font-size: 0.6875rem;
   margin-left: 0.25rem;
   opacity: 0.6;
-}
-
-.dense-table td {
-  padding: 0.75rem 1rem;
-  border-bottom: 1px solid var(--border-color);
-  color: var(--text-primary);
-  vertical-align: middle;
-}
-
-.dense-table tbody tr:hover {
-  background: var(--bg-surface-hover);
 }
 
 .host-col {
@@ -843,32 +804,6 @@ onMounted(() => {
   border-radius: var(--radius-sm, 4px);
   color: var(--text-secondary);
   text-transform: uppercase;
-}
-
-.state-pill {
-  font-size: 0.6875rem;
-  font-weight: 700;
-  padding: 0.2rem 0.5rem;
-  border-radius: var(--radius-sm, 4px);
-  text-transform: uppercase;
-}
-
-.state-pill.up {
-  background: rgba(74, 222, 128, 0.15);
-  color: #4ade80;
-  border: 1px solid rgba(74, 222, 128, 0.3);
-}
-
-.state-pill.unstable, .state-pill.up-unstable, .state-pill.down-unstable {
-  background: rgba(245, 158, 11, 0.15);
-  color: #fbbf24;
-  border: 1px solid rgba(245, 158, 11, 0.3);
-}
-
-.state-pill.down {
-  background: rgba(248, 113, 113, 0.15);
-  color: #f87171;
-  border: 1px solid rgba(248, 113, 113, 0.3);
 }
 
 .sla-badge {
@@ -924,45 +859,6 @@ onMounted(() => {
 
 .text-right {
   text-align: right;
-}
-
-.btn-primary {
-  background: var(--btn-primary-bg, #fafafa);
-  color: var(--btn-primary-text, #09090b);
-  border: none;
-  font-weight: 600;
-  font-size: 0.8125rem;
-  padding: 0.5rem 0.875rem;
-  border-radius: var(--radius-sm, 6px);
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  transition: all 0.15s ease;
-}
-
-.btn-primary:hover:not(:disabled) {
-  opacity: 0.9;
-}
-
-.btn-primary:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.btn-secondary {
-  background: transparent;
-  color: var(--text-primary);
-  border: 1px solid var(--border-color);
-  font-weight: 600;
-  font-size: 0.8125rem;
-  padding: 0.5rem 0.875rem;
-  border-radius: var(--radius-sm, 6px);
-  cursor: pointer;
-  transition: all 0.15s ease;
-}
-
-.btn-secondary:hover:not(:disabled) {
-  background: var(--bg-surface-hover);
 }
 
 /* ── Modal Customizer Styles ── */

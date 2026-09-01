@@ -1486,34 +1486,3 @@ h2 {
   background: rgba(59, 130, 246, 0.25);
 }
 </style>
-
-<style>
-/* Global light-theme overrides to prevent SFC compilation bugs */
-html:not(.dark) .detail-wrapper {
-  background-color: #ffffff;
-}
-html:not(.dark) .app-nav {
-  background-color: #ffffff;
-  border-bottom: 1px solid #cbd5e1;
-}
-html:not(.dark) .overview-card,
-html:not(.dark) .toolbar-card,
-html:not(.dark) .visualizer-container,
-html:not(.dark) .metric-card {
-  background-color: #fafafa !important;
-  border: 1px solid #cbd5e1 !important;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02) !important;
-}
-html:not(.dark) .nav-arrow-btn:hover:not(:disabled) {
-  background-color: rgba(0, 0, 0, 0.05);
-}
-html:not(.dark) .btn-discovery {
-  background: #EFF6FF;
-  color: #1D4ED8;
-  border-color: #93C5FD;
-}
-html:not(.dark) .btn-discovery:hover {
-  background: #DBEAFE;
-  color: #1E40AF;
-}
-</style>

@@ -1,73 +1,84 @@
 <template>
   <div class="login-wrapper">
-    <div class="glass-container">
-      <Card class="login-card">
-        <template #title>
-          <div class="brand-header">
-            <h2>lnmp v3.0.0</h2>
-            <p class="brand-subtitle">Network Uptime Monitoring Platform</p>
+    <div class="login-container">
+      <div class="login-card">
+        <div class="brand-header">
+          <h1 class="brand-title">lnmp v3.0.0</h1>
+          <p class="brand-subtitle">Network Uptime Monitoring Platform</p>
+        </div>
+
+        <form 
+          @submit.prevent="handleLogin" 
+          action="/api/v1/auth/login" 
+          method="post" 
+          autocomplete="on" 
+          class="login-form"
+        >
+          <div v-if="error" class="error-container" role="alert">
+            <Message severity="error" :closable="false">{{ error }}</Message>
           </div>
-        </template>
-        <template #content>
-          <form @submit.prevent="handleLogin" method="post" action="" autocomplete="on" class="login-form">
-            <div v-if="error" class="error-container">
-              <Message severity="error" :closable="false">{{ error }}</Message>
-            </div>
 
-            <div class="form-group">
-              <label for="username">Username</label>
-              <div class="input-with-icon">
-                <i class="pi pi-user field-icon"></i>
-                <input 
-                  id="username" 
-                  name="username"
-                  type="text"
-                  autocomplete="username"
-                  v-model="username" 
-                  placeholder="Enter your username" 
-                  required 
-                  class="p-inputtext p-component full-width"
-                  :disabled="loading"
-                />
-              </div>
+          <div class="form-group">
+            <label for="username">Username</label>
+            <div class="input-with-icon">
+              <i class="pi pi-user field-icon" aria-hidden="true"></i>
+              <input 
+                id="username" 
+                name="username"
+                type="text"
+                autocomplete="username"
+                autocorrect="off"
+                autocapitalize="off"
+                spellcheck="false"
+                v-model="username" 
+                placeholder="Enter your username" 
+                required 
+                class="login-input"
+                :disabled="loading"
+              />
             </div>
+          </div>
 
-            <div class="form-group">
-              <label for="password">Password</label>
-              <div class="input-with-icon password-wrapper">
-                <i class="pi pi-lock field-icon"></i>
-                <input 
-                  id="password" 
-                  name="password"
-                  :type="showPassword ? 'text' : 'password'"
-                  autocomplete="current-password"
-                  v-model="password" 
-                  placeholder="Enter your password" 
-                  required 
-                  class="p-inputtext p-component full-width password-input"
-                  :disabled="loading"
-                />
-                <i 
-                  class="pi toggle-icon"
-                  :class="showPassword ? 'pi-eye-slash' : 'pi-eye'"
-                  @click="showPassword = !showPassword"
-                  title="Toggle password visibility"
-                ></i>
-              </div>
+          <div class="form-group">
+            <label for="password">Password</label>
+            <div class="input-with-icon password-wrapper">
+              <i class="pi pi-lock field-icon" aria-hidden="true"></i>
+              <input 
+                id="password" 
+                name="password"
+                :type="showPassword ? 'text' : 'password'"
+                autocomplete="current-password"
+                v-model="password" 
+                placeholder="Enter your password" 
+                required 
+                class="login-input password-input"
+                :disabled="loading"
+              />
+              <i 
+                class="pi toggle-icon"
+                :class="showPassword ? 'pi-eye-slash' : 'pi-eye'"
+                @click="showPassword = !showPassword"
+                title="Toggle password visibility"
+                tabindex="0"
+                @keydown.enter="showPassword = !showPassword"
+                role="button"
+                aria-label="Toggle password visibility"
+              ></i>
             </div>
+          </div>
 
-            <button 
-              type="submit" 
-              class="submit-button p-button p-component" 
-              :disabled="loading"
-            >
-              <i v-if="loading" class="pi pi-spin pi-spinner" style="margin-right: 0.5rem;"></i>
-              <i v-else class="pi pi-sign-in" style="margin-right: 0.5rem;"></i>
-              <span>{{ loading ? 'Signing In...' : 'Sign In' }}</span>
-            </button>
-          </form>
-        </template>
-      </Card>
+          <button 
+            type="submit" 
+            name="login-submit"
+            class="submit-button" 
+            :disabled="loading"
+          >
+            <i v-if="loading" class="pi pi-spin pi-spinner" style="margin-right: 0.5rem;"></i>
+            <i v-else class="pi pi-sign-in" style="margin-right: 0.5rem;"></i>
+            <span>{{ loading ? 'Signing In...' : 'Sign In' }}</span>
+          </button>
+        </form>
+      </div>
     </div>
   </div>
 </template>
@@ -77,7 +88,6 @@ import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { login } from '../services/api.js'
 import { setUserState } from '../services/auth.js'
-import Card from 'primevue/card'
 import Message from 'primevue/message'
 
 const router = useRouter()
@@ -113,7 +123,7 @@ const handleLogin = async () => {
       const status = err.response.status
       const detail = err.response.data?.detail
       if (status === 403) {
-        error.value = detail || 'Account temporarily locked for 15 minutes due to multiple failed login attempts from this location.'
+        error.value = detail || 'Account temporarily locked for 15 minutes due to multiple failed login attempts.'
       } else if (status === 401) {
         error.value = detail || 'Invalid username or password. Please verify your credentials.'
       } else if (status === 429) {
@@ -138,24 +148,26 @@ const handleLogin = async () => {
   justify-content: center;
   align-items: center;
   min-height: 100vh;
-  background-color: var(--bg-primary, #09090b);
+  background-color: var(--bg-app);
   background-image: 
-    radial-gradient(at 0% 0%, rgba(255, 255, 255, 0.03) 0px, transparent 50%),
-    radial-gradient(at 100% 100%, rgba(255, 255, 255, 0.02) 0px, transparent 50%);
+    radial-gradient(at 0% 0%, rgba(128, 128, 128, 0.05) 0px, transparent 50%),
+    radial-gradient(at 100% 100%, rgba(128, 128, 128, 0.03) 0px, transparent 50%);
   padding: 1.5rem;
+  transition: background-color 0.2s ease;
 }
 
-.glass-container {
+.login-container {
   width: 100%;
   max-width: 420px;
 }
 
-:deep(.p-card.login-card) {
-  background: var(--bg-surface, #121215);
-  border: 1px solid var(--border-color, #27272a);
-  border-radius: 8px;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
-  padding: 1.5rem;
+.login-card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius, 8px);
+  box-shadow: var(--shadow-hover);
+  padding: 2rem;
+  transition: background-color 0.2s ease, border-color 0.2s ease;
 }
 
 .brand-header {
@@ -163,10 +175,10 @@ const handleLogin = async () => {
   margin-bottom: 2rem;
 }
 
-.brand-header h2 {
+.brand-title {
   font-size: 1.75rem;
   font-weight: 800;
-  color: var(--text-primary, #fafafa);
+  color: var(--text-primary);
   letter-spacing: -0.04em;
   margin: 0;
   text-transform: lowercase;
@@ -174,7 +186,7 @@ const handleLogin = async () => {
 
 .brand-subtitle {
   font-size: 0.8125rem;
-  color: var(--text-secondary, #a1a1aa);
+  color: var(--text-secondary);
   margin-top: 0.35rem;
   text-transform: uppercase;
   letter-spacing: 0.08em;
@@ -200,7 +212,7 @@ const handleLogin = async () => {
 .form-group label {
   font-size: 0.8125rem;
   font-weight: 600;
-  color: var(--text-secondary, #a1a1aa);
+  color: var(--text-secondary);
   letter-spacing: -0.01em;
 }
 
@@ -213,13 +225,13 @@ const handleLogin = async () => {
 .field-icon {
   position: absolute;
   left: 0.875rem;
-  color: var(--text-tertiary, #71717a);
+  color: var(--text-muted);
   pointer-events: none;
   font-size: 0.9375rem;
   z-index: 1;
 }
 
-.input-with-icon input {
+.login-input {
   padding-left: 2.5rem;
   height: 2.625rem;
   background: var(--bg-surface-hover);
@@ -227,25 +239,26 @@ const handleLogin = async () => {
   color: var(--text-primary);
   border-radius: var(--radius-sm, 6px);
   font-size: 0.875rem;
+  font-family: var(--font-sans);
   transition: all 0.15s ease;
   width: 100%;
 }
 
-.input-with-icon input:focus {
+.login-input:focus {
   outline: none;
   border-color: var(--text-primary);
   box-shadow: 0 0 0 1px var(--text-primary);
   background: var(--bg-surface);
 }
 
-.password-wrapper input {
+.password-wrapper .login-input {
   padding-right: 2.5rem;
 }
 
 .toggle-icon {
   position: absolute;
   right: 0.875rem;
-  color: var(--text-tertiary, #71717a);
+  color: var(--text-muted);
   cursor: pointer;
   font-size: 0.9375rem;
   padding: 0.25rem;
@@ -253,37 +266,38 @@ const handleLogin = async () => {
 }
 
 .toggle-icon:hover {
-  color: var(--text-primary, #fafafa);
+  color: var(--text-primary);
 }
 
 .submit-button {
   height: 2.625rem;
   margin-top: 0.5rem;
-  background: var(--btn-primary-bg, #fafafa);
-  color: var(--btn-primary-text, #09090b);
+  background: var(--accent);
+  color: var(--text-inverse);
   border: none;
   font-weight: 600;
   font-size: 0.875rem;
-  border-radius: 6px;
+  font-family: var(--font-sans);
+  border-radius: var(--radius-sm, 6px);
   cursor: pointer;
   display: flex;
   justify-content: center;
   align-items: center;
-  transition: all 0.15s ease;
+  transition: opacity 0.15s ease, transform 0.15s ease;
 }
 
 .submit-button:hover:not(:disabled) {
-  background: #e4e4e7;
+  opacity: 0.9;
   transform: translateY(-1px);
 }
 
 .submit-button:disabled {
-  opacity: 0.6;
+  opacity: 0.5;
   cursor: not-allowed;
 }
 
 @media (max-width: 480px) {
-  .glass-container {
+  .login-container {
     max-width: 100%;
   }
 }

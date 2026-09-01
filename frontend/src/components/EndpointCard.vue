@@ -24,9 +24,9 @@
 
     <div class="card-body">
       <div class="status-row">
-        <span :class="['badge', statusBadgeClass]">
-          <span :class="['status-dot', statusDotClass]"></span>
-          {{ endpoint.current_detailed_state || 'UNKNOWN' }}
+        <span class="status-pill" :class="statusClass">
+          <span class="status-dot"></span>
+          {{ endpoint.current_detailed_state || endpoint.current_operational_state || 'UNKNOWN' }}
         </span>
         <span class="card-latency font-mono tnum" v-if="endpoint.avg_rtt_ms != null">
           {{ endpoint.avg_rtt_ms.toFixed(1) }} ms
@@ -79,22 +79,12 @@ const handleDelete = () => {
   emit('delete', props.endpoint.id)
 }
 
-const statusBadgeClass = computed(() => {
-  const s = props.endpoint.current_detailed_state
-  if (s === 'UP') return 'badge-up'
-  if (s === 'UP-UNSTABLE') return 'badge-up-unstable'
-  if (s === 'DOWN-UNSTABLE') return 'badge-down-unstable'
-  if (s === 'DOWN') return 'badge-down'
-  return 'badge-unknown'
-})
-
-const statusDotClass = computed(() => {
-  const s = props.endpoint.current_detailed_state
-  if (s === 'UP') return 'dot-up'
-  if (s === 'UP-UNSTABLE') return 'dot-up-unstable'
-  if (s === 'DOWN-UNSTABLE') return 'dot-down-unstable'
-  if (s === 'DOWN') return 'dot-down'
-  return 'dot-unknown'
+const statusClass = computed(() => {
+  const s = props.endpoint.current_detailed_state || props.endpoint.current_operational_state
+  if (s === 'UP') return 'status-up'
+  if (s === 'UP-UNSTABLE' || s === 'DOWN-UNSTABLE') return 'status-unstable'
+  if (s === 'DOWN') return 'status-down'
+  return 'status-unknown'
 })
 
 const formattedUptime = computed(() => {

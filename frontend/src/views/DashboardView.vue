@@ -210,8 +210,9 @@
                 <td class="font-mono tnum">{{ ep.ip_address }}</td>
                 <td><span class="device-tag">{{ ep.device_type }}</span></td>
                 <td>
-                  <span class="status-pill" :class="getStateClass(ep.current_detailed_state || ep.current_operational_state || ep.endpoint_status)">
-                    {{ ep.current_detailed_state || ep.current_operational_state || ep.endpoint_status }}
+                  <span class="status-pill" :class="getStateClass(ep.current_detailed_state || ep.current_operational_state)">
+                    <span class="status-dot"></span>
+                    {{ ep.current_detailed_state || ep.current_operational_state || 'UNKNOWN' }}
                   </span>
                 </td>
                 <td class="font-mono tnum text-right">
@@ -484,12 +485,12 @@ function handleSort(key) {
 }
 
 function getStateClass(st) {
-  if (!st) return ''
+  if (!st) return 'status-unknown'
   const s = st.toUpperCase()
   if (s === 'UP') return 'status-up'
   if (s.includes('UNSTABLE')) return 'status-unstable'
   if (s === 'DOWN') return 'status-down'
-  return ''
+  return 'status-unknown'
 }
 
 function formatTimeAgo(dateStr) {
@@ -927,69 +928,6 @@ onUnmounted(() => {
   .endpoint-grid { grid-template-columns: repeat(4, 1fr); }
 }
 
-/* ── Dense Table ── */
-.table-card {
-  background: var(--bg-surface);
-  border: 1px solid var(--border-color);
-  border-radius: 8px;
-  overflow: hidden;
-}
-
-.table-responsive {
-  width: 100%;
-  overflow-x: auto;
-}
-
-.dense-table {
-  width: 100%;
-  border-collapse: collapse;
-  text-align: left;
-  font-size: 13px;
-}
-
-.dense-table th {
-  background: var(--bg-surface-selected);
-  color: var(--text-secondary);
-  font-weight: 600;
-  padding: 10px 14px;
-  border-bottom: 1px solid var(--border-color);
-  text-transform: uppercase;
-  font-size: 11px;
-  letter-spacing: 0.05em;
-  user-select: none;
-}
-
-.sortable-th {
-  cursor: pointer;
-}
-
-.sortable-th:hover {
-  color: var(--text-primary);
-}
-
-.dense-table td {
-  padding: 10px 14px;
-  border-bottom: 1px solid var(--border-color);
-  color: var(--text-primary);
-}
-
-.dense-table tr:last-child td {
-  border-bottom: none;
-}
-
-.clickable-row {
-  cursor: pointer;
-  transition: background 0.1s ease;
-}
-
-.clickable-row:hover td {
-  background: var(--bg-surface-hover);
-}
-
-.row-selected td {
-  background: var(--bg-surface-selected);
-}
-
 .device-tag {
   font-size: 11px;
   color: var(--text-secondary);
@@ -998,17 +936,6 @@ onUnmounted(() => {
   padding: 2px 6px;
   border-radius: 4px;
 }
-
-.status-pill {
-  padding: 2px 8px;
-  border-radius: 4px;
-  font-size: 11px;
-  font-weight: 700;
-}
-
-.status-up { background: rgba(16, 185, 129, 0.15); color: #10B981; }
-.status-unstable { background: rgba(245, 158, 11, 0.15); color: #F59E0B; }
-.status-down { background: rgba(239, 68, 68, 0.15); color: #EF4444; }
 
 .font-mono { font-family: var(--font-mono); }
 .font-bold { font-weight: 600; }
