@@ -6,9 +6,9 @@ The versioning format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
-## [Version 3.0.7s] — Production Security Hardening & Architectural Resilience
+## [Version 3.0.0] — Current Production Release
 
-### 🛡️ 7 Key Security & Resilience Upgrades
+### 🛡️ Production Security Hardening & Resilience Upgrades
 
 | Upgrade Domain | Technical Implementation | Operational & Security Benefit |
 | :--- | :--- | :--- |
@@ -19,10 +19,6 @@ The versioning format follows [Semantic Versioning](https://semver.org/).
 | **Uptime SLA Denominator & Keyset Telemetry Export** | Tailored `unknown_seconds` to the intersection of engine service gaps and the endpoint's actual active lifespan `[max(start_time, created_at), now_utc]`; added bulk `GET /api/v1/reports/fleet-summary`; refactored CSV telemetry export to deterministic keyset pagination on `(start_time, id)`. | Eliminates false 100% SLA ratings for newly onboarded endpoints, replaces $O(N)$ HTTP client request fan-outs with a single query, and eliminates quadratic table scan overhead during multi-month telemetry exports. |
 | **Dynamic System Settings REST API & CIDR Netmask Hardening** | Implemented `GET` and `PATCH /api/v1/settings` backed by PostgreSQL `app_settings` table with automatic driver re-initialization; hardened `is_local_subnet_destination` to compute CIDRs using actual interface netmasks (`f"{addr.address}/{addr.netmask}"`) instead of hardcoded `/24`. | Replaces placebo browser `localStorage` settings with persistent backend configuration and fixes Layer-2 subnet auto-bypass on `/16`, `/23`, and `/8` subnets. |
 | **Production Deployment Hardening & Fail-Safe Upgrade Pipeline** | Added `After=redis-server.service` and `Wants=redis-server.service` to systemd units; configured `proxy_buffering off;` and `proxy_read_timeout 86400s;` in Nginx template; restructured `deploy/upgrade.sh` to compile frontend assets before stopping daemons, support air-gapped pre-built `dist`, and halt safely on Alembic migration errors without `|| true`. | Eliminates boot-time race conditions between systemd units, prevents Nginx reverse-proxy SSE buffering, and prevents unrecoverable service downtime during live upgrades. |
-
----
-
-## [Version 3.0.0] — Initial Production Release
 
 ### 🚀 Major Architectural Upgrades
 
