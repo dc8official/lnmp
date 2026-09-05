@@ -10,7 +10,15 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from app.config import settings
 from app.database import AsyncSessionLocal, check_database_connection
 from app.logging_config import setup_logging
-from app.routers import auth, endpoints, events, reports, topology, users
+from app.routers import (
+    auth,
+    endpoints,
+    events,
+    reports,
+    settings as settings_router,
+    topology,
+    users,
+)
 from app.routers.reports import telemetry_router
 from app.schemas import APIResponse
 from app.services.baseline_route import start_midnight_discovery_worker
@@ -20,6 +28,7 @@ from app.services.diagnostics import (
     start_discovery_worker,
 )
 from app.services.driver_manager import driver_manager
+from app.services.telemetry_relay import telemetry_relay
 from app.services.topology import topology_manager
 
 # Initialize dual console and rotating file logging
@@ -41,6 +50,9 @@ async def lifespan(app: FastAPI):
         await baseline_cache.refresh_from_db(db)
         await topology_manager.full_rebuild(db)
 
+    # Start inter-process telemetry relay (syncs broker events to topology RAM and browser SSE)
+    await telemetry_relay.start()
+
     refresh_task = await start_baseline_refresh_task(
         AsyncSessionLocal, interval_seconds=3600
     )
@@ -50,19 +62,20 @@ async def lifespan(app: FastAPI):
         AsyncSessionLocal, interval_seconds=86400
     )
     logger.info(
-        "LNMP v3.0.0 started successfully with Real-Time SSE, Dual-Storage Architecture & Multi-Protocol Diagnostics."
+        "LNMP v3.0.7s started successfully with Real-Time SSE, Dual-Storage Architecture & Multi-Protocol Diagnostics."
     )
     yield
+    await telemetry_relay.stop()
     refresh_task.cancel()
     discovery_task.cancel()
     midnight_task.cancel()
     cleanup_task.cancel()
-    logger.info("LNMP v3.0.0 platform shutting down cleanly.")
+    logger.info("LNMP v3.0.7s platform shutting down cleanly.")
 
 
 app = FastAPI(
     title="lnmp - Network Monitoring Platform",
-    version="3.0.0",
+    version="3.0.7s",
     docs_url="/api/docs",
     redoc_url="/api/redoc",
     openapi_url="/api/openapi.json",
@@ -163,6 +176,7 @@ app.include_router(auth.router, prefix="/api/v1")
 app.include_router(endpoints.router, prefix="/api/v1")
 app.include_router(events.router, prefix="/api/v1")
 app.include_router(reports.router, prefix="/api/v1")
+app.include_router(settings_router.router, prefix="/api/v1")
 app.include_router(topology.router, prefix="/api/v1")
 app.include_router(users.router, prefix="/api/v1")
 app.include_router(telemetry_router)
@@ -171,10 +185,10 @@ app.include_router(telemetry_router)
 @app.get("/api/v1/version", tags=["system"])
 async def get_version():
     return APIResponse.success(
-        data={"version": "3.0.0", "platform": "lnmp v3.0.0"}
+        data={"version": "3.0.7s", "platform": "lnmp v3.0.7s"}
     )
 
 
 @app.get("/api/v1/health", tags=["system"])
 async def health_check():
-    return APIResponse.success(data={"status": "ok", "version": "3.0.0"})
+    return APIResponse.success(data={"status": "ok", "version": "3.0.7s"})

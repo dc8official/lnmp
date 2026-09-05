@@ -17,10 +17,12 @@ from app.schemas.users import (
     UpdateUserRequest,
     UserSummary,
 )
+from app.services.driver_manager import driver_manager
 from app.services.auth_service import (
     generate_readable_password,
     hash_password,
     hash_password_async,
+    invalidate_all_user_sessions,
 )
 
 logger = logging.getLogger(__name__)
@@ -157,6 +159,9 @@ async def reset_password(
     hashed = await hash_password_async(plain_password)
 
     await auth_repo.update_password(user_id, hashed, must_change_password=True)
+    store = driver_manager.get_session_store()
+    await store.invalidate_all_user_sessions(str(user_id))
+    invalidate_all_user_sessions(str(user_id))
 
     admin_uuid = None
     if current_user.get("sub"):
@@ -237,6 +242,11 @@ async def update_user(
         details=audit_details,
     )
 
+    if request.is_active is False:
+        store = driver_manager.get_session_store()
+        await store.invalidate_all_user_sessions(str(user_id))
+        invalidate_all_user_sessions(str(user_id))
+
     await db.commit()
 
     return APIResponse.success(
@@ -263,6 +273,9 @@ async def delete_user(
         raise HTTPException(status_code=404, detail="User not found.")
 
     await auth_repo.deactivate_user(user_id)
+    store = driver_manager.get_session_store()
+    await store.invalidate_all_user_sessions(str(user_id))
+    invalidate_all_user_sessions(str(user_id))
 
     admin_uuid = None
     if current_user.get("sub"):

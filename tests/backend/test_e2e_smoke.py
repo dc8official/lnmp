@@ -57,6 +57,7 @@ class TestEndToEndSmoke(unittest.TestCase):
 
         db_res = MagicMock()
         db_res.fetchone.return_value = user_row
+        db_res.scalar_one_or_none.return_value = user_row
         mock_db.execute.return_value = db_res
 
         # 1.1 Login with default admin credentials

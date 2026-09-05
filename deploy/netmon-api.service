@@ -1,7 +1,8 @@
 [Unit]
 Description=lnmp API Server
-After=network.target postgresql.service
+After=network.target postgresql.service redis-server.service
 Requires=postgresql.service
+Wants=redis-server.service
 
 [Service]
 Type=simple

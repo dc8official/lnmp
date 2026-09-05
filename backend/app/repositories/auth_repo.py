@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from datetime import datetime
 from typing import Any, Optional, Sequence
-from unittest.mock import Mock
 from uuid import UUID
 
 from sqlalchemy import func, select, update as sa_update
@@ -12,34 +11,6 @@ from sqlalchemy.orm import joinedload
 from app.models.audit_log import AuditLog
 from app.models.user import Role, User
 from app.repositories.base import BaseRepository
-
-
-def _extract_one(result: Any) -> Any:
-    if isinstance(result, Mock):
-        if hasattr(result, "scalar_one_or_none") and not isinstance(
-            result.scalar_one_or_none.return_value, Mock
-        ):
-            return result.scalar_one_or_none.return_value
-        if hasattr(result, "fetchone"):
-            return result.fetchone.return_value
-        return result.scalar_one_or_none()
-    if hasattr(result, "scalar_one_or_none"):
-        return result.scalar_one_or_none()
-    return result
-
-
-def _extract_all(result: Any) -> Any:
-    if isinstance(result, Mock):
-        if hasattr(result, "fetchall"):
-            if hasattr(result, "scalars") and not isinstance(
-                result.scalars.return_value, Mock
-            ):
-                return result.scalars().all()
-            return result.fetchall.return_value
-        return result.scalars().all()
-    if hasattr(result, "scalars"):
-        return result.scalars().all()
-    return result
 
 
 class AuthRepository(BaseRepository[User]):
@@ -58,7 +29,7 @@ class AuthRepository(BaseRepository[User]):
             .where(User.username == username)
         )
         result = await self.session.execute(stmt)
-        return _extract_one(result)
+        return result.scalar_one_or_none()
 
     async def get_user_by_id(self, user_id: UUID) -> Optional[User]:
         """Fetch a user by UUID primary key with eager-loaded role."""
@@ -68,7 +39,7 @@ class AuthRepository(BaseRepository[User]):
             .where(User.id == user_id)
         )
         result = await self.session.execute(stmt)
-        return _extract_one(result)
+        return result.scalar_one_or_none()
 
     async def list_users(self) -> Sequence[User]:
         """List all users ordered by creation date descending."""
@@ -78,19 +49,19 @@ class AuthRepository(BaseRepository[User]):
             .order_by(User.created_at.desc())
         )
         result = await self.session.execute(stmt)
-        return _extract_all(result)
+        return result.scalars().all()
 
     async def get_role_by_name(self, role_name: str) -> Optional[Role]:
         """Fetch a role by role_name."""
         stmt = select(Role).where(Role.role_name == role_name)
         result = await self.session.execute(stmt)
-        return _extract_one(result)
+        return result.scalar_one_or_none()
 
     async def get_role_by_id(self, role_id: UUID) -> Optional[Role]:
         """Fetch a role by UUID primary key."""
         stmt = select(Role).where(Role.id == role_id)
         result = await self.session.execute(stmt)
-        return _extract_one(result)
+        return result.scalar_one_or_none()
 
     async def create_user(
         self,
@@ -106,16 +77,8 @@ class AuthRepository(BaseRepository[User]):
             is_active=True,
             must_change_password=True,
         )
-        # Execute insert query so mocks in tests receive execute call if mocked
-        stmt = select(User.id).limit(1)
-        res = await self.session.execute(stmt)
-        mock_val = _extract_one(res)
-        if mock_val and hasattr(mock_val, "id"):
-            user.id = mock_val.id
-
-        if not isinstance(self.session, Mock):
-            self.session.add(user)
-            await self.session.flush()
+        self.session.add(user)
+        await self.session.flush()
         return user
 
     async def update_password(
@@ -166,7 +129,7 @@ class AuthRepository(BaseRepository[User]):
             .returning(User)
         )
         result = await self.session.execute(stmt)
-        return _extract_one(result)
+        return result.scalar_one_or_none()
 
     async def deactivate_user(self, user_id: UUID) -> Optional[User]:
         """Soft delete / deactivate a user account."""
@@ -177,10 +140,9 @@ class AuthRepository(BaseRepository[User]):
                 is_active=False,
                 updated_at=func.now(),
             )
-            .returning(User)
         )
-        result = await self.session.execute(stmt)
-        return _extract_one(result)
+        await self.session.execute(stmt)
+        return await self.get_user_by_id(user_id)
 
     async def create_audit_log(
         self,
@@ -198,14 +160,6 @@ class AuthRepository(BaseRepository[User]):
             target_id=target_id,
             details=details,
         )
-        if not isinstance(self.session, Mock):
-            self.session.add(log_entry)
-            await self.session.flush()
-        else:
-            # Trigger execute on mock session for test tracking if needed
-            try:
-                stmt = select(AuditLog.id).limit(1)
-                await self.session.execute(stmt)
-            except Exception:
-                pass
+        self.session.add(log_entry)
+        await self.session.flush()
         return log_entry

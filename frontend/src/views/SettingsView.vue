@@ -256,7 +256,15 @@
 
 <script setup>
 import { ref, reactive, onMounted } from 'vue'
-import { getUsers, createUser, resetUserPassword, updateUser, deleteUser } from '../services/api.js'
+import {
+  getUsers,
+  createUser,
+  resetUserPassword,
+  updateUser,
+  deleteUser,
+  getSettings,
+  updateSettings,
+} from '../services/api.js'
 import { currentUser, loadUserFromStorage } from '../services/auth.js'
 
 const saving = ref(false)
@@ -289,6 +297,31 @@ async function fetchUsersList() {
     users.value = res.data?.data || []
   } catch (err) {
     console.error('Failed to load users:', err)
+  }
+}
+
+async function loadSettings() {
+  try {
+    const res = await getSettings()
+    const data = res.data?.data
+    if (data) {
+      if (data.performance_mode !== undefined) settings.performanceMode = data.performance_mode
+      else if (data.performanceMode !== undefined) settings.performanceMode = data.performanceMode
+      if (data.l2_auto_bypass !== undefined) settings.l2AutoBypass = data.l2_auto_bypass
+      else if (data.l2AutoBypass !== undefined) settings.l2AutoBypass = data.l2AutoBypass
+      if (data.session_timeout !== undefined) settings.sessionTimeout = String(data.session_timeout)
+      else if (data.sessionTimeout !== undefined) settings.sessionTimeout = String(data.sessionTimeout)
+      if (data.lockout_threshold !== undefined) settings.lockoutThreshold = String(data.lockout_threshold)
+      else if (data.lockoutThreshold !== undefined) settings.lockoutThreshold = String(data.lockoutThreshold)
+    }
+  } catch (err) {
+    console.error('Failed to load settings from server, falling back to local storage:', err)
+    const savedSettings = localStorage.getItem('netmon_settings')
+    if (savedSettings) {
+      try {
+        Object.assign(settings, JSON.parse(savedSettings))
+      } catch (e) {}
+    }
   }
 }
 
@@ -366,12 +399,18 @@ async function confirmDeleteUser(user) {
 async function saveAllSettings() {
   saving.value = true
   try {
-    // Save to localStorage / configuration store
+    const payload = {
+      performance_mode: Boolean(settings.performanceMode),
+      l2_auto_bypass: Boolean(settings.l2AutoBypass),
+      session_timeout: parseInt(settings.sessionTimeout, 10) || 120,
+      lockout_threshold: parseInt(settings.lockoutThreshold, 10) || 5,
+    }
+    await updateSettings(payload)
     localStorage.setItem('netmon_settings', JSON.stringify(settings))
     alertMessage.value = 'Platform settings successfully saved and applied.'
     alertType.value = 'alert-success'
   } catch (err) {
-    alertMessage.value = 'Failed to save settings.'
+    alertMessage.value = err.response?.data?.detail || 'Failed to save settings.'
     alertType.value = 'alert-error'
   } finally {
     saving.value = false
@@ -380,12 +419,7 @@ async function saveAllSettings() {
 
 onMounted(async () => {
   loadUserFromStorage()
-  const savedSettings = localStorage.getItem('netmon_settings')
-  if (savedSettings) {
-    try {
-      Object.assign(settings, JSON.parse(savedSettings))
-    } catch (e) {}
-  }
+  await loadSettings()
   await fetchUsersList()
 })
 </script>

@@ -6,7 +6,23 @@ The versioning format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
-## [Version 3.0.0] — Current Production Release
+## [Version 3.0.7s] — Production Security Hardening & Architectural Resilience
+
+### 🛡️ 7 Key Security & Resilience Upgrades
+
+| Upgrade Domain | Technical Implementation | Operational & Security Benefit |
+| :--- | :--- | :--- |
+| **Option B: Strict Session Wipe & Multi-Worker Governance** | Enforced strict `jti` validation (`if not jti: return False`), awaited session registration in login, awaited invalidation on logout/password reset, and directly queried persistent session store drivers in `get_current_user`. | Completely eliminates the multi-worker auth bypass under Uvicorn (`--workers 2`), preventing unauthorized session reuse and ensuring 100% session quota enforcement from second zero. |
+| **Inter-Process Telemetry Relay & Split-Brain Remediation** | Integrated `telemetry_relay.py` in `netmon-api` to subscribe to `STATE_TRANSITION` and `NODE_STATE_CHANGE` via the active `EventBroker`, broadcasting to browser SSE and mutating the API's local in-memory `topology_manager` in $O(1)$ time. | Resolves the inter-process split-brain where `netmon-engine` and `netmon-api` operated in isolated memory spaces, restoring real-time web telemetry and live topology map updates. |
+| **Synthetic SSL Probe Binary DER Parsing** | Added binary DER certificate decoding via `cryptography.x509.load_der_x509_certificate(bin_cert).not_valid_after_utc` when Python's `ssl` module returns an empty dictionary under `ssl.CERT_NONE`. | Prevents unhandled `TypeError` crashes during SSL probes against self-signed, internal, or untrusted host certificates. |
+| **Storage Driver Precedence & Robust Asyncpg Event Broker** | Prioritized database `app_settings.performance_mode` over config defaults, added socket cleanup (`await self._redis_client.aclose()`), parameterized SQL notify queries (`SELECT pg_notify(:channel, :payload)`), and implemented dedicated unpooled `asyncpg` notification listener with exponential backoff. | Eliminates SQL injection vectors in notify publishing and prevents silent connection drops and split-brain broker fallbacks during Redis or PostgreSQL restarts. |
+| **Uptime SLA Denominator & Keyset Telemetry Export** | Tailored `unknown_seconds` to the intersection of engine service gaps and the endpoint's actual active lifespan `[max(start_time, created_at), now_utc]`; added bulk `GET /api/v1/reports/fleet-summary`; refactored CSV telemetry export to deterministic keyset pagination on `(start_time, id)`. | Eliminates false 100% SLA ratings for newly onboarded endpoints, replaces $O(N)$ HTTP client request fan-outs with a single query, and eliminates quadratic table scan overhead during multi-month telemetry exports. |
+| **Dynamic System Settings REST API & CIDR Netmask Hardening** | Implemented `GET` and `PATCH /api/v1/settings` backed by PostgreSQL `app_settings` table with automatic driver re-initialization; hardened `is_local_subnet_destination` to compute CIDRs using actual interface netmasks (`f"{addr.address}/{addr.netmask}"`) instead of hardcoded `/24`. | Replaces placebo browser `localStorage` settings with persistent backend configuration and fixes Layer-2 subnet auto-bypass on `/16`, `/23`, and `/8` subnets. |
+| **Production Deployment Hardening & Fail-Safe Upgrade Pipeline** | Added `After=redis-server.service` and `Wants=redis-server.service` to systemd units; configured `proxy_buffering off;` and `proxy_read_timeout 86400s;` in Nginx template; restructured `deploy/upgrade.sh` to compile frontend assets before stopping daemons, support air-gapped pre-built `dist`, and halt safely on Alembic migration errors without `|| true`. | Eliminates boot-time race conditions between systemd units, prevents Nginx reverse-proxy SSE buffering, and prevents unrecoverable service downtime during live upgrades. |
+
+---
+
+## [Version 3.0.0] — Initial Production Release
 
 ### 🚀 Major Architectural Upgrades
 

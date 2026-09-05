@@ -357,6 +357,7 @@ import {
 } from '../services/api.js'
 import { user, isAdmin, loadUserFromStorage, clearUserState } from '../services/auth.js'
 import EndpointCard from '../components/EndpointCard.vue'
+import { useSSE } from '../composables/useSSE.js'
 
 const router = useRouter()
 
@@ -364,8 +365,8 @@ const endpoints = ref([])
 const loading = ref(false)
 const error = ref(null)
 const lastRefreshed = ref(null)
-const sseConnected = ref(false)
-let eventSource = null
+const { sseConnected, subscribe } = useSSE()
+let unsubscribeSSE = null
 
 // View Mode: 'grid' | 'table'
 const viewMode = ref('grid')
@@ -654,41 +655,30 @@ const executeDeleteEndpoint = async () => {
 }
 
 function initSSE() {
-  try {
-    eventSource = new EventSource('/api/v1/events/stream')
-    eventSource.onopen = () => {
-      sseConnected.value = true
-    }
-    eventSource.onmessage = (event) => {
-      if (!event.data) return
-      try {
-        const payload = JSON.parse(event.data)
-        if (payload.type === 'STATE_TRANSITION' && payload.endpoint_id) {
-          const ep = endpoints.value.find(e => e.id === payload.endpoint_id)
-          if (ep) {
-            ep.current_operational_state = payload.operational_state
-            ep.current_detailed_state = payload.detailed_state
-            ep.avg_rtt_ms = payload.avg_rtt_ms
-            ep.current_health_score = payload.health_score
-            ep.current_state = {
-              ...ep.current_state,
-              operational_state: payload.operational_state,
-              detailed_state: payload.detailed_state,
-              avg_rtt_ms: payload.avg_rtt_ms,
-              health_score: payload.health_score,
-            }
+  unsubscribeSSE = subscribe((event) => {
+    if (!event.data) return
+    try {
+      const payload = JSON.parse(event.data)
+      if (payload.type === 'STATE_TRANSITION' && payload.endpoint_id) {
+        const ep = endpoints.value.find(e => e.id === payload.endpoint_id)
+        if (ep) {
+          ep.current_operational_state = payload.operational_state
+          ep.current_detailed_state = payload.detailed_state
+          ep.avg_rtt_ms = payload.avg_rtt_ms
+          ep.current_health_score = payload.health_score
+          ep.current_state = {
+            ...ep.current_state,
+            operational_state: payload.operational_state,
+            detailed_state: payload.detailed_state,
+            avg_rtt_ms: payload.avg_rtt_ms,
+            health_score: payload.health_score,
           }
         }
-      } catch (e) {
-        // Heartbeat or non-json comment
       }
+    } catch (e) {
+      // Heartbeat or non-json comment
     }
-    eventSource.onerror = () => {
-      sseConnected.value = false
-    }
-  } catch (e) {
-    sseConnected.value = false
-  }
+  })
 }
 
 onMounted(async () => {
@@ -698,7 +688,7 @@ onMounted(async () => {
 })
 
 onUnmounted(() => {
-  if (eventSource) eventSource.close()
+  if (unsubscribeSSE) unsubscribeSSE()
 })
 </script>
 

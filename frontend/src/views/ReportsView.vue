@@ -313,7 +313,7 @@
 
 <script setup>
 import { ref, computed, onMounted } from 'vue'
-import { getEndpoints, getUptimeReport, exportBatchTelemetry } from '../services/api.js'
+import { getFleetSummary, exportBatchTelemetry } from '../services/api.js'
 
 const loading = ref(false)
 const exporting = ref(false)
@@ -361,47 +361,25 @@ async function loadAllReports() {
   const { start, end } = getQueryRange()
 
   try {
-    const epRes = await getEndpoints()
-    const epList = epRes.data?.data || []
+    const res = await getFleetSummary(start, end)
+    const summaryData = res.data?.data || {}
+    const epList = summaryData.endpoints || []
     endpoints.value = epList
 
-    const uptimePromises = epList.map(async (ep) => {
-      try {
-        const repRes = await getUptimeReport(ep.id, start, end)
-        const repData = repRes.data?.data || {}
-        return {
-          id: ep.id,
-          hostname: ep.hostname,
-          ip_address: ep.ip_address,
-          device_type: ep.device_type || 'SERVER',
-          operational_state: ep.current_operational_state || ep.endpoint_status || 'UP',
-          detailed_state: ep.current_detailed_state || 'UP',
-          monitoring_enabled: ep.monitoring_enabled,
-          uptime_percentage: repData.uptime_percentage != null ? repData.uptime_percentage : (parseFloat(ep.uptime_percentage_24h) || 100.0),
-          incident_count: repData.incident_count || 0,
-          uptime_seconds: repData.uptime_seconds || 0,
-          downtime_seconds: repData.downtime_seconds || 0,
-          total_seconds: repData.total_seconds || 0,
-        }
-      } catch (err) {
-        return {
-          id: ep.id,
-          hostname: ep.hostname,
-          ip_address: ep.ip_address,
-          device_type: ep.device_type || 'SERVER',
-          operational_state: ep.current_operational_state || ep.endpoint_status || 'UP',
-          detailed_state: ep.current_detailed_state || 'UP',
-          monitoring_enabled: ep.monitoring_enabled,
-          uptime_percentage: parseFloat(ep.uptime_percentage_24h) || 100.0,
-          incident_count: 0,
-          uptime_seconds: 0,
-          downtime_seconds: 0,
-          total_seconds: 0,
-        }
-      }
-    })
-
-    reportRows.value = await Promise.all(uptimePromises)
+    reportRows.value = epList.map((ep) => ({
+      id: ep.id,
+      hostname: ep.hostname,
+      ip_address: ep.ip_address,
+      device_type: ep.device_type || 'SERVER',
+      operational_state: ep.operational_state || 'UP',
+      detailed_state: ep.detailed_state || 'UP',
+      monitoring_enabled: ep.monitoring_enabled,
+      uptime_percentage: ep.uptime_percentage != null ? ep.uptime_percentage : 100.0,
+      incident_count: ep.incident_count || 0,
+      uptime_seconds: ep.uptime_seconds || 0,
+      downtime_seconds: ep.downtime_seconds || 0,
+      total_seconds: ep.total_seconds || 0,
+    }))
   } catch (err) {
     console.error('Failed to load fleet reports:', err)
     error.value = err.response?.data?.detail || 'Failed to assemble fleet report metrics.'

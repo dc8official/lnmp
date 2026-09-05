@@ -21,15 +21,10 @@ logger = logging.getLogger(__name__)
 
 _ph = PasswordHasher()
 
-# Default trusted reverse proxy CIDR networks
+# Default trusted reverse proxy CIDR networks (strictly loopback)
 DEFAULT_TRUSTED_PROXIES = [
     ipaddress.ip_network("127.0.0.0/8"),
-    ipaddress.ip_network("10.0.0.0/8"),
-    ipaddress.ip_network("172.16.0.0/12"),
-    ipaddress.ip_network("192.168.0.0/16"),
     ipaddress.ip_network("::1/128"),
-    ipaddress.ip_network("fc00::/7"),
-    ipaddress.ip_network("fe80::/10"),
 ]
 
 # IP-Scoped Failed Login Tracker:
@@ -165,17 +160,45 @@ def register_session(user_id: str, jti: str, max_sessions: int = 2) -> None:
         pass
 
 
-def is_session_active(user_id: str, jti: Optional[str]) -> bool:
+class AwaitableBool:
+    """
+    A boolean wrapper that supports both synchronous truthiness evaluation
+    and asynchronous await expressions. Ensures backwards compatibility across
+    sync test suites (e.g. test_auth_security.py) and async callers.
+    """
+    __slots__ = ("_val",)
+
+    def __init__(self, val: bool) -> None:
+        self._val = bool(val)
+
+    def __bool__(self) -> bool:
+        return self._val
+
+    def __eq__(self, other: object) -> bool:
+        if isinstance(other, AwaitableBool):
+            return self._val == other._val
+        return self._val == other
+
+    def __repr__(self) -> str:
+        return repr(self._val)
+
+    def __await__(self):
+        async def _coro():
+            return self._val
+        return _coro().__await__()
+
+
+def is_session_active(user_id: str, jti: Optional[str]) -> AwaitableBool:
     """
     Validates if a given JTI session token is active for the user.
-    If no JTI is present or session registry has no record for this user, returns True for backward compatibility.
+    Option B (Strict Security Wipe): Invalidate legacy tokens without jti immediately.
     """
     if not jti:
-        return True
+        return AwaitableBool(False)
     u_id = str(user_id)
     if u_id not in _active_user_sessions:
-        return True
-    return jti in _active_user_sessions[u_id]
+        return AwaitableBool(False)
+    return AwaitableBool(jti in _active_user_sessions[u_id])
 
 
 def invalidate_session(user_id: str, jti: Optional[str]) -> None:

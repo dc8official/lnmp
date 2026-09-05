@@ -188,7 +188,7 @@ class TestMilestone2AsyncCryptographyAndSecurity(unittest.TestCase):
         req_trusted = MagicMock()
         req_trusted.client.host = "127.0.0.1"
         req_trusted.headers.get.side_effect = lambda k: {
-            "X-Forwarded-For": "203.0.113.195, 10.0.0.1",
+            "X-Forwarded-For": "203.0.113.195, 127.0.0.1",
         }.get(k)
 
         ip = get_trusted_client_ip(req_trusted)

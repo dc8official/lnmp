@@ -201,23 +201,44 @@ def _sync_ssl_probe(
             with context.wrap_socket(sock, server_hostname=host) as ssock:
                 cert = ssock.getpeercert(binary_form=False)
                 latency_ms = (time.perf_counter() - start_time) * 1000.0
+                expiry_dt = None
 
-                if not cert or "notAfter" not in cert:
-                    # Fallback binary form decode
+                if cert and "notAfter" in cert:
+                    # Standard format: 'May 15 12:00:00 2027 GMT'
+                    not_after_str = cert.get("notAfter")
+                    expiry_dt = datetime.strptime(
+                        not_after_str, "%b %d %H:%M:%S %Y %Z"
+                    ).replace(tzinfo=timezone.utc)
+                else:
+                    # Fallback binary form decode when verify_mode == CERT_NONE
                     bin_cert = ssock.getpeercert(binary_form=True)
-                    if not bin_cert:
-                        return {
-                            "success": True,
-                            "days_until_expiry": None,
-                            "latency_ms": round(latency_ms, 2),
-                            "error": None,
-                        }
+                    if bin_cert:
+                        try:
+                            from cryptography import x509
 
-                # Standard format: 'May 15 12:00:00 2027 GMT'
-                not_after_str = cert.get("notAfter")
-                expiry_dt = datetime.strptime(
-                    not_after_str, "%b %d %H:%M:%S %Y %Z"
-                ).replace(tzinfo=timezone.utc)
+                            x509_cert = x509.load_der_x509_certificate(bin_cert)
+                            if hasattr(x509_cert, "not_valid_after_utc"):
+                                expiry_dt = x509_cert.not_valid_after_utc
+                            else:
+                                expiry_dt = x509_cert.not_valid_after.replace(
+                                    tzinfo=timezone.utc
+                                )
+                        except Exception as parse_err:
+                            logger.warning(
+                                "Failed to parse DER certificate for %s: %s",
+                                host,
+                                parse_err,
+                            )
+
+                if expiry_dt is None:
+                    return {
+                        "success": True,
+                        "days_until_expiry": None,
+                        "expires_at": None,
+                        "latency_ms": round(latency_ms, 2),
+                        "error": None,
+                    }
+
                 now_dt = datetime.now(timezone.utc)
                 days_left = (expiry_dt - now_dt).days
 

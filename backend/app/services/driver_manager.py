@@ -38,6 +38,7 @@ class StorageDriverManager:
         redis_db = 0
 
         # Check system_settings if available
+        db_performance_mode: Optional[bool] = None
         try:
             async with AsyncSessionLocal() as db:
                 stmt = select(SystemSetting).where(
@@ -45,17 +46,36 @@ class StorageDriverManager:
                 )
                 res = await db.execute(stmt)
                 row = res.scalar_one_or_none()
-                if row and str(row.setting_value).lower() in ("true", "1", "redis"):
-                    redis_enabled = True
+                if row is not None:
+                    db_performance_mode = str(row.setting_value).strip().lower() in (
+                        "true",
+                        "1",
+                        "redis",
+                        "yes",
+                    )
         except Exception:
             pass
 
         # Check config settings if performance_mode is configured
-        if hasattr(settings, "redis") and getattr(settings.redis, "enabled", False):
-            redis_enabled = True
+        if db_performance_mode is not None:
+            redis_enabled = db_performance_mode
+        else:
+            redis_cfg_enabled = getattr(settings.redis, "enabled", True)
+            redis_perf_mode = getattr(settings.redis, "performance_mode", False)
+            redis_enabled = bool(redis_cfg_enabled and redis_perf_mode)
+
+        if hasattr(settings, "redis"):
             redis_host = getattr(settings.redis, "host", "127.0.0.1")
             redis_port = getattr(settings.redis, "port", 6379)
             redis_db = getattr(settings.redis, "db", 0)
+
+        # Clean up existing Redis client before re-initializing
+        if self._redis_client is not None:
+            try:
+                await self._redis_client.aclose()
+            except Exception:
+                pass
+            self._redis_client = None
 
         if redis_enabled:
             try:
@@ -84,6 +104,12 @@ class StorageDriverManager:
                     "StorageDriverManager: Redis unreachable (%s). Falling back gracefully to PostgreSQL-Native driver.",
                     e,
                 )
+                if self._redis_client is not None:
+                    try:
+                        await self._redis_client.aclose()
+                    except Exception:
+                        pass
+                    self._redis_client = None
 
         # Fallback to PostgreSQL-Native driver
         self._session_store = PostgresSessionStore(AsyncSessionLocal)

@@ -153,6 +153,7 @@ import { Network } from 'vis-network'
 import { DataSet } from 'vis-data'
 import { getTopology } from '../services/api.js'
 import EndpointRcaDetail from './EndpointRcaDetail.vue'
+import { useSSE } from '../composables/useSSE.js'
 
 const container = ref(null)
 const loading = ref(true)
@@ -160,7 +161,8 @@ const error = ref(null)
 const networkInitialized = ref(false)
 const stabilized = ref(false)
 const layoutDirection = ref('UD')
-const sseConnected = ref(false)
+const { sseConnected, subscribe } = useSSE()
+let unsubscribeSSE = null
 
 const selectedNode = ref(null)
 
@@ -178,7 +180,6 @@ const legendCounts = reactive({
 let network = null
 let nodesDataSet = null
 let edgesDataSet = null
-let eventSource = null
 
 // Dark theme monitoring
 const isDark = ref(true)
@@ -533,52 +534,41 @@ function resetView() {
 }
 
 function initSSE() {
-  const sseUrl = '/api/v1/events/stream'
-  try {
-    eventSource = new EventSource(sseUrl)
-
-    eventSource.onopen = () => {
-      sseConnected.value = true
-    }
-
-    eventSource.onmessage = (event) => {
-      if (!event.data) return
-      try {
-        const payload = JSON.parse(event.data)
-        if (payload.type === 'NODE_STATE_CHANGE' && payload.endpoint_id && nodesDataSet) {
-          const nodeId = payload.endpoint_id
-          const existing = nodesDataSet.get(nodeId)
-          if (existing) {
-            const nodeType = existing.rawNode?.node_type || existing.rawNode?.type || 'monitored'
-            const colors = getNodeColors(payload.new_state, nodeType)
-            nodesDataSet.update({
-              id: nodeId,
-              color: colors,
-              rawNode: {
-                ...existing.rawNode,
-                status: payload.new_state,
-                state: payload.new_state
-              }
-            })
-            // Update currently inspected node if open
-            if (selectedNode.value && selectedNode.value.id === nodeId) {
-              selectedNode.value.status = payload.new_state
-              selectedNode.value.state = payload.new_state
+  unsubscribeSSE = subscribe((event) => {
+    if (!event.data) return
+    try {
+      const isNodeStateChange = payload.type === 'NODE_STATE_CHANGE'
+      const isStateTransition = payload.type === 'STATE_TRANSITION'
+      if ((isNodeStateChange || isStateTransition) && payload.endpoint_id && nodesDataSet) {
+        const nodeId = payload.endpoint_id
+        const newState = isNodeStateChange
+          ? payload.new_state
+          : (payload.detailed_state || payload.operational_state)
+        const existing = nodesDataSet.get(nodeId)
+        if (existing && newState) {
+          const nodeType = existing.rawNode?.node_type || existing.rawNode?.type || 'monitored'
+          const colors = getNodeColors(newState, nodeType)
+          nodesDataSet.update({
+            id: nodeId,
+            color: colors,
+            rawNode: {
+              ...existing.rawNode,
+              status: newState,
+              state: newState
             }
-            updateLegendCounts()
+          })
+          // Update currently inspected node if open
+          if (selectedNode.value && selectedNode.value.id === nodeId) {
+            selectedNode.value.status = newState
+            selectedNode.value.state = newState
           }
+          updateLegendCounts()
         }
-      } catch (e) {
-        // Heartbeat or malformed payload
       }
+    } catch (e) {
+      // Heartbeat or malformed payload
     }
-
-    eventSource.onerror = () => {
-      sseConnected.value = false
-    }
-  } catch (e) {
-    sseConnected.value = false
-  }
+  })
 }
 
 onMounted(() => {
@@ -596,7 +586,7 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
-  if (eventSource) eventSource.close()
+  if (unsubscribeSSE) unsubscribeSSE()
   if (network) network.destroy()
   if (themeObserver) themeObserver.disconnect()
 })

@@ -64,3 +64,32 @@ class IncidentRecord(BaseModel):
         else:
             v = v.astimezone(timezone.utc)
         return v.isoformat()
+
+
+class FleetEndpointSummary(BaseModel):
+    id: UUID
+    hostname: str
+    ip_address: str
+    device_type: str
+    operational_state: str
+    detailed_state: str
+    monitoring_enabled: bool
+    uptime_percentage: float
+    incident_count: int
+    uptime_seconds: int
+    downtime_seconds: int
+    total_seconds: int
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class FleetSummaryResponse(BaseModel):
+    fleet_sla: float
+    active_endpoints_count: int
+    total_endpoints_count: int
+    total_incident_count: int
+    total_downtime_seconds: int
+    endpoints: list[FleetEndpointSummary]
+
+    model_config = ConfigDict(from_attributes=True)
+

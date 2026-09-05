@@ -172,3 +172,21 @@ export function updateUser(userId, data) {
 export function deleteUser(userId) {
   return api.delete(`/users/${userId}`)
 }
+
+export function getFleetSummary(startDate, endDate) {
+  return api.get('/reports/fleet-summary', {
+    params: {
+      start_date: startDate,
+      end_date: endDate,
+    },
+  })
+}
+
+export function getSettings() {
+  return api.get('/settings')
+}
+
+export function updateSettings(data) {
+  return api.patch('/settings', data)
+}
+

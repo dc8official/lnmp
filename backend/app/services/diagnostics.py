@@ -40,11 +40,27 @@ def is_local_subnet_destination(target_ip: str) -> bool:
         addrs = psutil.net_if_addrs()
         for nic_name, nic_addrs in addrs.items():
             for addr in nic_addrs:
-                if addr.family.name == "AF_INET" and addr.address and addr.netmask:
+                fam = getattr(addr, "family", None)
+                is_ipv4 = False
+                if fam is not None:
+                    fam_name = getattr(fam, "name", None)
+                    if fam_name == "AF_INET" or fam == 2 or str(fam) == "AddressFamily.AF_INET":
+                        is_ipv4 = True
+                if is_ipv4 and getattr(addr, "address", None):
                     if not addr.address.startswith("127."):
-                        local_net = ipaddress.ip_network(
-                            f"{addr.address}/24", strict=False
-                        )
+                        try:
+                            if getattr(addr, "netmask", None):
+                                local_net = ipaddress.ip_network(
+                                    f"{addr.address}/{addr.netmask}", strict=False
+                                )
+                            else:
+                                local_net = ipaddress.ip_network(
+                                    f"{addr.address}/24", strict=False
+                                )
+                        except Exception:
+                            local_net = ipaddress.ip_network(
+                                f"{addr.address}/24", strict=False
+                            )
                         if target_obj in local_net:
                             return True
     except Exception:

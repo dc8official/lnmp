@@ -48,6 +48,7 @@ class TestFullAuthUserFlow(unittest.TestCase):
 
         db_res = MagicMock()
         db_res.fetchone.return_value = user_row
+        db_res.scalar_one_or_none.return_value = user_row
         mock_db.execute.return_value = db_res
 
         res = self.loop.run_until_complete(
@@ -73,6 +74,7 @@ class TestFullAuthUserFlow(unittest.TestCase):
 
         db_res = MagicMock()
         db_res.fetchone.return_value = user_row
+        db_res.scalar_one_or_none.return_value = user_row
         mock_db.execute.return_value = db_res
 
         with self.assertRaises(HTTPException) as cm:
@@ -95,6 +97,7 @@ class TestFullAuthUserFlow(unittest.TestCase):
 
         db_res = MagicMock()
         db_res.fetchone.return_value = user_row
+        db_res.scalar_one_or_none.return_value = user_row
         mock_db.execute.return_value = db_res
 
         res = self.loop.run_until_complete(
@@ -111,16 +114,19 @@ class TestFullAuthUserFlow(unittest.TestCase):
         # Mock no dup user
         dup_res = MagicMock()
         dup_res.fetchone.return_value = None
+        dup_res.scalar_one_or_none.return_value = None
 
         # Mock role search
         role_row = MagicMock(id=uuid4())
         role_res = MagicMock()
         role_res.fetchone.return_value = role_row
+        role_res.scalar_one_or_none.return_value = role_row
 
         # Mock insert RETURNING id
         new_user_row = MagicMock(id=uuid4())
         insert_res = MagicMock()
         insert_res.fetchone.return_value = new_user_row
+        insert_res.scalar_one_or_none.return_value = new_user_row
 
         mock_db.execute.side_effect = [dup_res, role_res, insert_res, MagicMock()]
 

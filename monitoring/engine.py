@@ -18,6 +18,7 @@ from monitoring.state_machine import EndpointState, StateMachine
 
 from app.logging_config import setup_logging
 from app.config import settings
+from app.services.driver_manager import driver_manager
 
 logger = setup_logging(
     service_name="netmon-engine",
@@ -213,6 +214,7 @@ async def monitor_endpoint(
 
 async def main() -> None:
     logger.info("lnmp monitoring engine starting.")
+    await driver_manager.initialize()
     async with AsyncSessionLocal() as db:
         await resolve_startup_state(db)
         await baseline_cache.refresh_from_db(db)

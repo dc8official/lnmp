@@ -38,12 +38,19 @@ class TestSecurityAuditFixes(unittest.TestCase):
 
         mock_db = AsyncMock()
 
+        u_id = str(uuid4())
+        test_jti = "test_jti_active"
         # Mock payload decoded cleanly
-        with patch("app.routers.auth.decode_access_token") as mock_decode:
-            mock_decode.return_value = {"sub": str(uuid4()), "username": "disabled_user", "role": "USER"}
+        with patch("app.routers.auth.decode_access_token") as mock_decode, \
+             patch("app.routers.auth.driver_manager.get_session_store") as mock_get_store:
+            mock_decode.return_value = {"sub": u_id, "username": "disabled_user", "role": "USER", "jti": test_jti}
+            mock_store = AsyncMock()
+            mock_store.is_session_active.return_value = True
+            mock_get_store.return_value = mock_store
 
             # Case 1: Inactive user in DB
             db_res = MagicMock()
+            db_res.scalar_one_or_none.return_value = MagicMock(is_active=False, must_change_password=False)
             db_res.fetchone.return_value = MagicMock(is_active=False, must_change_password=False)
             mock_db.execute.return_value = db_res
 
@@ -106,10 +113,15 @@ class TestSecurityAuditFixes(unittest.TestCase):
         mock_db = AsyncMock()
         test_user_id = str(uuid4())
 
-        with patch("app.routers.auth.decode_access_token") as mock_decode:
-            mock_decode.return_value = {"sub": test_user_id, "username": "active_user", "role": "ADMIN"}
+        with patch("app.routers.auth.decode_access_token") as mock_decode, \
+             patch("app.routers.auth.driver_manager.get_session_store") as mock_get_store:
+            mock_decode.return_value = {"sub": test_user_id, "username": "active_user", "role": "ADMIN", "jti": "jti_123"}
+            mock_store = AsyncMock()
+            mock_store.is_session_active.return_value = True
+            mock_get_store.return_value = mock_store
 
             db_res = MagicMock()
+            db_res.scalar_one_or_none.return_value = MagicMock(is_active=True, must_change_password=False)
             db_res.fetchone.return_value = MagicMock(is_active=True, must_change_password=False)
             mock_db.execute.return_value = db_res
 

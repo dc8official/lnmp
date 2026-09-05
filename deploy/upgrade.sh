@@ -128,6 +128,30 @@ EOF
     fi
 fi
 
+# Pre-Flight: Build Frontend Assets Before Service Pause
+echo -e "\n${BLUE}--- Pre-Flight: Verifying & Compiling Frontend Production Bundle ---${NC}"
+FRONTEND_DIR="${PROJECT_ROOT}/frontend"
+if [[ ${DRY_RUN} -eq 0 && -d "${FRONTEND_DIR}" && -f "${FRONTEND_DIR}/package.json" ]]; then
+    if command -v npm &>/dev/null; then
+        echo -e "${GREEN}[INFO] Building Vue 3 frontend bundle in pre-flight (${FRONTEND_DIR})...${NC}"
+        if (cd "${FRONTEND_DIR}" && npm install && npm run build); then
+            echo -e "${GREEN}[SUCCESS] Pre-flight frontend build completed successfully.${NC}"
+        elif [[ -f "${FRONTEND_DIR}/dist/index.html" ]]; then
+            echo -e "${YELLOW}[WARN] npm build failed or air-gapped network detected. Existing frontend/dist/index.html found; proceeding with pre-built assets.${NC}"
+        else
+            echo -e "${RED}[ERROR] Frontend build failed and no pre-built frontend/dist/index.html found. Aborting upgrade before stopping services.${NC}" >&2
+            exit 1
+        fi
+    elif [[ -f "${FRONTEND_DIR}/dist/index.html" ]]; then
+        echo -e "${GREEN}[INFO] npm command not found; air-gapped environment detected. Using existing pre-built frontend/dist/index.html.${NC}"
+    else
+        echo -e "${RED}[ERROR] npm command not found and no pre-built frontend/dist/index.html exists. Cannot proceed.${NC}" >&2
+        exit 1
+    fi
+else
+    echo -e "[DRY-RUN] Pre-flight frontend build check passed."
+fi
+
 # 5. Service Pause
 echo -e "\n${BLUE}--- Step 3/7: Gracefully Pausing Platform Background Daemons ---${NC}"
 if [[ ${DRY_RUN} -eq 0 ]]; then
@@ -195,14 +219,22 @@ if [[ ${DRY_RUN} -eq 0 ]]; then
             exit 1
         fi
     fi
-    # Rebuild Vue 3 frontend in SOURCE_DIR
+    # Rebuild Vue 3 frontend in SOURCE_DIR if needed
     FRONTEND_DIR="${SOURCE_DIR}/frontend"
     if [[ -d "${FRONTEND_DIR}" && -f "${FRONTEND_DIR}/package.json" ]]; then
-        echo -e "${GREEN}[INFO] Rebuilding production Vue 3 frontend bundle in ${FRONTEND_DIR}...${NC}"
-        cd "${FRONTEND_DIR}"
-        npm install
-        npm run build
-        cd "${PROJECT_ROOT}"
+        if command -v npm &>/dev/null; then
+            echo -e "${GREEN}[INFO] Rebuilding production Vue 3 frontend bundle in ${FRONTEND_DIR}...${NC}"
+            (cd "${FRONTEND_DIR}" && npm install && npm run build) || {
+                if [[ -f "${FRONTEND_DIR}/dist/index.html" ]]; then
+                    echo -e "${YELLOW}[WARN] npm build failed or air-gapped network detected. Existing frontend/dist/index.html found; proceeding.${NC}"
+                else
+                    echo -e "${RED}[ERROR] Frontend build failed and no pre-built dist/index.html found.${NC}" >&2
+                    exit 1
+                fi
+            }
+        elif [[ -f "${FRONTEND_DIR}/dist/index.html" ]]; then
+            echo -e "${GREEN}[INFO] npm not found; using existing pre-built ${FRONTEND_DIR}/dist/index.html.${NC}"
+        fi
     fi
 else
     echo -e "[DRY-RUN] Would fetch latest code from ${REPO_URL} (${UPGRADE_BRANCH}), build Vue 3 frontend, and ensure system packages (redis-server, traceroute, libcap2-bin)"
@@ -269,7 +301,7 @@ if [[ ${DRY_RUN} -eq 0 ]]; then
 
     if [[ -d "${INSTALL_DIR}/backend/migrations" && -n "${ALEMBIC_BIN}" ]]; then
         echo -e "${GREEN}[INFO] Running Alembic schema migration (alembic upgrade head)...${NC}"
-        PYTHONPATH="${INSTALL_DIR}:${INSTALL_DIR}/backend" "${ALEMBIC_BIN}" -c "${INSTALL_DIR}/backend/alembic.ini" upgrade head || true
+        PYTHONPATH="${INSTALL_DIR}:${INSTALL_DIR}/backend" "${ALEMBIC_BIN}" -c "${INSTALL_DIR}/backend/alembic.ini" upgrade head
         
         PYTHON_BIN="$(dirname "${ALEMBIC_BIN}")/python"
         if [[ -f "${PYTHON_BIN}" ]]; then

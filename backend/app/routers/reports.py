@@ -3,7 +3,7 @@ from __future__ import annotations
 import csv
 import io
 import logging
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from math import ceil
 from typing import Any, List, Optional, Union
 from uuid import UUID
@@ -11,7 +11,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict
-from sqlalchemy import select
+from sqlalchemy import and_, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import AsyncSessionLocal, get_db
@@ -23,11 +23,15 @@ from app.routers.auth import get_current_user
 from app.schemas import (
     APIResponse,
     EventRecord,
+    FleetEndpointSummary,
+    FleetSummaryResponse,
     PaginationMeta,
     UptimeReport,
 )
 from app.services.uptime_calculator import (
+    calculate_device_gap_seconds,
     calculate_uptime_denominator_and_percentage,
+    get_service_gap_intervals,
 )
 
 logger = logging.getLogger(__name__)
@@ -73,6 +77,174 @@ def _validate_date_range(
         )
 
 
+@router.get("/fleet-summary", response_model=APIResponse)
+async def get_fleet_summary(
+    start_date: str = Query(...),
+    end_date: str = Query(...),
+    current_user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    start_dt = parse_datetime_param(start_date, is_end=False)
+    end_dt = parse_datetime_param(end_date, is_end=True)
+    _validate_date_range(start_dt, end_dt)
+
+    stmt = (
+        select(Endpoint)
+        .where(Endpoint.endpoint_status != "DELETED")
+        .order_by(Endpoint.hostname.asc())
+    )
+    res = await db.execute(stmt)
+    endpoints = res.scalars().all()
+
+    stats_map = {}
+    cte_query = text("""
+        WITH ranked_events AS (
+            SELECT
+                endpoint_id,
+                operational_state,
+                detailed_state,
+                ROW_NUMBER() OVER (PARTITION BY endpoint_id ORDER BY start_time DESC) AS rn,
+                LAG(operational_state) OVER (PARTITION BY endpoint_id ORDER BY start_time ASC) AS prev_state
+            FROM endpoint_events
+            WHERE start_time >= :start_dt AND start_time <= :end_dt
+        )
+        SELECT
+            endpoint_id,
+            COUNT(CASE WHEN operational_state = 'UP' THEN 1 END) AS up_count,
+            COUNT(CASE WHEN operational_state = 'DOWN' THEN 1 END) AS down_count,
+            COUNT(CASE WHEN operational_state = 'DOWN' AND (prev_state IS NULL OR prev_state != 'DOWN') THEN 1 END) AS incident_count,
+            MAX(CASE WHEN rn = 1 THEN operational_state END) AS latest_operational_state,
+            MAX(CASE WHEN rn = 1 THEN detailed_state END) AS latest_detailed_state
+        FROM ranked_events
+        GROUP BY endpoint_id
+    """)
+
+    try:
+        raw_res = await db.execute(cte_query, {"start_dt": start_dt, "end_dt": end_dt})
+        for r in raw_res.mappings():
+            stats_map[str(r["endpoint_id"])] = r
+    except Exception as e:
+        logger.warning("CTE fleet summary query failed, using manual event fallback: %s", e)
+        ev_stmt = (
+            select(EndpointEvent)
+            .where(
+                EndpointEvent.start_time >= start_dt,
+                EndpointEvent.start_time <= end_dt,
+            )
+            .order_by(EndpointEvent.start_time.asc())
+        )
+        ev_res = await db.execute(ev_stmt)
+        all_events = ev_res.scalars().all()
+        grouped_events: dict[str, list[EndpointEvent]] = {}
+        for ev in all_events:
+            grouped_events.setdefault(str(ev.endpoint_id), []).append(ev)
+        for ep_key, evs in grouped_events.items():
+            up_cnt = sum(1 for ev in evs if ev.operational_state == "UP")
+            down_cnt = sum(1 for ev in evs if ev.operational_state == "DOWN")
+            inc_cnt = 0
+            prev_st = None
+            for ev in evs:
+                if ev.operational_state == "DOWN" and prev_st != "DOWN":
+                    inc_cnt += 1
+                prev_st = ev.operational_state
+            last_ev = evs[-1]
+            stats_map[ep_key] = {
+                "endpoint_id": ep_key,
+                "up_count": up_cnt,
+                "down_count": down_cnt,
+                "incident_count": inc_cnt,
+                "latest_operational_state": last_ev.operational_state,
+                "latest_detailed_state": last_ev.detailed_state,
+            }
+
+    gap_intervals = await get_service_gap_intervals(db, start_dt, end_dt)
+    now_utc = datetime.now(timezone.utc)
+    endpoint_summaries = []
+
+    for ep in endpoints:
+        ep_id_str = str(ep.id)
+        ep_stats = stats_map.get(ep_id_str)
+        up_count = ep_stats["up_count"] if ep_stats else 0
+        down_count = ep_stats["down_count"] if ep_stats else 0
+        incident_count = ep_stats["incident_count"] if ep_stats else 0
+        op_state = (
+            ep_stats["latest_operational_state"]
+            if (ep_stats and ep_stats.get("latest_operational_state"))
+            else ("UP" if ep.endpoint_status == "ACTIVE" else "DOWN")
+        )
+        det_state = (
+            ep_stats["latest_detailed_state"]
+            if (ep_stats and ep_stats.get("latest_detailed_state"))
+            else op_state
+        )
+
+        created_at = ep.created_at
+        if created_at.tzinfo is None:
+            created_at = created_at.replace(tzinfo=timezone.utc)
+        else:
+            created_at = created_at.astimezone(timezone.utc)
+
+        effective_start = max(start_dt, created_at)
+        effective_end = min(end_dt, now_utc)
+        total_seconds = max(0, int((effective_end - effective_start).total_seconds()))
+
+        unknown_seconds = calculate_device_gap_seconds(
+            effective_start, effective_end, gap_intervals
+        )
+        uptime_percentage = calculate_uptime_denominator_and_percentage(
+            created_at=created_at,
+            start_time=start_dt,
+            end_time=end_dt,
+            now_utc=now_utc,
+            up_events_count=up_count,
+            unknown_seconds=unknown_seconds,
+            gap_intervals=gap_intervals,
+        )
+        uptime_seconds = up_count * 60
+        downtime_seconds = down_count * 60
+
+        endpoint_summaries.append(
+            FleetEndpointSummary(
+                id=ep.id,
+                hostname=ep.hostname,
+                ip_address=str(ep.ip_address),
+                device_type=ep.device_type,
+                operational_state=op_state,
+                detailed_state=det_state,
+                monitoring_enabled=ep.monitoring_enabled,
+                uptime_percentage=uptime_percentage,
+                incident_count=incident_count,
+                uptime_seconds=uptime_seconds,
+                downtime_seconds=downtime_seconds,
+                total_seconds=total_seconds,
+            )
+        )
+
+    active_endpoints_count = sum(1 for ep in endpoints if ep.monitoring_enabled)
+    total_endpoints_count = len(endpoints)
+    total_incident_count = sum(e.incident_count for e in endpoint_summaries)
+    total_downtime_seconds = sum(e.downtime_seconds for e in endpoint_summaries)
+    fleet_sla = (
+        round(
+            sum(e.uptime_percentage for e in endpoint_summaries)
+            / len(endpoint_summaries),
+            2,
+        )
+        if endpoint_summaries
+        else 100.0
+    )
+
+    fleet_summary = FleetSummaryResponse(
+        fleet_sla=fleet_sla,
+        active_endpoints_count=active_endpoints_count,
+        total_endpoints_count=total_endpoints_count,
+        total_incident_count=total_incident_count,
+        total_downtime_seconds=total_downtime_seconds,
+        endpoints=endpoint_summaries,
+    )
+    return APIResponse.success(data=fleet_summary)
+
+
 @router.get("/uptime/{endpoint_id}", response_model=APIResponse)
 async def get_uptime_report(
     endpoint_id: UUID,
@@ -101,8 +273,11 @@ async def get_uptime_report(
     effective_end = min(end_dt, now_utc)
     total_seconds = max(0, int((effective_end - effective_start).total_seconds()))
 
+    gap_intervals = await get_service_gap_intervals(db, start_dt, end_dt)
+    unknown_seconds = calculate_device_gap_seconds(
+        effective_start, effective_end, gap_intervals
+    )
     rep_repo = ReportRepository(db)
-    unknown_seconds = await rep_repo.get_unknown_seconds(effective_start, end_dt)
     events = await rep_repo.get_uptime_events(endpoint_id, effective_start, end_dt)
 
     uptime_seconds = 0
@@ -121,6 +296,7 @@ async def get_uptime_report(
         now_utc=now_utc,
         up_events_count=uptime_seconds // 60,
         unknown_seconds=unknown_seconds,
+        gap_intervals=gap_intervals,
     )
 
     incident_count = 0
@@ -286,7 +462,8 @@ async def csv_generator(
     output.seek(0)
     output.truncate(0)
 
-    offset = 0
+    last_start_time: Optional[datetime] = None
+    last_id: Optional[UUID] = None
     limit = 1000
 
     try:
@@ -306,10 +483,22 @@ async def csv_generator(
                         EndpointEvent.start_time >= start_time,
                         EndpointEvent.start_time <= end_time,
                     )
-                    .order_by(EndpointEvent.start_time.asc())
-                    .limit(limit)
-                    .offset(offset)
                 )
+                if last_start_time is not None and last_id is not None:
+                    stmt = stmt.where(
+                        or_(
+                            EndpointEvent.start_time > last_start_time,
+                            and_(
+                                EndpointEvent.start_time == last_start_time,
+                                EndpointEvent.id > last_id,
+                            ),
+                        )
+                    )
+                stmt = stmt.order_by(
+                    EndpointEvent.start_time.asc(),
+                    EndpointEvent.id.asc(),
+                ).limit(limit)
+
                 result = await session.execute(stmt)
                 rows = result.all()
 
@@ -359,10 +548,12 @@ async def csv_generator(
                 output.seek(0)
                 output.truncate(0)
 
+            last_ev = rows[-1][0]
+            last_start_time = last_ev.start_time
+            last_id = last_ev.id
+
             if len(rows) < limit:
                 break
-
-            offset += limit
     finally:
         output.close()
 

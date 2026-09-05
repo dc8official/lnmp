@@ -110,13 +110,15 @@ import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter, useRoute, RouterLink, RouterView } from 'vue-router'
 import { logout, changePassword, getVersion } from './services/api.js'
 import { currentUser, isAdmin, mustChangePassword, loadUserFromStorage, setUserState, clearUserState } from './services/auth.js'
+import { useSSE } from './composables/useSSE.js'
 
 const router = useRouter()
 const route = useRoute()
 const isDark = ref(true)
 const appVersion = ref('v3.0.0')
 const liveAnnouncement = ref('')
-let globalSse = null
+const { subscribe } = useSSE()
+let unsubscribeSSE = null
 
 const noNavRoutes = ['/login', '/change-password']
 const showNav = computed(() => !noNavRoutes.includes(route.path))
@@ -155,24 +157,21 @@ onMounted(async () => {
   }
 
   // Global SSE listener for accessibility screen reader announcements
-  try {
-    globalSse = new EventSource('/api/v1/events/stream')
-    globalSse.onmessage = (e) => {
-      if (!e.data) return
-      try {
-        const payload = JSON.parse(e.data)
-        if (payload.type === 'STATE_TRANSITION') {
-          liveAnnouncement.value = `Network update: Endpoint state transitioned to ${payload.detailed_state}`
-        } else if (payload.type === 'NODE_STATE_CHANGE') {
-          liveAnnouncement.value = `Topology update: Node status is now ${payload.new_state}`
-        }
-      } catch (err) {}
-    }
-  } catch (err) {}
+  unsubscribeSSE = subscribe((e) => {
+    if (!e.data) return
+    try {
+      const payload = JSON.parse(e.data)
+      if (payload.type === 'STATE_TRANSITION') {
+        liveAnnouncement.value = `Network update: Endpoint state transitioned to ${payload.detailed_state}`
+      } else if (payload.type === 'NODE_STATE_CHANGE') {
+        liveAnnouncement.value = `Topology update: Node status is now ${payload.new_state}`
+      }
+    } catch (err) {}
+  })
 })
 
 onUnmounted(() => {
-  if (globalSse) globalSse.close()
+  if (unsubscribeSSE) unsubscribeSSE()
 })
 
 function toggleTheme() {

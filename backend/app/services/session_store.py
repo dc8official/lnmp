@@ -122,7 +122,7 @@ class PostgresSessionStore(SessionStore):
 
     async def is_session_active(self, user_id: str, jti: Optional[str]) -> bool:
         if not jti:
-            return True
+            return False
         try:
             u_uuid = UUID(str(user_id))
         except (ValueError, TypeError):
@@ -141,7 +141,7 @@ class PostgresSessionStore(SessionStore):
                 return row is not None
             except Exception as e:
                 logger.error("PostgresSessionStore.is_session_active error: %s", e)
-                return True
+                return False
 
     async def invalidate_session(self, user_id: str, jti: Optional[str]) -> None:
         if not jti:
@@ -213,7 +213,7 @@ class RedisSessionStore(SessionStore):
 
     async def is_session_active(self, user_id: str, jti: Optional[str]) -> bool:
         if not jti:
-            return True
+            return False
         key = self._get_key(user_id)
         try:
             raw = await self.redis.get(key)

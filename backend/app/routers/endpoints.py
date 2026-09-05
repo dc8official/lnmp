@@ -18,6 +18,7 @@ from app.routers.auth import get_current_user, require_admin
 from app.schemas import APIResponse, PaginationMeta
 from app.services.uptime_calculator import (
     calculate_uptime_denominator_and_percentage,
+    get_service_gap_intervals,
     get_unknown_seconds_for_period,
 )
 
@@ -170,7 +171,7 @@ async def list_endpoints(
         since_utc=since_utc,
         now_utc=now_utc,
     )
-    unknown_seconds = await get_unknown_seconds_for_period(db, since_utc, now_utc)
+    gap_intervals = await get_service_gap_intervals(db, since_utc, now_utc)
 
     data = []
     for row in rows:
@@ -181,7 +182,7 @@ async def list_endpoints(
             end_time=now_utc,
             now_utc=now_utc,
             up_events_count=row["up_events_count"],
-            unknown_seconds=unknown_seconds,
+            gap_intervals=gap_intervals,
         )
         data.append({
             "id": str(row["id"]),
@@ -238,14 +239,14 @@ async def get_endpoint(
     if not row:
         raise HTTPException(status_code=404, detail="Endpoint not found.")
 
-    unknown_seconds = await get_unknown_seconds_for_period(db, since_utc, now_utc)
+    gap_intervals = await get_service_gap_intervals(db, since_utc, now_utc)
     uptime_percentage = calculate_uptime_denominator_and_percentage(
         created_at=row["created_at"],
         start_time=since_utc,
         end_time=now_utc,
         now_utc=now_utc,
         up_events_count=row["up_events_count"],
-        unknown_seconds=unknown_seconds,
+        gap_intervals=gap_intervals,
     )
 
     data = {

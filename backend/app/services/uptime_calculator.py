@@ -1,7 +1,51 @@
+from __future__ import annotations
+
 from datetime import datetime
+from typing import List, Optional, Tuple
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.services.timezone_utils import get_local_timezone
+
+
+def calculate_device_gap_seconds(
+    device_start: datetime,
+    device_end: datetime,
+    gap_intervals: List[Tuple[datetime, datetime]],
+) -> int:
+    """
+    Computes device-specific downtime gap seconds by intersecting the device's
+    operational lifespan [device_start, device_end] with service gap intervals.
+    """
+    local_tz = get_local_timezone()
+    if device_start.tzinfo is None:
+        device_start = device_start.replace(tzinfo=local_tz)
+    else:
+        device_start = device_start.astimezone(local_tz)
+
+    if device_end.tzinfo is None:
+        device_end = device_end.replace(tzinfo=local_tz)
+    else:
+        device_end = device_end.astimezone(local_tz)
+
+    total_gap_seconds = 0
+    for g_start, g_end in gap_intervals:
+        if g_start.tzinfo is None:
+            g_start = g_start.replace(tzinfo=local_tz)
+        else:
+            g_start = g_start.astimezone(local_tz)
+
+        if g_end.tzinfo is None:
+            g_end = g_end.replace(tzinfo=local_tz)
+        else:
+            g_end = g_end.astimezone(local_tz)
+
+        overlap_start = max(g_start, device_start)
+        overlap_end = min(g_end, device_end)
+        if overlap_end > overlap_start:
+            total_gap_seconds += int((overlap_end - overlap_start).total_seconds())
+
+    return total_gap_seconds
+
 
 def calculate_uptime_denominator_and_percentage(
     created_at: datetime,
@@ -9,9 +53,14 @@ def calculate_uptime_denominator_and_percentage(
     end_time: datetime,
     now_utc: datetime,
     up_events_count: int,
-    unknown_seconds: int = 0
+    unknown_seconds: int = 0,
+    gap_intervals: Optional[List[Tuple[datetime, datetime]]] = None,
 ) -> float:
-    # Ensure all datetime objects are timezone-aware in the local timezone
+    """
+    Calculates uptime availability percentage with SLA precision.
+    If gap_intervals is provided, computes exact device-specific intersection
+    against downtime gap intervals.
+    """
     local_tz = get_local_timezone()
     if created_at.tzinfo is None:
         created_at = created_at.replace(tzinfo=local_tz)
@@ -38,68 +87,89 @@ def calculate_uptime_denominator_and_percentage(
     effective_end = min(end_time, now_utc)
 
     total_seconds = max(0, int((effective_end - effective_start).total_seconds()))
-    denominator = total_seconds - unknown_seconds
+
+    if gap_intervals is not None:
+        device_gap_sec = calculate_device_gap_seconds(
+            effective_start, effective_end, gap_intervals
+        )
+    else:
+        device_gap_sec = unknown_seconds
+
+    denominator = total_seconds - device_gap_sec
 
     if denominator <= 0:
         return 100.0  # Return 100% availability if no elapsing time exists yet
-    
+
     uptime_seconds = up_events_count * 60
     percentage = (uptime_seconds / denominator) * 100.0
     return max(0.0, min(100.0, round(percentage, 2)))
 
-async def get_unknown_seconds_for_period(
-    db: AsyncSession,
-    effective_start: datetime,
-    period_end: datetime
-) -> int:
-    # Ensure all datetime objects are timezone-aware in local timezone
-    local_tz = get_local_timezone()
-    if effective_start.tzinfo is None:
-        effective_start = effective_start.replace(tzinfo=local_tz)
-    else:
-        effective_start = effective_start.astimezone(local_tz)
 
-    if period_end.tzinfo is None:
-        period_end = period_end.replace(tzinfo=local_tz)
+async def get_service_gap_intervals(
+    db: AsyncSession,
+    start_dt: datetime,
+    end_dt: datetime,
+) -> List[Tuple[datetime, datetime]]:
+    """
+    Retrieves all service downtime gap intervals overlapping with [start_dt, end_dt].
+    Returns list of (gap_start, gap_end) with timezone awareness.
+    """
+    local_tz = get_local_timezone()
+    if start_dt.tzinfo is None:
+        start_dt = start_dt.replace(tzinfo=local_tz)
     else:
-        period_end = period_end.astimezone(local_tz)
+        start_dt = start_dt.astimezone(local_tz)
+
+    if end_dt.tzinfo is None:
+        end_dt = end_dt.replace(tzinfo=local_tz)
+    else:
+        end_dt = end_dt.astimezone(local_tz)
 
     try:
         query_gaps = text("""
             SELECT start_time, end_time
             FROM monitoring_service_events
-            WHERE start_time < :period_end
-              AND (end_time > :effective_start OR end_time IS NULL)
+            WHERE start_time < :end_dt
+              AND (end_time > :start_dt OR end_time IS NULL)
+            ORDER BY start_time ASC
         """)
         result_gaps = await db.execute(query_gaps, {
-            "effective_start": effective_start,
-            "period_end": period_end,
+            "start_dt": start_dt,
+            "end_dt": end_dt,
         })
         gap_rows = result_gaps.fetchall()
-
-        unknown_seconds = 0
+        intervals: List[Tuple[datetime, datetime]] = []
         for row in gap_rows:
-            row_start_time = row.start_time
-            if row_start_time.tzinfo is None:
-                row_start_time = row_start_time.replace(tzinfo=local_tz)
+            r_start = row.start_time
+            if r_start.tzinfo is None:
+                r_start = r_start.replace(tzinfo=local_tz)
             else:
-                row_start_time = row_start_time.astimezone(local_tz)
+                r_start = r_start.astimezone(local_tz)
 
-            row_end_time = row.end_time
-            if row_end_time is not None:
-                if row_end_time.tzinfo is None:
-                    row_end_time = row_end_time.replace(tzinfo=local_tz)
+            r_end = row.end_time
+            if r_end is not None:
+                if r_end.tzinfo is None:
+                    r_end = r_end.replace(tzinfo=local_tz)
                 else:
-                    row_end_time = row_end_time.astimezone(local_tz)
+                    r_end = r_end.astimezone(local_tz)
+            else:
+                r_end = end_dt
 
-            gap_start = max(row_start_time, effective_start)
-            gap_end = min(
-                row_end_time if row_end_time is not None else period_end,
-                period_end
-            )
-            unknown_seconds += max(
-                0, int((gap_end - gap_start).total_seconds())
-            )
-        return unknown_seconds
+            # Clamp to [start_dt, end_dt]
+            g_start = max(r_start, start_dt)
+            g_end = min(r_end, end_dt)
+            if g_end > g_start:
+                intervals.append((g_start, g_end))
+        return intervals
     except Exception:
-        return 0
+        return []
+
+
+async def get_unknown_seconds_for_period(
+    db: AsyncSession,
+    effective_start: datetime,
+    period_end: datetime,
+) -> int:
+    """Calculates total seconds during which monitoring service was unavailable."""
+    intervals = await get_service_gap_intervals(db, effective_start, period_end)
+    return calculate_device_gap_seconds(effective_start, period_end, intervals)

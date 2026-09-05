@@ -17,6 +17,8 @@ from app.schemas.auth import (
     LoginRequest,
     LoginResponse,
 )
+import secrets
+from app.services.driver_manager import driver_manager
 from app.services.auth_service import (
     clear_failed_attempts,
     create_access_token,
@@ -24,10 +26,12 @@ from app.services.auth_service import (
     get_trusted_client_ip,
     hash_password,
     hash_password_async,
+    invalidate_all_user_sessions,
     invalidate_session,
     is_account_locked,
     is_session_active,
     record_failed_attempt,
+    register_session,
     verify_password,
     verify_password_async,
 )
@@ -100,10 +104,17 @@ async def login(
         )
         await db.commit()
 
+    session_id = str(secrets.token_hex(16))
+    max_sess = getattr(settings.security, "max_active_sessions_per_user", 2)
+    store = driver_manager.get_session_store()
+    await store.register_session(str(user_id), session_id, max_sessions=max_sess)
+    register_session(str(user_id), session_id, max_sessions=max_sess)
+
     token = create_access_token(
         user_id=str(user_id),
         username=username,
         role_name=str(role_name),
+        jti=session_id,
     )
 
     response_body = LoginResponse(
@@ -140,7 +151,11 @@ async def logout(request: Request, response: Response):
     if token:
         payload = decode_access_token(token)
         if payload and payload.get("sub") and payload.get("jti"):
-            invalidate_session(payload.get("sub"), payload.get("jti"))
+            u_id = str(payload.get("sub"))
+            jti = str(payload.get("jti"))
+            store = driver_manager.get_session_store()
+            await store.invalidate_session(u_id, jti)
+            invalidate_session(u_id, jti)
 
     is_secure = request.url.scheme == "https" or getattr(
         settings.security, "hsts_enabled", False
@@ -181,13 +196,14 @@ async def get_current_user(
 
     user_id_str = payload.get("sub")
     jti = payload.get("jti")
-    if not user_id_str:
+    if not user_id_str or not jti:
         logger.warning(
-            "Authentication failed: Token missing required claims"
+            "Authentication failed: Token missing required claims (sub or jti)"
         )
-        raise HTTPException(status_code=401, detail="Invalid token claims.")
+        raise HTTPException(status_code=401, detail="Session expired or invalid.")
 
-    if not is_session_active(str(user_id_str), jti):
+    store = driver_manager.get_session_store()
+    if not await store.is_session_active(str(user_id_str), jti):
         logger.warning(
             "Authentication session evicted (quota exceeded or expired)"
         )
@@ -265,6 +281,9 @@ async def change_password(
     hashed = await hash_password_async(clean_new_pass)
 
     await auth_repo.update_password(user_uuid, hashed, must_change_password=False)
+    store = driver_manager.get_session_store()
+    await store.invalidate_all_user_sessions(str(user_uuid))
+    invalidate_all_user_sessions(str(user_uuid))
     await auth_repo.create_audit_log(
         user_id=user_uuid,
         action="USER:CHANGE_PASSWORD",

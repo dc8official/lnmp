@@ -15,6 +15,8 @@ from app.schemas.endpoints import (
 from app.schemas.events import EventRecord
 from app.schemas.monitoring import MonitoringStatus
 from app.schemas.reports import (
+    FleetEndpointSummary,
+    FleetSummaryResponse,
     IncidentRecord,
     UptimeReport,
 )
@@ -34,6 +36,8 @@ __all__ = [
     "EventRecord",
     "UptimeReport",
     "IncidentRecord",
+    "FleetEndpointSummary",
+    "FleetSummaryResponse",
     "MonitoringStatus",
     "LoginRequest",
     "LoginResponse",
