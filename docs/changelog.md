@@ -6,8 +6,7 @@ The versioning format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
-## [Version 3.0.0] — Current Production Release
-
+## [Version 3.0.7s] — Current Production Release
 ### 🛡️ Production Security Hardening & Resilience Upgrades
 
 | Upgrade Domain | Technical Implementation | Operational & Security Benefit |
@@ -20,7 +19,7 @@ The versioning format follows [Semantic Versioning](https://semver.org/).
 | **Dynamic System Settings REST API & CIDR Netmask Hardening** | Implemented `GET` and `PATCH /api/v1/settings` backed by PostgreSQL `app_settings` table with automatic driver re-initialization; hardened `is_local_subnet_destination` to compute CIDRs using actual interface netmasks (`f"{addr.address}/{addr.netmask}"`) instead of hardcoded `/24`. | Replaces placebo browser `localStorage` settings with persistent backend configuration and fixes Layer-2 subnet auto-bypass on `/16`, `/23`, and `/8` subnets. |
 | **Production Deployment Hardening & Fail-Safe Upgrade Pipeline** | Added `After=redis-server.service` and `Wants=redis-server.service` to systemd units; configured `proxy_buffering off;` and `proxy_read_timeout 86400s;` in Nginx template; restructured `deploy/upgrade.sh` to compile frontend assets before stopping daemons, support air-gapped pre-built `dist`, and halt safely on Alembic migration errors without `|| true`. | Eliminates boot-time race conditions between systemd units, prevents Nginx reverse-proxy SSE buffering, and prevents unrecoverable service downtime during live upgrades. |
 
-### 🚀 Major Architectural Upgrades
+### 🚀 Major Architectural Upgrades - [Version 3.0.0]
 
 | Upgrade Domain | Technical Implementation | Operational & Performance Benefit |
 | :--- | :--- | :--- |
