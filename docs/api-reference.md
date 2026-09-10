@@ -260,7 +260,7 @@ Manage user accounts and role-based access control (requires `Admin` role).
 Lists all user accounts.
 
 ### `POST /users/`
-Creates a new operator or administrator account.
+Creates a new user account (assignable as `ADMIN` or `VIEWER`).
 
 ### `POST /users/{id}/reset-password`
 Forces a password reset for a specific user.

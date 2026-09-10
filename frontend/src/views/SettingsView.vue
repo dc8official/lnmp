@@ -327,7 +327,7 @@
           <div class="setting-row">
             <div>
               <label class="setting-label">User Session Inactivity Timeout</label>
-              <p class="setting-hint">Automatic session revocation period for idle operator accounts.</p>
+              <p class="setting-hint">Automatic session revocation period for idle user accounts.</p>
             </div>
             <select v-model="settings.sessionTimeout" class="form-select font-mono">
               <option value="15">15 Minutes</option>
@@ -359,7 +359,7 @@
         <div class="card-header">
           <div>
             <h2 class="card-title">👥 User Account Governance</h2>
-            <p class="card-desc">Manage platform operator credentials, system access roles, and status.</p>
+            <p class="card-desc">Manage user credentials, system access roles (ADMIN / VIEWER), and status.</p>
           </div>
           <button class="btn-primary btn-small" @click="openAddUserModal">
             + Add User Account
@@ -676,13 +676,13 @@
         tabindex="-1"
       >
         <div class="modal-header">
-          <h3 id="add-user-modal-title">Register New Operator Account</h3>
+          <h3 id="add-user-modal-title">Register New User Account</h3>
           <button class="btn-close" @click="closeAddModal" aria-label="Close dialog">✕</button>
         </div>
         <form @submit.prevent="saveNewUser" class="modal-form">
           <div class="form-group">
             <label>Username *</label>
-            <input v-model="userForm.username" type="text" placeholder="operator_alex" required class="form-input" />
+            <input v-model="userForm.username" type="text" placeholder="username" required class="form-input" />
           </div>
           <div class="form-group">
             <label>Temporary Password</label>
@@ -691,7 +691,7 @@
           <div class="form-group">
             <label>Account Role *</label>
             <select v-model="userForm.role" class="form-select">
-              <option value="VIEWER">VIEWER (Read-Only Operator)</option>
+              <option value="VIEWER">VIEWER (Read-Only Access)</option>
               <option value="ADMIN">ADMIN (Full Administrative Control)</option>
             </select>
           </div>
