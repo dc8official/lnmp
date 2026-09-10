@@ -129,14 +129,14 @@ When an authenticated administrator views alert channels (`GET /api/v1/alerts/ch
 ### A. JWT in Secure HttpOnly Cookies
 * **XSS Defense:** Authentication tokens are stored inside browser `HttpOnly`, `SameSite=Lax`, and `Secure` (in HTTPS production) cookies. Malicious client-side JavaScript cannot read session tokens.
 * **Cryptographic JTI Enforcement:** Every issued token carries a cryptographically unique UUID `jti` (JWT ID). Tokens lacking a valid `jti` claim are rejected immediately.
-* **Sliding Inactivity Window:** Operator sessions expire after 120 minutes of inactivity, sliding forward on active requests.
+* **Sliding Inactivity Window:** User sessions expire after 120 minutes of inactivity, sliding forward on active requests.
 
 ### B. Distributed Multi-Worker Session Governance
 In production, `netmon-api` runs with multiple Uvicorn workers (`--workers 2`). LNMP prevents single-worker auth bypasses via distributed session drivers:
 * **Driver Architecture:** Session validity is verified asynchronously against `PostgresSessionStore` or `RedisSessionStore` rather than volatile single-worker process memory.
 * **Concurrent Device Quota (Max 2 Sessions):** Accounts are restricted to 2 concurrent active devices. A third login automatically evicts the oldest session via FIFO retirement.
 * **Instantaneous Session Revocation:** Changing an account password or clicking "Sign Out Everywhere" immediately deletes active session records from the datastore, revoking access across all workers in real time.
-* **Forced Initial Password Reset:** Newly provisioned administrator and operator accounts must change their temporary password upon first login before accessing system telemetry.
+* **Forced Initial Password Reset:** Newly provisioned user accounts (`ADMIN` or `VIEWER`) must change their temporary password upon first login before accessing system telemetry.
 
 ### C. Password Hashing
 * Passwords are hashed using **Argon2id** (memory-hard, resistant to GPU/ASIC cracking) with fallback support for **bcrypt** (cost factor 12).
@@ -203,23 +203,24 @@ The production unit files (`deploy/netmon-api.service` and `deploy/netmon-engine
 
 ## 10. Role-Based Access Control (RBAC) Matrix
 
-| Resource / Action | Unauthenticated | Viewer | Operator | Administrator |
-| :--- | :---: | :---: | :---: | :---: |
-| **View Dashboard & Telemetry** | ❌ (Redirect Login) | ✅ | ✅ | ✅ |
-| **Inspect Topology Map** | ❌ | ✅ | ✅ | ✅ |
-| **Export Telemetry CSV** | ❌ | ✅ | ✅ | ✅ |
-| **Run Diagnostic Ping / Traceroute** | ❌ | ❌ | ✅ | ✅ |
-| **Acknowledge Incidents** | ❌ | ❌ | ✅ | ✅ |
-| **Create / Modify Endpoints** | ❌ | ❌ | ❌ | ✅ |
-| **Configure Alert Channels** | ❌ | ❌ | ❌ | ✅ |
-| **Send Diagnostic Test Alerts** | ❌ | ❌ | ❌ | ✅ |
-| **View Alert Delivery Audit Logs** | ❌ | ❌ | ❌ | ✅ |
-| **User & Account Management** | ❌ | ❌ | ❌ | ✅ |
-| **System Settings Modification** | ❌ | ❌ | ❌ | ✅ |
+LNMP enforces a strict, two-tier role architecture (`ADMIN` and `VIEWER`), seeded directly in the database:
+
+| Resource / Action | Unauthenticated | Viewer (`VIEWER`) | Administrator (`ADMIN`) |
+| :--- | :---: | :---: | :---: |
+| **View Dashboard & Telemetry** | ❌ (Redirect Login) | ✅ | ✅ |
+| **Inspect Topology Map** | ❌ | ✅ | ✅ |
+| **Export Telemetry CSV** | ❌ | ✅ | ✅ |
+| **Acknowledge Incidents** | ❌ | ❌ | ✅ |
+| **Create / Modify Endpoints** | ❌ | ❌ | ✅ |
+| **Configure Alert Channels** | ❌ | ❌ | ✅ |
+| **Send Diagnostic Test Alerts** | ❌ | ❌ | ✅ |
+| **View Alert Delivery Audit Logs** | ❌ | ❌ | ✅ |
+| **User & Account Management** | ❌ | ❌ | ✅ |
+| **System Settings Modification** | ❌ | ❌ | ✅ |
 
 ---
 
-## 11. Security Audit & Compliance Checklist for Operators
+## 11. Security Audit & Compliance Checklist for Administrators
 
 When deploying LNMP in production, ensure the following hardening steps are verified:
 
