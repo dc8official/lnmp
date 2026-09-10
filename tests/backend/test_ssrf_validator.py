@@ -1,5 +1,9 @@
 import pytest
-from app.services.ssrf_validator import validate_outbound_url
+from app.services.ssrf_validator import (
+    SSRFSafeBackend,
+    create_ssrf_safe_client,
+    validate_outbound_url,
+)
 
 
 def test_ssrf_valid_public_url():
@@ -61,4 +65,25 @@ def test_ssrf_blocks_ipv4_mapped_ipv6():
 
     with pytest.raises(ValueError, match="private network|invalid/reserved"):
         validate_outbound_url("http://[::ffff:100.64.0.1]/webhook", allow_private=False)
+
+
+@pytest.mark.anyio
+async def test_ssrf_safe_backend_blocks_loopback_and_metadata():
+    backend = SSRFSafeBackend()
+    for host in ["127.0.0.1", "localhost", "169.254.169.254", "10.0.1.1", "100.64.0.1"]:
+        with pytest.raises(ValueError, match="SSRF violation"):
+            await backend.connect_tcp(host, 80)
+
+
+@pytest.mark.anyio
+async def test_create_ssrf_safe_client_refuses_private_connection():
+    async with create_ssrf_safe_client() as client:
+        with pytest.raises(ValueError, match="SSRF violation"):
+            await client.get("http://127.0.0.1:8000")
+
+
+def test_create_ssrf_safe_client_disables_redirects():
+    client = create_ssrf_safe_client()
+    assert client.follow_redirects is False
+
 

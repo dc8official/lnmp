@@ -29,7 +29,7 @@ from app.services.alert_formatters import (
 )
 from app.services.crypto_service import decrypt_secret
 from app.services.driver_manager import driver_manager
-from app.services.ssrf_validator import validate_outbound_url
+from app.services.ssrf_validator import create_ssrf_safe_client, validate_outbound_url
 
 logger = logging.getLogger(__name__)
 
@@ -691,7 +691,8 @@ class AlertDispatcher:
             if isinstance(extra_headers, dict):
                 headers.update(extra_headers)
 
-            async with httpx.AsyncClient(timeout=5.0) as client:
+            # codeql [py/full-ssrf] Webhook destination is user-configurable by design; protected against SSRF/DNS-rebinding via connection-time IP validation and follow_redirects=False.
+            async with create_ssrf_safe_client(timeout=5.0) as client:
                 last_exc = None
                 resp = None
                 for attempt in range(3):

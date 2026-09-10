@@ -204,7 +204,7 @@ def build_discord_payload(
                 "url": url,
                 "color": color,
                 "fields": fields,
-                "footer": {"text": "LNMP Enterprise Observability Engine v3.1.0"},
+                "footer": {"text": "LNMP Enterprise Observability Engine v3.1.1s"},
             }
         ],
     }
@@ -256,7 +256,7 @@ def build_slack_payload(
             "elements": [
                 {
                     "type": "mrkdwn",
-                    "text": f"Timestamp (UTC): *{ts_str}* | LNMP Observability Platform v3.1.0",
+                    "text": f"Timestamp (UTC): *{ts_str}* | LNMP Observability Platform v3.1.1s",
                 }
             ],
         },
@@ -322,7 +322,7 @@ Timestamp:  {ts_str}
 
 Console:    {url}
 ----------------------------------------
-Sent by LNMP Enterprise Platform v3.1.0
+Sent by LNMP Enterprise Platform v3.1.1s
 """.strip()
 
     html_body = f"""
@@ -347,7 +347,7 @@ Sent by LNMP Enterprise Platform v3.1.0
       </div>
     </div>
     <div style="background-color: #121215; padding: 12px 20px; text-align: center; font-size: 12px; color: #71717a;">
-      LNMP Enterprise Observability Engine v3.1.0 • Autonomous Network Reliability
+      LNMP Enterprise Observability Engine v3.1.1s • Autonomous Network Reliability
     </div>
   </div>
 </body>

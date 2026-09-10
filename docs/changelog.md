@@ -6,6 +6,15 @@ The versioning format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [Version 3.1.1s] — Zero-Trust Socket SSRF Protection & Security Hardening
+### Security Fixes (CWE-918 Mitigation)
+* **Zero-Trust Socket-Level SSRF Protection**: Replaced pre-flight DNS lookup validation with an enforced connection-time socket backend (`SSRFSafeBackend`). Verifies destination IP address at the exact millisecond of the TCP connection handshake (`connect_tcp`), rendering Time-of-Check to Time-of-Use (TOCTOU) DNS Rebinding attacks physically impossible.
+* **Strict Non-Global & CGNAT IP Enforcement**: Socket connections to loopback (`127.0.0.0/8`, `::1`), RFC 1918 private subnets, RFC 6598 CGNAT (`100.64.0.0/10`), link-local cloud metadata (`169.254.169.254`), and Unix domain sockets are unconditionally dropped at the kernel boundary before sending HTTP data.
+* **Redirect SSRF Lockdown**: Enforced `follow_redirects=False` on all outbound webhook client instances, preventing third-party endpoints from bouncing requests into internal network segments via HTTP 301/302 redirects.
+* **Version Bump**: Unified security patch release identifier `v3.1.1s` across backend, frontend, deployment automation, and operational documentation.
+
+---
+
 ## [Version 3.1.0] — Enterprise Alerting & Notifications Engine
 ### 🔔 Multi-Channel Notifications, Outbound Security & Reporting Customization
 

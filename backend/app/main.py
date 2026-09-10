@@ -66,7 +66,7 @@ async def lifespan(app: FastAPI):
         AsyncSessionLocal, interval_seconds=86400
     )
     logger.info(
-        "LNMP v3.1.0 started successfully with Enterprise Alerting, Dual-Storage & Multi-Protocol Diagnostics."
+        "LNMP v3.1.1s started successfully with Enterprise Alerting, Dual-Storage & Zero-Trust SSRF Protection."
     )
     yield
     await alert_dispatcher.stop()
@@ -75,12 +75,12 @@ async def lifespan(app: FastAPI):
     discovery_task.cancel()
     midnight_task.cancel()
     cleanup_task.cancel()
-    logger.info("LNMP v3.1.0 platform shutting down cleanly.")
+    logger.info("LNMP v3.1.1s platform shutting down cleanly.")
 
 
 app = FastAPI(
     title="lnmp - Network Monitoring Platform",
-    version="3.1.0",
+    version="3.1.1s",
     docs_url="/api/docs",
     redoc_url="/api/redoc",
     openapi_url="/api/openapi.json",
@@ -191,10 +191,10 @@ app.include_router(telemetry_router)
 @app.get("/api/v1/version", tags=["system"])
 async def get_version():
     return APIResponse.success(
-        data={"version": "3.1.0", "platform": "lnmp v3.1.0"}
+        data={"version": "3.1.1s", "platform": "lnmp v3.1.1s"}
     )
 
 
 @app.get("/api/v1/health", tags=["system"])
 async def health_check():
-    return APIResponse.success(data={"status": "ok", "version": "3.1.0"})
+    return APIResponse.success(data={"status": "ok", "version": "3.1.1s"})

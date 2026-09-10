@@ -1,4 +1,4 @@
-# LNMP: Network Monitoring Platform v3.1.0
+# LNMP: Network Monitoring Platform v3.1.1s
 
 A high-precision, decoupled network telemetry and monitoring solution designed for continuous endpoint status verification, low-latency multi-protocol polling, adaptive statistical alerting, automated root-cause analysis (RCA), real-time Server-Sent Events (SSE), dual-driver storage acceleration, enterprise multi-channel notifications, and dynamic topology visualization with crossing-free layout routing.
 
@@ -94,9 +94,9 @@ cd lnmp/deploy
 ./install.sh
 ```
 
-### 2. Upgrading to v3.1.0 (Zero Historical Data Loss)
+### 2. Upgrading to v3.1.1s (Zero Historical Data Loss)
 
-To upgrade an existing installation to Version 3.1.0:
+To upgrade an existing installation to Version 3.1.1s:
 
 ```bash
 cd ~/lnmp
