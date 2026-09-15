@@ -55,6 +55,8 @@ class CreateEndpointRequest(BaseModel):
     enable_rca: bool = True
     enable_scheduled_discovery: bool = True
     is_l2_segment: bool = False
+    flow_exporter_ips: Optional[list[str]] = None
+    flow_interface_aliases: Optional[dict[str, str]] = None
     manual_parent_id: Optional[UUID] = None
 
     model_config = ConfigDict(from_attributes=True)
@@ -83,6 +85,8 @@ class UpdateEndpointRequest(BaseModel):
     enable_rca: Optional[bool] = None
     enable_scheduled_discovery: Optional[bool] = None
     is_l2_segment: Optional[bool] = None
+    flow_exporter_ips: Optional[list[str]] = None
+    flow_interface_aliases: Optional[dict[str, str]] = None
     manual_parent_id: Optional[UUID] = None
     endpoint_status: Optional[Literal["ACTIVE", "DISABLED"]] = None
 
@@ -435,6 +439,12 @@ async def update_endpoint(
     if request.is_l2_segment is not None:
         updates["is_l2_segment"] = request.is_l2_segment
         audit_details["is_l2_segment"] = request.is_l2_segment
+    if request.flow_exporter_ips is not None:
+        updates["flow_exporter_ips"] = request.flow_exporter_ips
+        audit_details["flow_exporter_ips"] = request.flow_exporter_ips
+    if request.flow_interface_aliases is not None:
+        updates["flow_interface_aliases"] = request.flow_interface_aliases
+        audit_details["flow_interface_aliases"] = request.flow_interface_aliases
     if request.endpoint_status is not None:
         updates["endpoint_status"] = request.endpoint_status
         audit_details["endpoint_status"] = request.endpoint_status

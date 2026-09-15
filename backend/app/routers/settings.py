@@ -13,6 +13,7 @@ from app.database import get_db
 from app.models.system_setting import AppSetting
 from app.routers.auth import get_current_user, require_admin
 from app.schemas import APIResponse
+from app.schemas.bandwidth import FlowPreflightResponse
 from app.services.driver_manager import driver_manager
 
 logger = logging.getLogger(__name__)
@@ -31,6 +32,14 @@ class SettingsUpdate(BaseModel):
     lockoutThreshold: Optional[int] = Field(default=None, ge=1, le=100)
     alerting_enabled: Optional[bool] = None
     alertingEnabled: Optional[bool] = None
+    flow_ingestion_enabled: Optional[bool] = None
+    flowIngestionEnabled: Optional[bool] = None
+    flow_netflow_port: Optional[int] = Field(default=None, ge=1, le=65535)
+    flowNetflowPort: Optional[int] = Field(default=None, ge=1, le=65535)
+    flow_ipfix_port: Optional[int] = Field(default=None, ge=1, le=65535)
+    flowIpfixPort: Optional[int] = Field(default=None, ge=1, le=65535)
+    flow_sampling_multiplier: Optional[int] = Field(default=None, ge=1)
+    flowSamplingMultiplier: Optional[int] = Field(default=None, ge=1)
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -46,6 +55,14 @@ class SettingsPayload(BaseModel):
     lockoutThreshold: int
     alerting_enabled: bool
     alertingEnabled: bool
+    flow_ingestion_enabled: bool
+    flowIngestionEnabled: bool
+    flow_netflow_port: int
+    flowNetflowPort: int
+    flow_ipfix_port: int
+    flowIpfixPort: int
+    flow_sampling_multiplier: int
+    flowSamplingMultiplier: int
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -89,6 +106,39 @@ async def _read_settings_dict(db: AsyncSession) -> dict[str, Any]:
     if "alerting_enabled" in kv:
         alerting_enabled = kv["alerting_enabled"].strip().lower() in ("true", "1", "yes")
 
+    flow_enabled = False
+    if "flow_ingestion_enabled" in kv:
+        flow_enabled = kv["flow_ingestion_enabled"].strip().lower() in ("true", "1", "yes")
+    elif hasattr(app_cfg, "flow"):
+        flow_enabled = bool(getattr(app_cfg.flow, "enabled", False))
+
+    flow_nf_port = 2055
+    if "flow_netflow_port" in kv:
+        try:
+            flow_nf_port = int(kv["flow_netflow_port"])
+        except ValueError:
+            pass
+    elif hasattr(app_cfg, "flow"):
+        flow_nf_port = int(getattr(app_cfg.flow, "netflow_port", 2055))
+
+    flow_ipfix_port = 4739
+    if "flow_ipfix_port" in kv:
+        try:
+            flow_ipfix_port = int(kv["flow_ipfix_port"])
+        except ValueError:
+            pass
+    elif hasattr(app_cfg, "flow"):
+        flow_ipfix_port = int(getattr(app_cfg.flow, "ipfix_port", 4739))
+
+    flow_sampling = 1
+    if "flow_sampling_multiplier" in kv:
+        try:
+            flow_sampling = int(kv["flow_sampling_multiplier"])
+        except ValueError:
+            pass
+    elif hasattr(app_cfg, "flow"):
+        flow_sampling = int(getattr(app_cfg.flow, "sampling_multiplier", 1))
+
     return {
         "performance_mode": perf_mode,
         "performanceMode": perf_mode,
@@ -100,6 +150,14 @@ async def _read_settings_dict(db: AsyncSession) -> dict[str, Any]:
         "lockoutThreshold": lockout_threshold,
         "alerting_enabled": alerting_enabled,
         "alertingEnabled": alerting_enabled,
+        "flow_ingestion_enabled": flow_enabled,
+        "flowIngestionEnabled": flow_enabled,
+        "flow_netflow_port": flow_nf_port,
+        "flowNetflowPort": flow_nf_port,
+        "flow_ipfix_port": flow_ipfix_port,
+        "flowIpfixPort": flow_ipfix_port,
+        "flow_sampling_multiplier": flow_sampling,
+        "flowSamplingMultiplier": flow_sampling,
     }
 
 
@@ -172,6 +230,32 @@ async def update_settings(
     if alerting_val is not None:
         await _upsert_setting(db, "alerting_enabled", "true" if alerting_val else "false")
 
+    flow_ingestion_val = payload.flow_ingestion_enabled
+    if flow_ingestion_val is None and payload.flowIngestionEnabled is not None:
+        flow_ingestion_val = payload.flowIngestionEnabled
+    if flow_ingestion_val is not None:
+        await _upsert_setting(
+            db, "flow_ingestion_enabled", "true" if flow_ingestion_val else "false"
+        )
+
+    flow_nf_val = payload.flow_netflow_port
+    if flow_nf_val is None and payload.flowNetflowPort is not None:
+        flow_nf_val = payload.flowNetflowPort
+    if flow_nf_val is not None:
+        await _upsert_setting(db, "flow_netflow_port", str(flow_nf_val))
+
+    flow_ipfix_val = payload.flow_ipfix_port
+    if flow_ipfix_val is None and payload.flowIpfixPort is not None:
+        flow_ipfix_val = payload.flowIpfixPort
+    if flow_ipfix_val is not None:
+        await _upsert_setting(db, "flow_ipfix_port", str(flow_ipfix_val))
+
+    flow_sampling_val = payload.flow_sampling_multiplier
+    if flow_sampling_val is None and payload.flowSamplingMultiplier is not None:
+        flow_sampling_val = payload.flowSamplingMultiplier
+    if flow_sampling_val is not None:
+        await _upsert_setting(db, "flow_sampling_multiplier", str(flow_sampling_val))
+
     await db.commit()
 
     if reinit_driver:
@@ -183,3 +267,82 @@ async def update_settings(
 
     updated_data = await _read_settings_dict(db)
     return APIResponse.success(data=SettingsPayload(**updated_data))
+
+
+@router.post("/flow/preflight", response_model=APIResponse)
+async def test_flow_preflight(
+    current_user: dict = Depends(require_admin),
+):
+    """
+    Validates Redis 6+ connectivity and stream write capability required for Flow Telemetry.
+    """
+    r_host = getattr(app_cfg.redis, "host", "127.0.0.1")
+    r_port = getattr(app_cfg.redis, "port", 6379)
+    r_db = getattr(app_cfg.redis, "db", 0)
+
+    try:
+        import redis.asyncio as aioredis
+
+        client = aioredis.Redis(
+            host=r_host,
+            port=r_port,
+            db=r_db,
+            socket_connect_timeout=2.0,
+            decode_responses=True,
+        )
+        await client.ping()
+        info = await client.info("server")
+        redis_version = info.get("redis_version", "0.0.0")
+
+        major = 0
+        try:
+            major = int(redis_version.split(".")[0])
+        except (ValueError, IndexError):
+            pass
+
+        version_supported = major >= 6
+
+        stream_ok = False
+        test_key = "stream:netflow:preflight_test"
+        try:
+            msg_id = await client.xadd(test_key, {"preflight": "ok"})
+            if msg_id:
+                stream_ok = True
+                await client.xdel(test_key, msg_id)
+        except Exception as str_err:
+            logger.warning("Preflight stream test failed: %s", str_err)
+
+        await client.aclose()
+
+        ready = version_supported and stream_ok
+        msg = (
+            f"Redis v{redis_version} ready with Stream support."
+            if ready
+            else (
+                f"Redis v{redis_version} detected, but Redis 6.0+ is required."
+                if not version_supported
+                else "Redis stream capabilities failed."
+            )
+        )
+
+        return APIResponse.success(
+            data=FlowPreflightResponse(
+                redis_connected=True,
+                redis_version=redis_version,
+                redis_version_supported=version_supported,
+                stream_write_success=stream_ok,
+                ready=ready,
+                message=msg,
+            )
+        )
+    except Exception as exc:
+        return APIResponse.success(
+            data=FlowPreflightResponse(
+                redis_connected=False,
+                redis_version=None,
+                redis_version_supported=False,
+                stream_write_success=False,
+                ready=False,
+                message=f"Redis connection failed: {exc}",
+            )
+        )

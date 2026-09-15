@@ -5,6 +5,7 @@ from app.models.baseline_route import EndpointBaselineRoute
 from app.models.diagnostic_trace import EndpointDiagnosticTrace
 from app.models.endpoint import Endpoint
 from app.models.endpoint_event import EndpointEvent
+from app.models.flow_rollup import FlowDailyRollup, FlowHourlyRollup, FlowMinuteRollup
 from app.models.rca_incident import EndpointRCAIncident
 from app.models.system_setting import AppSetting, SystemSetting
 from app.models.user import Role, User
@@ -18,6 +19,9 @@ __all__ = [
     "Role",
     "AuditLog",
     "EndpointEvent",
+    "FlowMinuteRollup",
+    "FlowHourlyRollup",
+    "FlowDailyRollup",
     "SystemSetting",
     "AppSetting",
     "EndpointDiagnosticTrace",

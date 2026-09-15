@@ -5,7 +5,7 @@ from typing import Optional
 from uuid import UUID, uuid4
 
 from sqlalchemy import Boolean, DateTime, ForeignKey, String, Text, func
-from sqlalchemy.dialects.postgresql import INET, UUID as PG_UUID
+from sqlalchemy.dialects.postgresql import ARRAY, INET, JSONB, UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
@@ -84,6 +84,18 @@ class Endpoint(Base):
         Boolean,
         default=False,
         server_default="false",
+        nullable=False,
+    )
+    flow_exporter_ips: Mapped[list[str]] = mapped_column(
+        ARRAY(INET),
+        default=list,
+        server_default="{}",
+        nullable=False,
+    )
+    flow_interface_aliases: Mapped[dict[str, str]] = mapped_column(
+        JSONB,
+        default=dict,
+        server_default="{}",
         nullable=False,
     )
     manual_parent_id: Mapped[Optional[UUID]] = mapped_column(

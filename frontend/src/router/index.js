@@ -18,6 +18,11 @@ const routes = [
     component: () => import('../views/ReportsView.vue'),
   },
   {
+    path: '/bandwidth',
+    name: 'Bandwidth',
+    component: () => import('../views/BandwidthView.vue'),
+  },
+  {
     path: '/settings',
     name: 'Settings',
     component: () => import('../views/SettingsView.vue'),

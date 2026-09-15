@@ -42,6 +42,8 @@ class EndpointDetail(EndpointSummary):
     enable_rca: bool = True
     enable_scheduled_discovery: bool = True
     is_l2_segment: bool = False
+    flow_exporter_ips: list[str] = []
+    flow_interface_aliases: dict[str, str] = {}
     manual_parent_id: Optional[UUID] = None
     created_by: Optional[UUID] = None
     created_at: datetime

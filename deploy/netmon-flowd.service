@@ -1,0 +1,29 @@
+[Unit]
+Description=lnmp Network Flow Telemetry Collector Daemon (NetFlow/IPFIX)
+After=network.target postgresql.service redis-server.service
+Requires=redis-server.service
+Wants=postgresql.service
+
+[Service]
+Type=simple
+User=netmon
+Group=netmon
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/log/netmon /run/netmon
+WorkingDirectory=/opt/netmon/noop
+EnvironmentFile=-/etc/netmon/netmon.env
+Environment=PYTHONPATH=/opt/netmon/noop/backend:/opt/netmon/noop
+ExecStart=/opt/netmon/venv/bin/python -m monitoring.flow.daemon
+Restart=always
+RestartSec=5
+LimitNOFILE=65536
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=netmon-flowd
+
+[Install]
+WantedBy=multi-user.target

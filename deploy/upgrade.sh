@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# LNMP Network Monitoring Platform v3.1.1s - Automated Upgrade Utility
+# LNMP Network Monitoring Platform v3.2.0 - Automated Upgrade Utility
 # ==============================================================================
 
 set -euo pipefail
@@ -19,7 +19,7 @@ if [[ ${EUID} -ne 0 && "${1:-}" != "--dry-run" ]]; then
 fi
 
 echo -e "${BLUE}========================================================================${NC}"
-echo -e "${BLUE}    LNMP Network Monitoring Platform v3.1.1s - Upgrade Utility           ${NC}"
+echo -e "${BLUE}    LNMP Network Monitoring Platform v3.2.0 - Upgrade Utility            ${NC}"
 echo -e "${BLUE}========================================================================${NC}"
 
 # Resolve Script and Project Root Directory
@@ -130,6 +130,20 @@ performance_mode = false
 EOF
         echo -e "${GREEN}[INFO] Appended [redis] storage driver section to ${CONFIG_FILE}.${NC}"
     fi
+
+    # Add [flow] section if missing (v3.2.0 Network Flow Telemetry)
+    if ! grep -q "\[flow\]" "${CONFIG_FILE}"; then
+        cat << 'EOF' >> "${CONFIG_FILE}"
+
+[flow]
+enabled = false
+netflow_port = 2055
+ipfix_port = 4739
+sampling_multiplier = 1
+buffer_memory_limit_mb = 512
+EOF
+        echo -e "${GREEN}[INFO] Appended [flow] network telemetry section to ${CONFIG_FILE}.${NC}"
+    fi
 fi
 
 # Pre-Flight: Build Frontend Assets Before Service Pause
@@ -159,14 +173,14 @@ fi
 # 5. Service Pause
 echo -e "\n${BLUE}--- Step 3/7: Gracefully Pausing Platform Background Daemons ---${NC}"
 if [[ ${DRY_RUN} -eq 0 ]]; then
-    if systemctl is-active --quiet netmon-engine || systemctl is-active --quiet netmon-api; then
-        echo -e "${GREEN}[INFO] Stopping netmon-engine and netmon-api systemd services...${NC}"
-        systemctl stop netmon-engine netmon-api || true
+    if systemctl is-active --quiet netmon-engine || systemctl is-active --quiet netmon-api || systemctl is-active --quiet netmon-flowd; then
+        echo -e "${GREEN}[INFO] Stopping netmon-engine, netmon-api, and netmon-flowd systemd services...${NC}"
+        systemctl stop netmon-engine netmon-api netmon-flowd || true
     else
         echo -e "${YELLOW}[INFO] Platform systemd services are not active. Skipping stop.${NC}"
     fi
 else
-    echo -e "[DRY-RUN] Would run: systemctl stop netmon-engine netmon-api"
+    echo -e "[DRY-RUN] Would run: systemctl stop netmon-engine netmon-api netmon-flowd"
 fi
 
 # 6. Fetch Latest Release Files from Repository
@@ -331,6 +345,11 @@ if [[ ${DRY_RUN} -eq 0 ]]; then
     elif [[ -f "${PROJECT_ROOT}/deploy/netmon-engine.service" ]]; then
         cp "${PROJECT_ROOT}/deploy/netmon-engine.service" /etc/systemd/system/
     fi
+    if [[ -f "${INSTALL_DIR}/deploy/netmon-flowd.service" ]]; then
+        cp "${INSTALL_DIR}/deploy/netmon-flowd.service" /etc/systemd/system/
+    elif [[ -f "${PROJECT_ROOT}/deploy/netmon-flowd.service" ]]; then
+        cp "${PROJECT_ROOT}/deploy/netmon-flowd.service" /etc/systemd/system/
+    fi
 
     echo -e "${GREEN}[INFO] Reloading systemd daemons and enabling auto-start on boot...${NC}"
     systemctl daemon-reload
@@ -339,17 +358,38 @@ if [[ ${DRY_RUN} -eq 0 ]]; then
     systemctl restart netmon-api netmon-engine
     systemctl restart nginx || true
 
+    # Network Flow Telemetry Ingestion (v3.2.0)
+    FLOW_ENABLED=false
+    if grep -A 5 "\[flow\]" "${CONFIG_FILE}" 2>/dev/null | grep -q "enabled = true"; then
+        FLOW_ENABLED=true
+    fi
+
+    if [[ "${FLOW_ENABLED}" == "true" ]]; then
+        echo -e "${GREEN}[INFO] Flow telemetry ingestion is enabled. Starting netmon-flowd...${NC}"
+        systemctl enable netmon-flowd || true
+        systemctl restart netmon-flowd || true
+
+        # Manage firewall if ufw is active
+        if command -v ufw &>/dev/null && ufw status 2>/dev/null | grep -q "Status: active"; then
+            echo -e "${GREEN}[INFO] Configuring firewall rules for NetFlow (UDP 2055) and IPFIX (UDP 4739)...${NC}"
+            ufw allow 2055/udp comment 'LNMP NetFlow v5/v9 Telemetry' || true
+            ufw allow 4739/udp comment 'LNMP IPFIX Telemetry' || true
+        fi
+    else
+        echo -e "${YELLOW}[INFO] Flow telemetry is disabled in config.toml. netmon-flowd service installed but inactive.${NC}"
+    fi
+
     sleep 2
     if systemctl is-active --quiet netmon-api && systemctl is-active --quiet netmon-engine; then
-        echo -e "${GREEN}[SUCCESS] All systemd services (netmon-api, netmon-engine) are active, enabled on boot, and healthy.${NC}"
+        echo -e "${GREEN}[SUCCESS] Primary platform services (netmon-api, netmon-engine) are active, enabled on boot, and healthy.${NC}"
     else
         echo -e "${YELLOW}[WARN] Check service status via: systemctl status netmon-api netmon-engine${NC}"
     fi
 else
-    echo -e "[DRY-RUN] Would run: systemctl enable & restart redis-server netmon-api netmon-engine"
+    echo -e "[DRY-RUN] Would run: systemctl enable & restart redis-server netmon-api netmon-engine (and netmon-flowd if enabled)"
 fi
 
 echo -e "\n${GREEN}========================================================================${NC}"
-echo -e "${GREEN}   [UPGRADE COMPLETE] LNMP v3.1.1s Platform upgraded successfully!       ${NC}"
+echo -e "${GREEN}   [UPGRADE COMPLETE] LNMP v3.2.0 Platform upgraded successfully!        ${NC}"
 echo -e "${GREEN}   Pre-Upgrade Database Backup Saved At: ${BACKUP_FILE}${NC}"
 echo -e "${GREEN}========================================================================${NC}"

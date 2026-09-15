@@ -287,6 +287,55 @@
           </div>
         </div>
       </div>
+
+      <!-- Flow Telemetry Ingestion Card -->
+      <div class="settings-card mt-4">
+        <div class="card-header">
+          <div class="flex-1">
+            <div class="flex-row-center gap-2">
+              <h2 class="card-title">🌊 Network Flow Telemetry Engine (NetFlow & IPFIX)</h2>
+              <span class="engine-badge" :class="settings.flowIngestionEnabled ? 'badge-redis' : 'badge-pg'">
+                {{ settings.flowIngestionEnabled ? 'FLOW INGESTION ACTIVE' : 'FLOW INGESTION DISABLED' }}
+              </span>
+            </div>
+            <p class="card-desc mt-1">
+              Ingests raw NetFlow v5, NetFlow v9, and IPFIX datagrams into Redis Stream wire buffers, correlating with monitored endpoints and batching into TimescaleDB rollups.
+            </p>
+          </div>
+          <div class="master-toggle-wrap">
+            <label class="switch">
+              <input type="checkbox" :checked="settings.flowIngestionEnabled" @change="toggleFlowIngestion" />
+              <span class="slider round"></span>
+            </label>
+          </div>
+        </div>
+
+        <div v-if="settings.flowIngestionEnabled" class="flow-config-fields mt-3">
+          <div class="setting-row">
+            <div>
+              <label class="setting-label">NetFlow Listen Port (v5 / v9)</label>
+              <p class="setting-hint">UDP port for Cisco, Fortinet, Mikrotik NetFlow streams.</p>
+            </div>
+            <input type="number" v-model.number="settings.flowNetflowPort" class="setting-input font-mono" min="1024" max="65535" />
+          </div>
+
+          <div class="setting-row">
+            <div>
+              <label class="setting-label">IPFIX Listen Port (v10)</label>
+              <p class="setting-hint">UDP port for standard RFC 7011 IPFIX / Juniper J-Flow.</p>
+            </div>
+            <input type="number" v-model.number="settings.flowIpfixPort" class="setting-input font-mono" min="1024" max="65535" />
+          </div>
+
+          <div class="setting-row">
+            <div>
+              <label class="setting-label">Sampling Multiplier Override</label>
+              <p class="setting-hint">Hardware sampling scale factor (1 = 1:1 unsampled, e.g. 1000 for 1:1000 sampling).</p>
+            </div>
+            <input type="number" v-model.number="settings.flowSamplingMultiplier" class="setting-input font-mono" min="1" max="100000" />
+          </div>
+        </div>
+      </div>
     </div>
 
     <!-- TAB 3: Security & Discovery -->
@@ -738,6 +787,71 @@
         </form>
       </div>
     </div>
+
+    <!-- Flow Preflight Modal -->
+    <div v-if="showPreflightModal" class="modal-overlay" @click.self="showPreflightModal = false">
+      <div class="modal-card">
+        <div class="modal-header">
+          <h3>⚡ Redis 6+ Flow Ingestion Preflight</h3>
+          <button class="btn-close" @click="showPreflightModal = false">✕</button>
+        </div>
+        <div class="modal-form">
+          <div v-if="preflightChecking" class="loading-state p-4 text-center">
+            <p class="mt-2 text-sm">Verifying Redis 6+ connectivity and stream write capabilities...</p>
+          </div>
+          <div v-else>
+            <div :class="preflightResult?.ready ? 'alert-info success-alert' : 'alert-error'" role="alert">
+              <strong>{{ preflightResult?.ready ? 'Preflight Verification Passed' : 'Prerequisite Check Failed' }}</strong>
+              <p class="mt-1 text-sm">{{ preflightResult?.message }}</p>
+            </div>
+
+            <div class="preflight-details mt-3 text-sm">
+              <div class="preflight-item">
+                <span>Redis Server Connection: </span>
+                <span class="font-bold font-mono" :class="preflightResult?.redis_connected ? 'text-success' : 'text-danger'">
+                  {{ preflightResult?.redis_connected ? 'CONNECTED' : 'UNREACHABLE' }}
+                </span>
+              </div>
+              <div class="preflight-item mt-1">
+                <span>Detected Version: </span>
+                <span class="font-bold font-mono">
+                  {{ preflightResult?.redis_version || 'N/A' }} (Requires >= 6.0)
+                </span>
+              </div>
+              <div class="preflight-item mt-1">
+                <span>Stream Write (XADD): </span>
+                <span class="font-bold font-mono" :class="preflightResult?.stream_write_success ? 'text-success' : 'text-danger'">
+                  {{ preflightResult?.stream_write_success ? 'SUPPORTED' : 'FAILED' }}
+                </span>
+              </div>
+            </div>
+
+            <p v-if="!preflightResult?.ready" class="text-xs text-muted mt-3">
+              Flow telemetry buffering requires an active Redis 6.0+ server. Start Redis via <code>systemctl start redis-server</code> and re-run preflight.
+            </p>
+          </div>
+
+          <div class="modal-actions">
+            <button class="btn-secondary" @click="showPreflightModal = false">Close</button>
+            <button
+              v-if="!preflightResult?.ready"
+              class="btn-primary"
+              @click="runPreflightCheck"
+              :disabled="preflightChecking"
+            >
+              {{ preflightChecking ? 'Testing...' : 'Retry Preflight' }}
+            </button>
+            <button
+              v-else
+              class="btn-primary"
+              @click="confirmFlowActivation"
+            >
+              Activate Flow Telemetry
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -761,6 +875,7 @@ import {
   testAlertChannel,
   getAlertHistory,
   getEndpoints,
+  testFlowPreflight,
 } from '../services/api.js'
 import { currentUser, loadUserFromStorage } from '../services/auth.js'
 
@@ -866,7 +981,55 @@ const settings = reactive({
   sessionTimeout: '120',
   lockoutThreshold: '5',
   alertingEnabled: true,
+  flowIngestionEnabled: false,
+  flowNetflowPort: 2055,
+  flowIpfixPort: 4739,
+  flowSamplingMultiplier: 1,
 })
+
+const showPreflightModal = ref(false)
+const preflightChecking = ref(false)
+const preflightResult = ref(null)
+
+async function toggleFlowIngestion(e) {
+  const targetState = e.target.checked
+  if (targetState) {
+    e.target.checked = false
+    showPreflightModal.value = true
+    await runPreflightCheck()
+  } else {
+    settings.flowIngestionEnabled = false
+    await saveAllSettings()
+  }
+}
+
+async function runPreflightCheck() {
+  preflightChecking.value = true
+  preflightResult.value = null
+  try {
+    const res = await testFlowPreflight()
+    if (res.data?.data) {
+      preflightResult.value = res.data.data
+    }
+  } catch (err) {
+    preflightResult.value = {
+      redis_connected: false,
+      redis_version: null,
+      redis_version_supported: false,
+      stream_write_success: false,
+      ready: false,
+      message: err.response?.data?.detail || 'Preflight check failed.',
+    }
+  } finally {
+    preflightChecking.value = false
+  }
+}
+
+async function confirmFlowActivation() {
+  settings.flowIngestionEnabled = true
+  showPreflightModal.value = false
+  await saveAllSettings()
+}
 
 // Alert Channels state
 const channels = ref([])
@@ -1028,6 +1191,14 @@ async function loadSettings() {
       else if (data.lockoutThreshold !== undefined) settings.lockoutThreshold = String(data.lockoutThreshold)
       if (data.alerting_enabled !== undefined) settings.alertingEnabled = data.alerting_enabled
       else if (data.alertingEnabled !== undefined) settings.alertingEnabled = data.alertingEnabled
+      if (data.flow_ingestion_enabled !== undefined) settings.flowIngestionEnabled = data.flow_ingestion_enabled
+      else if (data.flowIngestionEnabled !== undefined) settings.flowIngestionEnabled = data.flowIngestionEnabled
+      if (data.flow_netflow_port !== undefined) settings.flowNetflowPort = data.flow_netflow_port
+      else if (data.flowNetflowPort !== undefined) settings.flowNetflowPort = data.flowNetflowPort
+      if (data.flow_ipfix_port !== undefined) settings.flowIpfixPort = data.flow_ipfix_port
+      else if (data.flowIpfixPort !== undefined) settings.flowIpfixPort = data.flowIpfixPort
+      if (data.flow_sampling_multiplier !== undefined) settings.flowSamplingMultiplier = data.flow_sampling_multiplier
+      else if (data.flowSamplingMultiplier !== undefined) settings.flowSamplingMultiplier = data.flowSamplingMultiplier
     }
   } catch (err) {
     console.error('Failed to load settings:', err)
@@ -1044,6 +1215,10 @@ async function saveAllSettings() {
       session_timeout: parseInt(settings.sessionTimeout, 10),
       lockout_threshold: parseInt(settings.lockoutThreshold, 10),
       alerting_enabled: settings.alertingEnabled,
+      flow_ingestion_enabled: settings.flowIngestionEnabled,
+      flow_netflow_port: Number(settings.flowNetflowPort),
+      flow_ipfix_port: Number(settings.flowIpfixPort),
+      flow_sampling_multiplier: Number(settings.flowSamplingMultiplier),
     })
     alertMessage.value = 'Platform governance and engine settings applied successfully.'
     alertType.value = 'alert-success'

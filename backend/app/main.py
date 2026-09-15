@@ -13,6 +13,7 @@ from app.logging_config import setup_logging
 from app.routers import (
     alerts,
     auth,
+    bandwidth,
     endpoints,
     events,
     reports,
@@ -179,6 +180,7 @@ app.add_middleware(HSTSMiddleware)
 
 app.include_router(alerts.router, prefix="/api/v1")
 app.include_router(auth.router, prefix="/api/v1")
+app.include_router(bandwidth.router, prefix="/api/v1")
 app.include_router(endpoints.router, prefix="/api/v1")
 app.include_router(events.router, prefix="/api/v1")
 app.include_router(reports.router, prefix="/api/v1")
@@ -191,10 +193,10 @@ app.include_router(telemetry_router)
 @app.get("/api/v1/version", tags=["system"])
 async def get_version():
     return APIResponse.success(
-        data={"version": "3.1.1s", "platform": "lnmp v3.1.1s"}
+        data={"version": "3.2.0", "platform": "lnmp v3.2.0"}
     )
 
 
 @app.get("/api/v1/health", tags=["system"])
 async def health_check():
-    return APIResponse.success(data={"status": "ok", "version": "3.1.1s"})
+    return APIResponse.success(data={"status": "ok", "version": "3.2.0"})

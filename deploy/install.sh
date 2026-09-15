@@ -433,7 +433,7 @@ fi
 # ============================================================
 print_header "Step 15: Installing systemd services"
 
-for service in netmon-engine netmon-api; do
+for service in netmon-engine netmon-api netmon-flowd; do
     src="$INSTALL_DIR/deploy/${service}.service"
     dst="/etc/systemd/system/${service}.service"
     if [ ! -f "$dst" ] || ! diff -q "$src" "$dst" > /dev/null 2>&1; then

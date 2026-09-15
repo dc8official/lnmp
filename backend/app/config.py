@@ -73,6 +73,16 @@ class RedisSettings(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
 
+class FlowSettings(BaseModel):
+    enabled: bool = False
+    netflow_port: int = Field(default=2055, ge=1, le=65535)
+    ipfix_port: int = Field(default=4739, ge=1, le=65535)
+    sampling_multiplier: int = Field(default=1, ge=1)
+    buffer_memory_limit_mb: int = Field(default=512, ge=64)
+
+    model_config = ConfigDict(extra="ignore")
+
+
 def resolve_config_file() -> Optional[Path]:
     """Resolves configuration file path from environment or standard locations."""
     env_path_str = os.environ.get("NETMON_CONFIG_PATH")
@@ -111,6 +121,7 @@ class Settings(BaseSettings):
     security: SecuritySettings = Field(default_factory=SecuritySettings)
     logging: LoggingSettings = Field(default_factory=LoggingSettings)
     redis: RedisSettings = Field(default_factory=RedisSettings)
+    flow: FlowSettings = Field(default_factory=FlowSettings)
 
     model_config = SettingsConfigDict(
         env_prefix="NETMON_",
