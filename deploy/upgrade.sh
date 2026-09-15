@@ -220,15 +220,15 @@ if [[ ${DRY_RUN} -eq 0 ]]; then
         cd "${PROJECT_ROOT}"
         git config --global --add safe.directory "${PROJECT_ROOT}" 2>/dev/null || true
         git fetch --all --tags --prune || true
-        git checkout "${UPGRADE_BRANCH}" 2>/dev/null || git checkout v3.1.1s 2>/dev/null || true
-        git pull origin "${UPGRADE_BRANCH}" 2>/dev/null || git pull origin v3.1.1s 2>/dev/null || git pull || echo -e "${YELLOW}[WARN] Git pull finished with non-zero exit code. Proceeding with existing files.${NC}"
+        git checkout "${UPGRADE_BRANCH}" 2>/dev/null || git checkout v3.2.0 2>/dev/null || true
+        git pull origin "${UPGRADE_BRANCH}" 2>/dev/null || git pull origin v3.2.0 2>/dev/null || git pull || echo -e "${YELLOW}[WARN] Git pull finished with non-zero exit code. Proceeding with existing files.${NC}"
         SOURCE_DIR="${PROJECT_ROOT}"
     # Case B: Running from /opt/netmon/noop or non-git directory -> clone directly from remote
     else
         echo -e "${GREEN}[INFO] Staging fresh release from ${REPO_URL} (branch: ${UPGRADE_BRANCH})...${NC}"
         rm -rf "${STAGE_DIR}"
         if git clone --depth 1 --branch "${UPGRADE_BRANCH}" "${REPO_URL}" "${STAGE_DIR}" 2>/dev/null || \
-           git clone --depth 1 --branch "v3.1.1s" "${REPO_URL}" "${STAGE_DIR}" 2>/dev/null || \
+           git clone --depth 1 --branch "v3.2.0" "${REPO_URL}" "${STAGE_DIR}" 2>/dev/null || \
            git clone --depth 1 "${REPO_URL}" "${STAGE_DIR}"; then
             echo -e "${GREEN}[SUCCESS] Downloaded latest codebase into staging directory.${NC}"
             SOURCE_DIR="${STAGE_DIR}"

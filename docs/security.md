@@ -1,6 +1,6 @@
 # LNMP Security Model, Threat Architecture & Defense Specification
 
-**Document Version:** 3.1.1s  
+**Document Version:** 3.2.0  
 **Last Updated:** September 2026  
 **Classification:** Public Security Specification & Threat Model  
 
@@ -14,6 +14,7 @@ The **Lightweight Network Monitoring Platform (LNMP)** is engineered for mission
 2. **Zero Plaintext Secrets at Rest:** All third-party integration credentials (webhook URLs, SMTP passwords, custom authorization headers) are encrypted at rest using AES-256-GCM.
 3. **Strict Ingress Isolation:** Internal database and cache services bind strictly to loopback interfaces; API gateways enforce reverse-proxy trust validation.
 4. **Least-Privilege Execution:** Daemons execute under an unprivileged system service user with fine-grained Linux capabilities (`CAP_NET_RAW`), completely avoiding `root` execution.
+5. **Bounded Cardinality Defense:** Ingested flow metrics undergo ephemeral port normalization and memory circuit-breaking to prevent resource exhaustion attacks.
 
 ---
 
@@ -21,11 +22,12 @@ The **Lightweight Network Monitoring Platform (LNMP)** is engineered for mission
 
 | Version | Release Type | Security Support Status | Recommended Action |
 | :--- | :--- | :--- | :--- |
-| **v3.1.1s** | Security Release | **Active / Current Standard** | Production standard for all deployments. |
-| **v3.1.0** | Feature Release | **Superseded by v3.1.1s** | Upgrade immediately to v3.1.1s for socket-level SSRF defense. |
-| **v3.0.x** | Major Release | **Maintenance Only** | Upgrade to v3.1.1s for enterprise alerting and security fixes. |
-| **v2.0.x** | Beta | **End of Life (EOL)** | Unmaintained; upgrade to v3.1.1s immediately. |
-| **v1.x** | Legacy Alpha | **End of Life (EOL)** | Unmaintained; migrate to v3.1.1s. |
+| **v3.2.0** | Feature & Ingestion Release | **Active / Current Standard** | Production standard for all deployments. |
+| **v3.1.1s** | Security Patch Release | **Supported** | Previous stable standard. Upgrade to v3.2.0 for flow telemetry. |
+| **v3.1.0** | Feature Release | **Superseded by v3.1.1s** | Upgrade immediately for socket-level SSRF defense. |
+| **v3.0.x** | Major Release | **Maintenance Only** | Upgrade to v3.2.0 for enterprise alerting and flow telemetry. |
+| **v2.0.x** | Beta | **End of Life (EOL)** | Unmaintained; upgrade to v3.2.0 immediately. |
+| **v1.x** | Legacy Alpha | **End of Life (EOL)** | Unmaintained; migrate to v3.2.0. |
 
 ---
 
@@ -39,39 +41,31 @@ The **Lightweight Network Monitoring Platform (LNMP)** is engineered for mission
                                    │   Nginx Reverse Proxy   │ (Port 80 / 443)
                                    │ SSL/TLS 1.3 Termination │
                                    └────────────┬────────────┘
-                                                │ Loopback (127.0.0.1)
-                                                ▼
-         ┌─────────────────────────────────────────────────────────────────────────────┐
-         │ HOST PERIMETER (Linux Kernel Isolation)                                     │
-         │                                                                             │
-         │   ┌───────────────────────────┐             ┌───────────────────────────┐   │
-         │   │   FastAPI Web Service     │◄───────────►│   PostgreSQL / Timescale  │   │
-         │   │ (netmon-api on Port 8000) │             │ (Port 5432 - 127.0.0.1)   │   │
-         │   └─────────────┬─────────────┘             └─────────────▲─────────────┘   │
-         │                 │                                         │                 │
-         │                 │ IPC Broker (pg_notify / Redis)          │                 │
-         │                 ▼                                         │                 │
-         │   ┌───────────────────────────┐                           │                 │
-         │   │  Monitoring & Alert Engine│                           │                 │
-         │   │ (netmon-engine Daemon)    │───────────────────────────┘                 │
-         │   └─────────────┬─────────────┘                                             │
-         └─────────────────┼───────────────────────────────────────────────────────────┘
-                           │ Outbound Only (TCP 443 / 587)
-                           ▼
-               ZERO-TRUST SOCKET GUARD (SSRFSafeBackend)
-                           │
-                           ▼
-                 Teams / Slack / Discord / SMTP
+                                                │
+                       ┌────────────────────────┼────────────────────────┐
+                       │ (Port 8000)            │ (UDP 2055 / 4739)      │
+                       ▼                        ▼                        ▼
+              ┌──────────────────┐    ┌──────────────────┐    ┌──────────────────┐
+              │   FastAPI Core   │    │ Flow Collector   │    │  Traceroute/ICMP │
+              │   (netmon-api)   │    │  (netmon-flowd)  │    │  (netmon-engine) │
+              └────────┬─────────┘    └────────┬─────────┘    └────────┬─────────┘
+                       │                       │                       │
+                       └───────────────────────┼───────────────────────┘
+                                               │
+                                               ▼
+                              ┌──────────────────────────────────┐
+                              │  Internal Loopback Services      │
+                              │  PostgreSQL (5432) / Redis (6379)│
+                              └──────────────────────────────────┘
 ```
 
-### Perimeter Port Bindings
-
-| Component | Port | Interface Binding | Security & Firewall Policy |
+| Service Component | Port(s) | Binding Scope | Security Hardening Controls |
 | :--- | :--- | :--- | :--- |
 | **Nginx Web Server** | `80` / `443` | `0.0.0.0` (Public / LAN) | Public ingress point. Enforces TLS 1.2+, HSTS, Content Security Policy, and proxies internal API traffic. |
 | **FastAPI Backend (`netmon-api`)** | `8000` | `127.0.0.1` (Loopback Only) | Internal application server. Blocked from direct external access by firewall. |
+| **Flow Collector (`netmon-flowd`)** | `2055` / `4739` | UDP Management Ingress | Autonomous flow collector. 4MB kernel receive buffer, zero-allocation binary parsing, memory circuit breaker. |
 | **PostgreSQL / TimescaleDB** | `5432` | `127.0.0.1` (Loopback Only) | Internal database. Protected by strong randomized password; strictly loopback bound. |
-| **Redis Cache / Broker (Optional)** | `6379` | `127.0.0.1` (Loopback Only) | Internal session & pub/sub broker. Bound to loopback with `protected-mode yes`. |
+| **Redis Cache / Broker (Optional)** | `6379` | `127.0.0.1` (Loopback Only) | Internal session, stream buffer & pub/sub broker. Bound to loopback with `protected-mode yes`. |
 | **ICMP Ping Probes** | ICMP | Outbound | Low-frequency synthetic health probes (default 32s budget). |
 | **Outbound Webhooks / Email** | `443` / `587` | Outbound Egress | Outbound notifications to Teams, Discord, Slack, and SMTP gateways. Protected by `SSRFSafeBackend`. |
 

@@ -1,12 +1,12 @@
-# LNMP User & Operator Guide — Version 3.1.1s
+# LNMP User & Operator Guide — Version 3.2.0
 
-Welcome to the LNMP Network Monitoring Platform v3.1.1s user guide. This document explains how to navigate the web dashboard, use the interactive topology visualizer, configure multi-channel enterprise alert notifications, use the CSV report customizer, interpret multi-protocol probes, and manage system settings.
+Welcome to the LNMP Network Monitoring Platform v3.2.0 user guide. This document explains how to navigate the web dashboard, use the interactive topology visualizer, monitor fleet bandwidth telemetry, configure multi-channel enterprise alert notifications, use the CSV report customizer, interpret multi-protocol probes, and manage system settings.
 
 ---
 
 ## 1. Authentication & Session Security
 
-LNMP v3.1.1s provides enterprise-grade session protection:
+LNMP v3.2.0 provides enterprise-grade session protection:
 * **Browser Password Autofill:** The login page supports native browser credential managers (Chrome, Edge, Safari, Firefox, Bitwarden, 1Password) for 1-click authentication.
 * **Sliding 2-Hour Inactivity Timeout:** Sessions slide forward on active requests. If idle for 120 minutes, sessions expire automatically.
 * **Concurrent Device Quotas:** Accounts are allowed up to 2 active sessions (managed via FIFO rotation).
@@ -17,7 +17,7 @@ LNMP v3.1.1s provides enterprise-grade session protection:
 
 ## 2. Real-Time Dashboard Overview (`/`)
 
-The v3.1.1s dashboard provides instantaneous fleet telemetry:
+The v3.2.0 dashboard provides instantaneous fleet telemetry:
 
 ### Global Network Health KPI Strip
 * **Summary Ribbon:** Displays total monitored devices, count of `🟢 UP`, `🟡 UNSTABLE`, `🔴 DOWN` devices, and the aggregate **Fleet SLA %**.
@@ -45,28 +45,34 @@ Visualizes the parent-child network hierarchy with crossing-free routing:
 
 ---
 
-## 4. Endpoint Details & Synthetic Probes (`/endpoints/:id`)
+## 4. Endpoint Details & Perspective Tabs (`/endpoints/:id`)
 
-Clicking any endpoint opens its diagnostic view:
-* **24-Hour Telemetry Graphs:** Interactive latency and packet loss curves with TimescaleDB continuous aggregate baselines.
-* **Multi-Protocol Synthetic Metrics:** View TCP connect latency, HTTP response codes, and SSL certificate expiration remaining days.
-* **High-Fidelity Traceroutes:** View hop-by-hop latency breakdowns and identify failure transit boundaries.
+Clicking any endpoint opens its detailed forensic view with an accessible perspective switcher:
+* **Tab 1: Health & Diagnostics:**
+  - **24-Hour Telemetry Graphs:** Interactive latency and packet loss curves with TimescaleDB continuous aggregate baselines.
+  - **Multi-Protocol Synthetic Metrics:** View TCP connect latency, HTTP response codes, and SSL certificate expiration remaining days.
+  - **High-Fidelity Traceroutes:** View hop-by-hop latency breakdowns and identify failure transit boundaries.
+* **Tab 2: Flow Telemetry & Bandwidth:**
+  - **Endpoint Traffic Volume:** Ingress vs. Egress stacked bandwidth curves specific to this device.
+  - **Top Communicating Peers:** Ranks remote internal and external IPs sending or receiving traffic with this endpoint.
+  - **Application Breakdown:** Protocol and service port distribution attributed to this endpoint.
 
 ---
 
 ## 5. Admin Settings Console (`/settings`)
 
-Administrators can configure platform behavior across four dedicated tabs:
+Administrators can configure platform behavior across five dedicated tabs:
 1. **🔔 Alert Channels:** Master alerting engine on/off switch, alert channel inventory, live diagnostic test triggers, and historical delivery audit logs.
 2. **⚡ Performance & Storage:** Storage driver selector (PostgreSQL-Native vs. Redis Acceleration) and dynamic concurrency metrics.
-3. **🛡️ Security & Discovery:** Layer-2 subnet auto-bypass toggle, sliding session timeouts, and IP lockout thresholds.
-4. **👥 User Governance:** User creation, role management (`ADMIN` / `VIEWER`), and credential reset actions.
+3. **🌊 Flow Telemetry:** Master NetFlow/IPFIX collection toggle, listening ports (2055, 4739), packet sampling multiplier, and live **Redis Pre-Flight Check** validation.
+4. **🛡️ Security & Discovery:** Layer-2 subnet auto-bypass toggle, sliding session timeouts, and IP lockout thresholds.
+5. **👥 User Governance:** User creation, role management (`ADMIN` / `VIEWER`), and credential reset actions.
 
 ---
 
 ## 6. Configuring Enterprise Alert Channels
 
-LNMP v3.1.1s includes an asynchronous, non-blocking notification dispatcher supporting major collaboration platforms and corporate email.
+LNMP v3.2.0 includes an asynchronous, non-blocking notification dispatcher supporting major collaboration platforms and corporate email.
 
 ### Microsoft Teams Workflows Setup
 Microsoft Teams supports two integration patterns:
@@ -104,7 +110,7 @@ Always verify channel reachability before saving:
 
 ## 7. Reports & CSV Column Customizer
 
-LNMP v3.1.1s allows operators to tailor exported telemetry CSV files for audits and compliance reviews:
+LNMP v3.2.0 allows operators to tailor exported telemetry CSV files for audits and compliance reviews:
 
 1. Navigate to **Reports & SLA** (`/reports`) and click **Export Telemetry**.
 2. The interactive 820px configuration modal allows selecting target endpoints, time range, and metric columns:
@@ -112,3 +118,55 @@ LNMP v3.1.1s allows operators to tailor exported telemetry CSV files for audits 
    - **Toggleable Metrics:** `Endpoint ID`, `Device Type`, `Timestamp`, `Operational State`, `Detailed State`, `Packet Success Rate / Loss %`, and `Avg Latency (RTT ms)`.
    - **Quick Actions:** Use **Select All** for a complete data dump, or **Reset to Standard** to restore default operational fields.
 3. Click **Download CSV Stream** to initiate key-set paginated, streaming export protected against CSV formula injection.
+
+---
+
+## 8. Fleet Bandwidth Monitoring & Flow Analytics (`/bandwidth`)
+
+LNMP v3.2.0 introduces passive network flow ingestion supporting NetFlow v5, NetFlow v9, and IPFIX. The dedicated `/bandwidth` dashboard provides complete visibility into network traffic volumes, protocol usage, and top communicating entities.
+
+### Accessing the Bandwidth Dashboard
+Click the **🌊 Bandwidth** item in the main navigation header or navigate directly to `/bandwidth`.
+
+### 1. Fleet KPI Ribbon
+At the top of the dashboard, five real-time KPI cards present current network traffic state (evaluated over a sliding 5-minute window):
+* **Total Ingress Bandwidth:** Real-time incoming throughput in bits per second (`Mbps` / `Gbps`).
+* **Total Egress Bandwidth:** Real-time outgoing throughput in bits per second.
+* **Active Exporters:** Count of network routers/switches actively streaming flow datagrams to the collector.
+* **Total Flows Ingested:** Cumulative count of discrete flow sessions processed in the selected window.
+* **Unmatched Candidates:** Count of unrecognized exporter IPs streaming flows to LNMP.
+
+### 2. Time Window Selection
+Select your analysis horizon using the time range switcher:
+* `1h` (High-resolution 1-minute intervals)
+* `6h` (5-minute rolling averages)
+* `24h` (Hourly trend analysis)
+* `7d` (Daily capacity curves)
+* `30d` (Monthly utilization summaries)
+
+### 3. Stacked Traffic Series Chart
+An interactive Chart.js area chart visualizes total Ingress vs. Egress throughput over time:
+* Hover over any data point to inspect exact bandwidth rates in Mbps.
+* Toggle the **Ingress** or **Egress** legend pills to isolate unidirectional traffic.
+
+### 4. Top Talkers & Forensic IP Conversations
+The dashboard features two forensic traffic tables:
+* **Top Endpoints:** Identifies the highest-consuming devices on the network. For devices enrolled in LNMP inventory, the system automatically resolves and displays the friendly hostname alongside its IP address, total bytes transferred, and flow count.
+* **Top Conversations:** Uncovers high-volume IP-to-IP communication pairs. Displays Source IP, Destination IP, Protocol name (TCP, UDP, ICMP), Destination Port (e.g. 443 / HTTPS, 5432 / PostgreSQL), total bytes transferred, and session counts.
+
+### 5. Application Protocol Distribution
+A visual donut chart aggregates network consumption by application service and port:
+* Recognizes standard enterprise traffic profiles (HTTPS, HTTP, SSH, DNS, NTP, SNMP, MySQL, PostgreSQL, Redis, Elasticsearch).
+* Ranks services by percentage share of total network volume to quickly identify bandwidth hogs or unauthorized file transfer activity.
+
+### 6. Active Exporters & Interface Aliases
+The **Flow Exporters** table lists all networking equipment actively reporting to LNMP:
+* Displays device hostname, primary IP address, and secondary alias IPs.
+* Displays interface alias names configured via SNMP index mappings (e.g. `1: WAN-Fiber`, `2: LAN-Trunk`).
+
+### 7. Unmatched Exporter Discovery Banner
+When a network device begins exporting NetFlow/IPFIX to LNMP from an IP address not yet enrolled in the platform's inventory:
+* An **amber warning banner** automatically appears across the top of the Bandwidth dashboard:
+  > **⚠️ Unmatched Flow Exporters Detected**: Flows were received from `172.16.50.1` which is not mapped to any known device.
+* Administrators can click **"Map Exporter"** directly within the banner. A modal prompts the operator to select an existing endpoint to bind the exporter IP to its `flow_exporter_ips` array.
+* The mapping takes effect immediately ($\mathcal{O}(1)$ in-memory reload) without restarting daemons or dropping active flow streams.

@@ -67,7 +67,7 @@ async def lifespan(app: FastAPI):
         AsyncSessionLocal, interval_seconds=86400
     )
     logger.info(
-        "LNMP v3.1.1s started successfully with Enterprise Alerting, Dual-Storage & Zero-Trust SSRF Protection."
+        "LNMP v3.2.0 started successfully with Enterprise Alerting, Dual-Storage, Flow Telemetry & Zero-Trust SSRF Protection."
     )
     yield
     await alert_dispatcher.stop()
@@ -76,12 +76,12 @@ async def lifespan(app: FastAPI):
     discovery_task.cancel()
     midnight_task.cancel()
     cleanup_task.cancel()
-    logger.info("LNMP v3.1.1s platform shutting down cleanly.")
+    logger.info("LNMP v3.2.0 platform shutting down cleanly.")
 
 
 app = FastAPI(
     title="lnmp - Network Monitoring Platform",
-    version="3.1.1s",
+    version="3.2.0",
     docs_url="/api/docs",
     redoc_url="/api/redoc",
     openapi_url="/api/openapi.json",

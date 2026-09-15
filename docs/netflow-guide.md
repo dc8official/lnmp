@@ -43,7 +43,32 @@ LNMP v3.2.0 introduces real-time, high-volume flow ingestion completely isolated
 
 ---
 
-## 2. Firewall & Port Requirements
+## 2. Recommended Configuration Best Practices
+
+To ensure maximum telemetry fidelity, eliminate bursty traffic artifacts, and prevent orphan packet discards, network administrators should adhere to these standardized baseline settings on all flow-exporting devices:
+
+### 2.1 Active Flow Timeout (Crucial for 1-Minute Rollups)
+* **Recommended Setting:** `60 seconds` (1 minute).
+* **Operational Rationale:** Routers and firewalls maintain state for long-running connections (such as multi-gigabyte file transfers, database backups, or video streams). If the active timeout is left at the vendor default of 30 minutes, the router only exports an aggregate byte counter once every 30 minutes, producing misleading, massive bandwidth spikes followed by flatlines. Configuring `active-timeout 60` forces the device to flush flow progress every minute, guaranteeing smooth, continuous, and accurate 1-minute rollups in LNMP.
+
+### 2.2 Inactive Flow Timeout
+* **Recommended Setting:** `15 seconds`.
+* **Operational Rationale:** Inactive timeout determines how long the exporter waits before concluding that an idle TCP or UDP conversation has terminated. A 15-second inactive timeout flushes finished flows promptly to the collector while preventing the router's internal flow cache tables from becoming exhausted during high connection rates.
+
+### 2.3 Template Refresh Interval (NetFlow v9 & IPFIX)
+* **Recommended Setting:** Every `60 seconds` or every `1,000 packets`.
+* **Operational Rationale:** Unlike NetFlow v5 which features a static 48-byte record structure, NetFlow v9 and IPFIX decouple flow schemas using dynamic templates. If an exporting router reboots or switches supervisors without immediately sending template definitions, the collector cannot decode data flowsets. Although LNMP maintains an in-memory template cache with a 1,800-second TTL and buffers orphan flowsets, configuring a 60-second template refresh interval guarantees zero orphan data drops and instant cold-start recovery.
+
+### 2.4 Persistent Export Source IP (`Loopback0`)
+* **Recommended Setting:** Always bind the exporter source address to a stable virtual interface:
+  * Cisco: `source Loopback0`
+  * Juniper: `inline-jflow { source-address <Loopback0_IP>; }`
+  * Linux: bind to static management IP.
+* **Operational Rationale:** When a router has multiple egress uplinks or dynamic routing protocols (BGP/OSPF/ECMP), packet routes can change. If the flow export source is not explicitly pinned to a Loopback IP, the router's egress interface IP will be used as the exporter IP, causing LNMP to detect spurious "unmatched exporters". Binding to `Loopback0` guarantees deterministic $\mathcal{O}(1)$ correlation.
+
+---
+
+## 3. Firewall & Port Requirements
 
 Ensure that the LNMP host permits incoming UDP datagrams from your network infrastructure:
 
@@ -211,6 +236,39 @@ sudo apt-get install -y softflowd
 # Run softflowd listening on eth0, exporting NetFlow v9 to LNMP
 sudo softflowd -i eth0 -n 192.168.1.10:2055 -v 9 -m 8192 -t maxlife=60s
 ```
+
+---
+
+### 3.6 pfSense / OPNsense Firewall (softflowd)
+
+On FreeBSD-based firewalls (pfSense and OPNsense), flow telemetry is provided via the high-performance `softflowd` service:
+
+#### pfSense Configuration:
+1. Navigate to **System** -> **Package Manager** -> **Available Packages**.
+2. Search for `softflowd` and click **Install**.
+3. Navigate to **Services** -> **softflowd**:
+   - **Interface:** Select your internal gateway interfaces (e.g., `LAN`, `VLAN10`).
+   - **Host:** Enter the LNMP server IP (e.g., `192.168.1.10`).
+   - **Port:** `2055`.
+   - **NetFlow Version:** `9`.
+   - **Max Flows:** `8192`.
+   - **Hop Limit:** `64`.
+   - **Tracking Level:** `Full (track IP, protocol, and transport ports)`.
+   - **Active Timeout:** `60` seconds.
+   - **Inactive Timeout:** `15` seconds.
+4. Click **Save** to start exporting flows.
+
+#### OPNsense Configuration:
+1. Navigate to **System** -> **Firmware** -> **Plugins**.
+2. Search for `os-softflowd` and click **+** to install.
+3. Navigate to **Services** -> **Softflowd**:
+   - Check **Enable**.
+   - **Listen Interfaces:** Select monitored ingress interfaces (`LAN`, `DMZ`).
+   - **Export Destination:** Set to `<LNMP_IP>:2055` (e.g., `192.168.1.10:2055`).
+   - **NetFlow Version:** `9`.
+   - **Active Timeout:** `60` seconds.
+   - **Inactive Timeout:** `15` seconds.
+4. Click **Apply** to activate.
 
 ---
 

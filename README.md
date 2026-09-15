@@ -1,6 +1,6 @@
-# LNMP: Network Monitoring Platform v3.1.1s
+# LNMP: Network Monitoring Platform v3.2.0
 
-A high-precision, decoupled network telemetry and monitoring solution designed for continuous endpoint status verification, low-latency multi-protocol polling, adaptive statistical alerting, automated root-cause analysis (RCA), real-time Server-Sent Events (SSE), dual-driver storage acceleration, enterprise multi-channel notifications, and dynamic topology visualization with crossing-free layout routing.
+A high-precision, decoupled network telemetry and monitoring platform combining active multi-protocol health probing with passive high-volume network flow ingestion (NetFlow v5, NetFlow v9, and IPFIX). Engineered for continuous endpoint verification, sub-second route diagnostics, adaptive statistical alerting, automated root-cause analysis (RCA), real-time Server-Sent Events (SSE), dual-driver storage acceleration, enterprise multi-channel incident dispatch, and dynamic topology visualization with crossing-free layout routing.
 
 ---
 
@@ -8,6 +8,10 @@ A high-precision, decoupled network telemetry and monitoring solution designed f
 
 The platform is decoupled into independent, modular layers to guarantee continuous telemetry collection regardless of client-side dashboard activity, heavy API load, or temporary network disruptions:
 
+* **Network Flow Telemetry Ingestion (NetFlow v5, NetFlow v9, IPFIX):** Dedicated, decoupled collector daemon (`netmon-flowd`) listening on UDP 2055 (NetFlow) and UDP 4739 (IPFIX) with 4MB kernel socket buffers (`SO_RCVBUF`), zero-allocation binary decoders, dynamic template caching (1,800s TTL), orphan data set ring buffering, and dual-stack IPv4/IPv6 support.
+* **Dual-Role $\mathcal{O}(1)$ In-Memory Correlation & Discovery:** In-memory hash indexing providing sub-microsecond matching for both Exporters (primary IP + `flow_exporter_ips` aliases) and Monitored Participants without database lookups; automatic Redis-backed discovery banner for unmapped exporter candidates with 1-click UI alias binding.
+* **4-Tier Hierarchical Storage Lifecycle:** Sliding 2-hour Redis Stream shock-absorber (`stream:netflow:raw`) with memory circuit breaker (>85%), 7-day 1-minute TimescaleDB rollups (`flow_minute_rollups`) with 1-day columnar compression (85%+ disk savings), 30-day 1-hour continuous aggregates (`flow_hourly_rollups`), and 365-day daily totals (`flow_daily_rollups`).
+* **Fleet Bandwidth & Deep-Dive Perspective Tabs:** Fleet-wide `/bandwidth` dashboard featuring real-time KPI ribbon, Chart.js stacked Ingress/Egress area charts, Top Talkers, Application distribution donut, forensic IP-to-IP conversation explorer, and accessible tab switcher in `EndpointDetailView.vue` (ICMP Diagnostics ⇄ Flow Telemetry).
 * **Enterprise Alerting & Notifications Engine:** Asynchronous, non-blocking notification dispatcher pushing state transitions and RCA incidents across Microsoft Teams (Adaptive Cards v1.4 & HTML fallback), Discord (Rich Embeds), Slack (Block Kit), Generic Webhooks, and direct hardened SMTP Email with socket-level SSRF defense, AES-256-GCM encryption at rest, flapping cooldown, and cascade suppression.
 * **Interactive CSV Column Customizer:** Dynamic telemetry export allowing operators to customize exported metrics while strictly enforcing locked, non-negotiable device identity columns (`Hostname`, `IP_Address`).
 * **SQLAlchemy 2.0 ORM & Repository Pattern:** Clean data access layer separating business logic from database operations, eliminating raw SQL queries and implementing SQL-level pagination (`limit`, `offset`) across all entities.
@@ -28,26 +32,27 @@ The platform is decoupled into independent, modular layers to guarantee continuo
 
 For comprehensive guides, references, and operational procedures, refer to the `docs/` directory:
 
-* **[Changelog & Technical Evolution](docs/changelog.md):** Complete release notes and evolutionary milestones from Version 1.0 to Version 3.0.0.
-* **[Architecture Deep-Dive](docs/architecture.md):** In-depth analysis of the Repository Layer, Dual-Driver Storage, Concurrency Sweeper, and Topology DAG.
+* **[Changelog & Technical Evolution](docs/changelog.md):** Complete release notes and evolutionary milestones from Version 1.0 to Version 3.2.0.
+* **[Network Flow Configuration & Telemetry Guide](docs/netflow-guide.md):** Production runbook for NetFlow v5/v9 and IPFIX collector setup, exporter vendor configuration templates (Cisco, Juniper, Mikrotik, Linux `fprobe`, pfSense/OPNsense), timeout standards, and UI alias mapping.
+* **[Architecture Deep-Dive](docs/architecture.md):** In-depth analysis of the Repository Layer, Dual-Driver Storage, Concurrency Sweeper, Network Flow Telemetry Pipeline (`netmon-flowd`), and Topology DAG.
 * **[Deployment & Operations Guide](docs/deployment.md):** Production installation, automated in-place upgrades (`upgrade.sh`), Redis configuration, and health verification.
 * **[Disaster Recovery & Restoration Runbook](deploy/RESTORE.md):** Step-by-step procedures for restoring TimescaleDB backups, running Alembic migrations, and flushing Redis cache.
-* **[User & Operator Guide](docs/user-guide.md):** Guide to navigating the Live KPI ribbon, Card/Table view switcher, High-Fidelity traceroutes, and Admin Settings.
-* **[API Reference](docs/api-reference.md):** Complete documentation for REST endpoints, SSE streams (`/events/stream`), pagination parameters, and synthetic probe schemas.
-* **[Database & TimescaleDB Deep-Dive](docs/database.md):** Full schema dictionary, hypertable partitioning, 7-day chunk compression, and continuous aggregate policies.
-* **[Security Model & Threat Hardening](docs/security.md):** Authentication matrix, Argon2id password hashing, sliding sessions, lockout defense, and Linux capability isolation.
+* **[User & Operator Guide](docs/user-guide.md):** Guide to navigating the Live KPI ribbon, Card/Table view switcher, High-Fidelity traceroutes, Bandwidth Fleet Dashboard, and Admin Settings.
+* **[API Reference](docs/api-reference.md):** Complete documentation for REST endpoints, SSE streams (`/events/stream`), pagination parameters, synthetic probe schemas, and bandwidth flow analytics (`/api/v1/bandwidth/*`).
+* **[Database & TimescaleDB Deep-Dive](docs/database.md):** Full schema dictionary, hypertable partitioning, 7-day chunk compression, flow rollup hypertables, and continuous aggregate policies.
+* **[Security Model & Threat Hardening](docs/security.md):** Authentication matrix, Argon2id password hashing, sliding sessions, lockout defense, Linux capability isolation, and SSRF guardrails.
 * **[SLA Calculation Methodology](docs/sla-calculation.md):** Mathematical formulation of uptime availability, flap suppression, and blackout neutralization.
-* **[Troubleshooting Runbook](docs/troubleshooting.md):** Step-by-step diagnostic workflows, permission fixes, and log inspection.
+* **[Troubleshooting Runbook](docs/troubleshooting.md):** Step-by-step diagnostic workflows, permission fixes, flow socket buffer sizing, and log inspection.
 * **[Developer Guide](docs/developer-guide.md):** Local setup instructions for Vite and Uvicorn, plus guidelines for contributing via Alembic migrations.
 
 ---
 
 ## Technical Stack
 
-* **Backend:** Python 3.10+, FastAPI, SQLAlchemy 2.0 (Async Declarative Models & Repository Layer), Pydantic Settings, Alembic, Native `asyncio`, Argon2id
-* **Storage & Caching:** PostgreSQL 14+ with TimescaleDB Extension, Redis 6+ (Pub/Sub & Session Cache Acceleration)
+* **Backend:** Python 3.10+, FastAPI, SQLAlchemy 2.0 (Async Declarative Models & Repository Layer), Pydantic Settings, Alembic, Native `asyncio`, Argon2id, NetFlow v5/v9 & IPFIX binary protocol decoders
+* **Storage & Caching:** PostgreSQL 14+ with TimescaleDB Extension (Hypertables, Continuous Aggregates & Columnar Compression), Redis 6+ (Pub/Sub, Stream Shock-Absorber `stream:netflow:raw` & In-Memory Session Cache Acceleration)
 * **Frontend:** Vue 3 (Composition API), Vite, PrimeVue (Aura Theme Preset), Chart.js, `vis-network` (BFS + Sugiyama Crossing Reduction)
-* **System Layer:** Linux `systemd` (Auto-Start Enabled), Native Raw Sockets (`CAP_NET_RAW` capability), System `traceroute`
+* **System Layer:** Linux `systemd` (`netmon-api`, `netmon-engine`, `netmon-flowd`), Native Raw Sockets (`CAP_NET_RAW` capability), System `traceroute`, UDP Datagram Sockets (2055, 4739)
 * **Logging:** Python `RotatingFileHandler` (~150MB bounded footprint) + `systemd-journald`
 
 ---
@@ -94,9 +99,9 @@ cd lnmp/deploy
 ./install.sh
 ```
 
-### 2. Upgrading to v3.1.1s (Zero Historical Data Loss)
+### 2. Upgrading to v3.2.0 (Zero Historical Data Loss)
 
-To upgrade an existing installation to Version 3.1.1s:
+To upgrade an existing installation to Version 3.2.0:
 
 ```bash
 cd ~/lnmp
@@ -109,11 +114,11 @@ sudo ./deploy/upgrade.sh
 The upgrade utility automatically executes:
 1. **Pre-Upgrade Backup**: Dumps a timestamped PostgreSQL SQL backup to `/var/backups/netmon/`.
 2. **System Dependencies**: Installs and starts `redis-server`, verifies `httpx`, and sets `CAP_NET_RAW` capabilities on `traceroute`.
-3. **Smart Config Migration**: Updates `/etc/netmon/config.toml` defaults (5 pings @ 8s, 120m timeout, Redis and Alerting sections) without overwriting secrets.
-4. **Service Pause**: Gracefully pauses background daemons.
-5. **Code & Dependency Sync**: Pulls latest updates, installs Python requirements (`httpx>=0.27.0`), and compiles Vue 3 assets.
-6. **Alembic Forward Migrations**: Runs `alembic upgrade head` applying migration `0007_v3_1_alert_channels_and_delivery.py` to create `alert_channels` and `alert_delivery_logs` while preserving all TimescaleDB hypertables and continuous aggregates.
-7. **Systemd Unit Refresh & Restart**: Reloads daemons, enables auto-start, and restarts `redis-server`, `netmon-api`, `netmon-engine`, and `nginx`.
+3. **Smart Config Migration**: Updates `/etc/netmon/config.toml` defaults (5 pings @ 8s, 120m timeout, Redis, Alerting, and `[flow]` telemetry sections) without overwriting secrets.
+4. **Service Pause**: Gracefully pauses background daemons (`netmon-api`, `netmon-engine`, and `netmon-flowd`).
+5. **Code & Dependency Sync**: Pulls latest updates, installs Python requirements, and compiles Vue 3 assets.
+6. **Alembic Forward Migrations**: Runs `alembic upgrade head` applying migration `0008_v3_2_network_flow_telemetry.py` to create `flow_exporter_ips`, `flow_interface_aliases`, `flow_minute_rollups` hypertable (with 1-day compression and 7-day retention), and continuous aggregate views (`flow_hourly_rollups`, `flow_daily_rollups`) while preserving all historical ICMP/probe metrics and continuous aggregates.
+7. **Systemd Unit Refresh & Restart**: Installs `netmon-flowd.service`, reloads systemd daemons, enables auto-start on boot, and restarts `redis-server`, `netmon-api`, `netmon-engine`, and `nginx`. If `[flow].enabled = true`, automatically enables and starts `netmon-flowd` and configures UFW firewall rules for UDP 2055 and UDP 4739.
 8. **Health Check**: Validates live API status and version endpoint (`/api/v1/version`).
 
 ---
