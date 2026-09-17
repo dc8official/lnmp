@@ -326,9 +326,29 @@ if [[ ${DRY_RUN} -eq 0 ]]; then
             echo -e "${GREEN}[INFO] Verifying default admin account seeding...${NC}"
             PYTHONPATH="${INSTALL_DIR}:${INSTALL_DIR}/backend" "${PYTHON_BIN}" -m app.seed_admin || true
         fi
+
+        # TimescaleDB Hypertable Decompression Safety & Legacy Row Sanitization
+        echo -e "${GREEN}[INFO] Applying TimescaleDB hypertable decompression safety configuration...${NC}"
+        if command -v psql &>/dev/null; then
+            PGPASSWORD="${DB_PASS}" psql -h "${DB_HOST}" -p "${DB_PORT}" -U "${DB_USER}" -d "${DB_NAME}" -v ON_ERROR_STOP=0 -c "
+            DO \$\$
+            BEGIN
+                IF EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') THEN
+                    PERFORM set_config('timescaledb.max_tuples_decompressed_per_dml_transaction', '0', false);
+                END IF;
+                UPDATE endpoint_events
+                SET end_time = start_time,
+                    duration_seconds = 0
+                WHERE end_time IS NULL
+                  AND start_time < NOW() - INTERVAL '7 days';
+            END \$\$;" 2>/dev/null || true
+
+            PGPASSWORD="${DB_PASS}" psql -h "${DB_HOST}" -p "${DB_PORT}" -U "${DB_USER}" -d "${DB_NAME}" -c \
+                "ALTER DATABASE \"${DB_NAME}\" SET timescaledb.max_tuples_decompressed_per_dml_transaction = 0;" 2>/dev/null || true
+        fi
     fi
 else
-    echo -e "[DRY-RUN] Would upgrade pip dependencies, compile Vue 3 assets, and execute alembic upgrade head"
+    echo -e "[DRY-RUN] Would upgrade pip dependencies, compile Vue 3 assets, execute alembic upgrade head, and apply TimescaleDB decompression tuning"
 fi
 
 # 9. Service Unit Refresh, Auto-Start Enablement & Restart

@@ -399,6 +399,9 @@ if [ "$DRY_RUN" = false ]; then
     echo "--> Enabling TimescaleDB extension"
     sudo -u postgres psql -d netmon -c \
         "CREATE EXTENSION IF NOT EXISTS timescaledb;"
+    echo "--> Configuring TimescaleDB decompression safety threshold"
+    sudo -u postgres psql -d netmon -c \
+        "ALTER DATABASE netmon SET timescaledb.max_tuples_decompressed_per_dml_transaction = 0;" 2>/dev/null || true
 else
     echo "[DRY RUN] Would create PostgreSQL user, database, and TimescaleDB extension"
 fi
