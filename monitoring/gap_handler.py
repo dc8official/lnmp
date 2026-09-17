@@ -1,6 +1,6 @@
 from __future__ import annotations
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Optional
 from uuid import UUID
 from sqlalchemy import text
@@ -14,6 +14,7 @@ async def open_monitoring_gap(
     description: Optional[str] = None,
 ) -> UUID:
     gap_start = datetime.now(timezone.utc)
+    window_start = gap_start - timedelta(days=7)
     
     query_insert = text("""
         INSERT INTO monitoring_service_events (
@@ -45,11 +46,13 @@ async def open_monitoring_gap(
                 EPOCH FROM (:gap_time - start_time)
             )::BIGINT
         WHERE end_time IS NULL
+          AND start_time >= :window_start
     """)
     update_result = await db.execute(
         query_update,
         {
             "gap_time": gap_start,
+            "window_start": window_start,
         }
     )
     closed_count = update_result.rowcount
@@ -84,6 +87,19 @@ async def close_monitoring_gap(
     logger.info("Monitoring gap %s closed at %s", gap_id, end_time)
 
 async def resolve_startup_state(db: AsyncSession) -> None:
+    # Safely bypass TimescaleDB tuple decompression limit for this startup transaction
+    try:
+        await db.execute(text("""
+            DO $$
+            BEGIN
+                IF EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') THEN
+                    PERFORM set_config('timescaledb.max_tuples_decompressed_per_dml_transaction', '0', true);
+                END IF;
+            END $$;
+        """))
+    except Exception as exc:
+        logger.debug("TimescaleDB decompression limit override skipped: %s", exc)
+
     query_select = text("""
         SELECT id, start_time, event_type
         FROM monitoring_service_events
@@ -106,6 +122,9 @@ async def resolve_startup_state(db: AsyncSession) -> None:
     else:
         gap_close_time = datetime.now(timezone.utc)
 
+    # Bound cleanup to 7-day uncompressed window to enable TimescaleDB hypertable chunk pruning
+    window_start = gap_close_time - timedelta(days=7)
+
     query_update = text("""
         UPDATE endpoint_events
         SET
@@ -114,23 +133,28 @@ async def resolve_startup_state(db: AsyncSession) -> None:
                 EPOCH FROM (:close_time - start_time)
             )::BIGINT
         WHERE end_time IS NULL
+          AND start_time >= :window_start
     """)
     update_result = await db.execute(
         query_update,
-        {"close_time": gap_close_time},
+        {
+            "close_time": gap_close_time,
+            "window_start": window_start,
+        },
     )
     closed_count = update_result.rowcount
 
     if closed_count > 0:
         logger.warning(
             "Startup cleanup: closed %d orphaned open "
-            "endpoint events at %s.",
+            "endpoint events at %s (window: >= %s).",
             closed_count,
             gap_close_time,
+            window_start,
         )
     else:
         logger.info(
-            "Startup: no open endpoint events found. "
+            "Startup: no open endpoint events found in active window. "
             "Clean state."
         )
 
