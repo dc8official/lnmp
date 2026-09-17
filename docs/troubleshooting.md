@@ -130,6 +130,45 @@ tail -n 100 -f /var/log/netmon/error.log
      sudo systemctl restart netmon-engine netmon-api
      ```
 
+### H. Engine Startup Crash: TimescaleDB Tuple Decompression Limit Exceeded (`max_tuples_decompressed_per_dml_transaction`)
+* **Symptoms**:
+  - `systemctl status netmon-engine` shows repeated crash loops with exit status `1/FAILURE` upon daemon restart.
+  - `journalctl -u netmon-engine` displays:
+    ```text
+    sqlalchemy.exc.DBAPIError: (asyncpg.exceptions.InternalServerError)
+    DETAIL: current limit: 100000, tuples decompressed: 317367
+    HINT: Consider increasing timescaledb.max_tuples_decompressed_per_dml_transaction or setting it to 0.
+    [SQL: UPDATE endpoint_events SET end_time = ... WHERE end_time IS NULL]
+    ```
+* **Cause**:
+  - `endpoint_events` is a TimescaleDB hypertable with an automated chunk compression policy for records older than 7 days.
+  - When the engine restarts after an outage or extended operations where unclosed historical events accumulated in compressed chunks, updating rows without bounding the query forces TimescaleDB to decompress all historical chunks across database history.
+  - TimescaleDB's default safety limit (`max_tuples_decompressed_per_dml_transaction = 100000`) halts the update with an `InternalServerError`, causing `netmon-engine` to fail during `resolve_startup_state()`.
+* **Fix**:
+  1. Configure the decompression limit threshold to 0 (unlimited) at the database level:
+     ```bash
+     sudo -u postgres psql -d netmon -c "ALTER DATABASE netmon SET timescaledb.max_tuples_decompressed_per_dml_transaction = 0;"
+     ```
+  2. Sanitize legacy historical unclosed events trapped in compressed chunks:
+     ```bash
+     sudo -u postgres psql -d netmon -c "
+     DO \$\$
+     BEGIN
+         IF EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') THEN
+             PERFORM set_config('timescaledb.max_tuples_decompressed_per_dml_transaction', '0', false);
+         END IF;
+         UPDATE endpoint_events
+         SET end_time = start_time,
+             duration_seconds = 0
+         WHERE end_time IS NULL
+           AND start_time < NOW() - INTERVAL '7 days';
+     END \$\$;"
+     ```
+  3. Restart the monitoring engine:
+     ```bash
+     sudo systemctl restart netmon-engine
+     ```
+
 ---
 
 ## 3. Database Disaster Recovery
