@@ -6,6 +6,19 @@ The versioning format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [Version 3.1.3s] — TimescaleDB Hypertable Pruning & Multi-Worker Storage Driver Cluster Sync
+### ⚡ Startup Stability, Multi-Worker Resilience & Session Preservation
+
+| Upgrade Domain | Technical Implementation | Operational & Reliability Benefit |
+| :--- | :--- | :--- |
+| **TimescaleDB Hypertable Chunk Pruning** | Enforced 7-day query window boundary (`start_time >= gap_start - 7 days`) during `resolve_startup_state()` and `open_monitoring_gap()` in `monitoring/gap_handler.py`. | Restricts startup state reconciliation to uncompressed chunks, completely eliminating the fatal decompression limit crash (`asyncpg.exceptions.InternalServerError: current limit: 100000, tuples decompressed: 317367`). |
+| **Dual GUC Safety Net & Historical Sanitization** | Applied `ALTER DATABASE netmon SET timescaledb.max_tuples_decompressed_per_dml_transaction = 0;` at database level (`deploy/install.sh`, `deploy/upgrade.sh`) and local transaction level, accompanied by automated historical open event sanitization (`SET end_time = start_time, duration_seconds = 0` for open events older than 7 days). | Eliminates decompression bottlenecks across database restarts and sanitizes trapped dangling historical events without data loss. |
+| **Cluster-Wide Multi-Worker Settings Sync** | Implemented `backend/app/services/settings_sync.py` utilizing PostgreSQL `LISTEN` / `NOTIFY` on channel `SYSTEM_SETTINGS_SYNC`. When any worker updates `performance_mode` via `PATCH /api/v1/settings`, all Uvicorn worker processes automatically re-initialize their local `StorageDriverManager` in sub-millisecond time. | Resolves the multi-worker memory split-brain where Worker 1 checked Redis while Worker 2 checked PostgreSQL, completely preventing the infinite 401 logout loop when navigating to Admin Settings. |
+| **Warm Session State Migration** | Added bidirectional session migration (`migrate_sessions_pg_to_redis` and `migrate_sessions_redis_to_pg`) in `backend/app/services/session_store.py` triggered during driver mode transitions. | Transparently transfers active user sessions between PostgreSQL and Redis with preserved TTLs, ensuring active operators are never abruptly logged out when switching storage drivers. |
+| **Comprehensive Log Architecture & Runbook** | Added end-to-end documentation in `docs/troubleshooting.md` outlining the platform's 6 log streams, auto-rotating 150MB log bounding, triage command cheat sheet, and symptom-to-log decision matrix. | Empowers operators and NOC engineers to independently inspect, triage, and diagnose platform and multi-worker incidents. |
+
+---
+
 ## [Version 3.1.1s] — Zero-Trust Socket SSRF Protection & Security Hardening
 ### Security Fixes (CWE-918 Mitigation)
 * **Zero-Trust Socket-Level SSRF Protection**: Replaced pre-flight DNS lookup validation with an enforced connection-time socket backend (`SSRFSafeBackend`). Verifies destination IP address at the exact millisecond of the TCP connection handshake (`connect_tcp`), rendering Time-of-Check to Time-of-Use (TOCTOU) DNS Rebinding attacks physically impossible.

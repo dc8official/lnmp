@@ -178,6 +178,9 @@ async def update_settings(
         logger.info("performance_mode updated. Re-initializing storage driver manager...")
         try:
             await driver_manager.initialize()
+            from app.services.settings_sync import broadcast_settings_reload
+
+            await broadcast_settings_reload(action="DRIVER_RELOAD")
         except Exception as e:
             logger.error("Failed to reinitialize driver manager: %s", e)
 

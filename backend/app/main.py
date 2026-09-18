@@ -57,6 +57,13 @@ async def lifespan(app: FastAPI):
     # Start Enterprise Alert Dispatcher background worker
     await alert_dispatcher.start()
 
+    from app.services.settings_sync import start_settings_sync_listener
+
+    settings_sync_task = asyncio.create_task(
+        start_settings_sync_listener(AsyncSessionLocal),
+        name="settings_sync_listener",
+    )
+
     refresh_task = await start_baseline_refresh_task(
         AsyncSessionLocal, interval_seconds=3600
     )
@@ -66,21 +73,22 @@ async def lifespan(app: FastAPI):
         AsyncSessionLocal, interval_seconds=86400
     )
     logger.info(
-        "LNMP v3.1.1s started successfully with Enterprise Alerting, Dual-Storage & Zero-Trust SSRF Protection."
+        "LNMP v3.1.3s started successfully with Enterprise Alerting, Dual-Storage, Cluster Settings Sync & Zero-Trust SSRF Protection."
     )
     yield
+    settings_sync_task.cancel()
     await alert_dispatcher.stop()
     await telemetry_relay.stop()
     refresh_task.cancel()
     discovery_task.cancel()
     midnight_task.cancel()
     cleanup_task.cancel()
-    logger.info("LNMP v3.1.1s platform shutting down cleanly.")
+    logger.info("LNMP v3.1.3s platform shutting down cleanly.")
 
 
 app = FastAPI(
     title="lnmp - Network Monitoring Platform",
-    version="3.1.1s",
+    version="3.1.3s",
     docs_url="/api/docs",
     redoc_url="/api/redoc",
     openapi_url="/api/openapi.json",
@@ -191,10 +199,10 @@ app.include_router(telemetry_router)
 @app.get("/api/v1/version", tags=["system"])
 async def get_version():
     return APIResponse.success(
-        data={"version": "3.1.1s", "platform": "lnmp v3.1.1s"}
+        data={"version": "3.1.3s", "platform": "lnmp v3.1.3s"}
     )
 
 
 @app.get("/api/v1/health", tags=["system"])
 async def health_check():
-    return APIResponse.success(data={"status": "ok", "version": "3.1.1s"})
+    return APIResponse.success(data={"status": "ok", "version": "3.1.3s"})
