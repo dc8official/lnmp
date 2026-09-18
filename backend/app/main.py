@@ -58,6 +58,13 @@ async def lifespan(app: FastAPI):
     # Start Enterprise Alert Dispatcher background worker
     await alert_dispatcher.start()
 
+    from app.services.settings_sync import start_settings_sync_listener
+
+    settings_sync_task = asyncio.create_task(
+        start_settings_sync_listener(AsyncSessionLocal),
+        name="settings_sync_listener",
+    )
+
     refresh_task = await start_baseline_refresh_task(
         AsyncSessionLocal, interval_seconds=3600
     )
@@ -67,9 +74,10 @@ async def lifespan(app: FastAPI):
         AsyncSessionLocal, interval_seconds=86400
     )
     logger.info(
-        "LNMP v3.2.0 started successfully with Enterprise Alerting, Dual-Storage, Flow Telemetry & Zero-Trust SSRF Protection."
+        "LNMP v3.2.0 started successfully with Enterprise Alerting, Dual-Storage, Flow Telemetry, Cluster Settings Sync & Zero-Trust SSRF Protection."
     )
     yield
+    settings_sync_task.cancel()
     await alert_dispatcher.stop()
     await telemetry_relay.stop()
     refresh_task.cancel()

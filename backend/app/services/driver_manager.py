@@ -12,6 +12,8 @@ from app.services.session_store import (
     PostgresSessionStore,
     RedisSessionStore,
     SessionStore,
+    migrate_sessions_pg_to_redis,
+    migrate_sessions_redis_to_pg,
 )
 
 logger = logging.getLogger(__name__)
@@ -69,13 +71,8 @@ class StorageDriverManager:
             redis_port = getattr(settings.redis, "port", 6379)
             redis_db = getattr(settings.redis, "db", 0)
 
-        # Clean up existing Redis client before re-initializing
-        if self._redis_client is not None:
-            try:
-                await self._redis_client.aclose()
-            except Exception:
-                pass
-            self._redis_client = None
+        previous_mode = self._driver_mode
+        previous_redis = self._redis_client
 
         if redis_enabled:
             try:
@@ -88,6 +85,21 @@ class StorageDriverManager:
                     socket_connect_timeout=2.0,
                 )
                 await client.ping()
+
+                # If switching from PostgreSQL to Redis, perform warm session migration
+                if previous_mode == "postgres":
+                    try:
+                        await migrate_sessions_pg_to_redis(AsyncSessionLocal, client)
+                    except Exception as mig_err:
+                        logger.warning("Warm session migration to Redis encountered error: %s", mig_err)
+
+                # Clean up previous client if it differed
+                if previous_redis is not None and previous_redis != client:
+                    try:
+                        await previous_redis.aclose()
+                    except Exception:
+                        pass
+
                 self._redis_client = client
                 self._session_store = RedisSessionStore(client)
                 self._event_broker = RedisEventBroker(client)
@@ -104,12 +116,20 @@ class StorageDriverManager:
                     "StorageDriverManager: Redis unreachable (%s). Falling back gracefully to PostgreSQL-Native driver.",
                     e,
                 )
-                if self._redis_client is not None:
-                    try:
-                        await self._redis_client.aclose()
-                    except Exception:
-                        pass
-                    self._redis_client = None
+
+        # If switching from Redis to PostgreSQL, perform warm session migration
+        if previous_mode == "redis" and previous_redis is not None:
+            try:
+                await migrate_sessions_redis_to_pg(previous_redis, AsyncSessionLocal)
+            except Exception as mig_err:
+                logger.warning("Warm session migration to PostgreSQL encountered error: %s", mig_err)
+
+        if self._redis_client is not None:
+            try:
+                await self._redis_client.aclose()
+            except Exception:
+                pass
+            self._redis_client = None
 
         # Fallback to PostgreSQL-Native driver
         self._session_store = PostgresSessionStore(AsyncSessionLocal)
