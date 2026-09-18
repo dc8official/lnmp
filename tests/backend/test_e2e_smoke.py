@@ -46,6 +46,7 @@ class TestEndToEndSmoke(unittest.TestCase):
         mock_http_request = MagicMock()
         mock_http_request.url.scheme = "http"
         mock_db = AsyncMock()
+        mock_db.add = MagicMock()
 
         user_row = MagicMock()
         user_row.id = admin_id

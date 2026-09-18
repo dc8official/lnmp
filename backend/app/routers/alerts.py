@@ -136,7 +136,7 @@ async def create_alert_channel(
         if not smtp_host:
             raise HTTPException(status_code=400, detail="smtp_host is required for EMAIL_SMTP channel.")
         try:
-            await asyncio.to_thread(validate_outbound_url, f"http://{smtp_host}", allow_private=False)
+            await asyncio.to_thread(validate_outbound_url, f"http://{smtp_host}", allow_private=True, allow_loopback=True)
         except ValueError as err:
             raise HTTPException(status_code=400, detail=str(err))
 
@@ -243,7 +243,7 @@ async def update_alert_channel(
             smtp_host = merged_cfg.get("smtp_host")
             if smtp_host:
                 try:
-                    await asyncio.to_thread(validate_outbound_url, f"http://{smtp_host}", allow_private=False)
+                    await asyncio.to_thread(validate_outbound_url, f"http://{smtp_host}", allow_private=True, allow_loopback=True)
                 except ValueError as err:
                     raise HTTPException(status_code=400, detail=str(err))
             else:
@@ -316,7 +316,7 @@ async def test_alert_channel(
             smtp_host = cfg.get("smtp_host")
             if smtp_host:
                 try:
-                    await asyncio.to_thread(validate_outbound_url, f"http://{smtp_host}", allow_private=False)
+                    await asyncio.to_thread(validate_outbound_url, f"http://{smtp_host}", allow_private=True, allow_loopback=True)
                 except ValueError as err:
                     raise HTTPException(status_code=400, detail=str(err))
             else:
@@ -348,7 +348,7 @@ async def test_alert_channel(
             if not smtp_host:
                 raise HTTPException(status_code=400, detail="smtp_host is required for EMAIL_SMTP channel.")
             try:
-                await asyncio.to_thread(validate_outbound_url, f"http://{smtp_host}", allow_private=False)
+                await asyncio.to_thread(validate_outbound_url, f"http://{smtp_host}", allow_private=True, allow_loopback=True)
             except ValueError as err:
                 raise HTTPException(status_code=400, detail=str(err))
         result = await alert_dispatcher.send_test_alert(test_ch)
