@@ -95,7 +95,7 @@ async def test_flow_collector_bounded_stream_xadd():
     mock_pipe = MagicMock()
     mock_pipe.xadd = MagicMock()
     mock_pipe.execute = AsyncMock()
-    mock_redis.pipeline.return_value = mock_pipe
+    mock_redis.pipeline = MagicMock(return_value=mock_pipe)
 
     collector = FlowCollector(redis_client=mock_redis)
     collector._queue.append({
@@ -192,7 +192,8 @@ async def test_create_endpoint_forwards_flow_exporter_attributes():
     mock_db.add = MagicMock()
 
     with patch("app.routers.endpoints.EndpointRepository") as mock_repo_cls, \
-         patch("app.routers.endpoints.AuthRepository") as mock_auth_cls:
+         patch("app.routers.endpoints.AuthRepository") as mock_auth_cls, \
+         patch("app.routers.endpoints._bg_run_initial_discovery"):
         repo_instance = mock_repo_cls.return_value
         repo_instance.get_by_ip = AsyncMock(return_value=None)
         
