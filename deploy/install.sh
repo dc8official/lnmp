@@ -142,7 +142,7 @@ print_header "Step 4: Installing system packages"
 PACKAGES="postgresql-16 postgresql-client-16 \
 timescaledb-2-postgresql-16 timescaledb-tools redis-server \
 python3-venv python3-pip traceroute iputils-tracepath iputils-ping libcap2-bin \
-nodejs npm nginx certbot python3-certbot-nginx"
+nodejs nginx certbot python3-certbot-nginx"
 
 MISSING=""
 for pkg in $PACKAGES; do
@@ -167,7 +167,7 @@ fi
 print_header "Step 5: Detecting Python version"
 
 PYTHON_BIN=""
-for ver in 3.13 3.12 3.11; do
+for ver in 3.13 3.12 3.11 3.10; do
     if command -v "python$ver" &>/dev/null; then
         PYTHON_BIN="python$ver"
         break
@@ -175,8 +175,8 @@ for ver in 3.13 3.12 3.11; do
 done
 
 if [ -z "$PYTHON_BIN" ]; then
-    echo "Error: Python 3.11 or higher not found."
-    echo "Install python3.11 or python3.12 before running this script."
+    echo "Error: Python 3.10 or higher not found."
+    echo "Install python3.10, python3.11, or python3.12 before running this script."
     exit 1
 fi
 
