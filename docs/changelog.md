@@ -6,6 +6,18 @@ The versioning format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [Version 3.1.7s] — Security Hardening, Session Resilience & Deploy Stability
+### 🛡️ Authentication Resilience, SSRF Relay Support & Cold-Boot Hardening
+
+| Upgrade Domain | Technical Implementation | Operational & Security Benefit |
+| :--- | :--- | :--- |
+| **Session Deduplication & Eviction Resilience** | Added deduplication check (`if jti in active_list: return`) in `register_session()` and removed implicit registration side-effects from `create_access_token()` in `backend/app/services/auth_service.py`. | Resolves triple-registration bug on single logins, ensuring concurrent administrator sessions are not prematurely evicted under `max_active_sessions_per_user = 2`. |
+| **Zero-Trust SSRF Relay Allowlisting** | Added `allow_loopback` parameter to `validate_outbound_url()` in `backend/app/services/ssrf_validator.py`, configuring `allow_private=True, allow_loopback=True` specifically for `EMAIL_SMTP` channels while strictly retaining cloud metadata (`169.254.169.254`) blocking. | Permits internal enterprise mail relays (`localhost`, `127.0.0.1`, RFC 1918 subnets) without triggering SSRF rejections, while keeping cloud metadata endpoints securely locked down. |
+| **Database Startup Connection Resilience** | Replaced immediate `sys.exit(1)` with a 5-attempt retry loop and 2.0s delay in `check_database_connection()` (`backend/app/database.py`). | Prevents systemd `netmon-api` crash-loops during cold host boots and container starts when PostgreSQL takes several seconds to accept incoming connections. |
+| **Deployment & Packaging Hardening** | Removed `npm` collision from `deploy/install.sh` Step 4, relying on NodeSource's bundled npm; added Python 3.10 runtime support for Ubuntu 22.04 LTS; resolved `DRY_RUN` unbound variable crash under strict bash mode in `deploy/upgrade.sh`. | Delivers flawless, unattended deployment across bare metal, GNS3 network appliances, and Ubuntu 22.04/24.04 LTS cloud environments. |
+
+---
+
 ## [Version 3.1.3s] — TimescaleDB Hypertable Pruning & Multi-Worker Storage Driver Cluster Sync
 ### ⚡ Startup Stability, Multi-Worker Resilience & Session Preservation
 

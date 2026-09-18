@@ -720,7 +720,7 @@ class AlertDispatcher:
         elif ctype == "EMAIL_SMTP":
             smtp_host = config.get("smtp_host", "localhost")
             try:
-                await asyncio.to_thread(validate_outbound_url, f"http://{smtp_host}", False)
+                await asyncio.to_thread(validate_outbound_url, f"http://{smtp_host}", True, True)
             except ValueError as err:
                 if "SSRF violation" in str(err) or "Invalid protocol" in str(err) or "blocked" in str(err):
                     raise

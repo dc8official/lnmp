@@ -152,6 +152,7 @@ async def test_migrate_sessions_redis_to_pg():
     mock_redis.ttl.return_value = 3600
 
     mock_db = AsyncMock()
+    mock_db.add = MagicMock()
     mock_res = MagicMock()
     mock_res.scalar_one_or_none.return_value = None  # None existing
     mock_db.execute.return_value = mock_res

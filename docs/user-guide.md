@@ -1,12 +1,13 @@
-# LNMP User & Operator Guide — Version 3.1.3s
+# LNMP User & Operator Guide — Version 3.1.7s
 
-Welcome to the LNMP Network Monitoring Platform v3.1.3s user guide. This document explains how to navigate the web dashboard, use the interactive topology visualizer, configure multi-channel enterprise alert notifications, use the CSV report customizer, interpret multi-protocol probes, and manage system settings.
+Welcome to the LNMP Network Monitoring Platform v3.1.7s user guide. This document explains how to navigate the web dashboard, use the interactive topology visualizer, configure multi-channel enterprise alert notifications, use the CSV report customizer, interpret multi-protocol probes, and manage system settings.
 
 ---
 
 ## 1. Authentication & Session Security
 
-LNMP v3.1.3s provides enterprise-grade session protection:
+LNMP v3.1.7s provides enterprise-grade session protection:
+* **Session Deduplication & Eviction Resilience:** Enforces atomic session registration and stateless JWT signing, ensuring concurrent administrator sessions are not prematurely evicted under multi-session limits (`max_active_sessions_per_user`).
 * **Browser Password Autofill:** The login page supports native browser credential managers (Chrome, Edge, Safari, Firefox, Bitwarden, 1Password) for 1-click authentication.
 * **Sliding 2-Hour Inactivity Timeout:** Sessions slide forward on active requests. If idle for 120 minutes, sessions expire automatically.
 * **Concurrent Device Quotas:** Accounts are allowed up to 2 active sessions (managed via FIFO rotation).
@@ -17,7 +18,7 @@ LNMP v3.1.3s provides enterprise-grade session protection:
 
 ## 2. Real-Time Dashboard Overview (`/`)
 
-The v3.1.3s dashboard provides instantaneous fleet telemetry:
+The v3.1.7s dashboard provides instantaneous fleet telemetry:
 
 ### Global Network Health KPI Strip
 * **Summary Ribbon:** Displays total monitored devices, count of `🟢 UP`, `🟡 UNSTABLE`, `🔴 DOWN` devices, and the aggregate **Fleet SLA %**.
@@ -66,7 +67,7 @@ Administrators can configure platform behavior across four dedicated tabs:
 
 ## 6. Configuring Enterprise Alert Channels
 
-LNMP v3.1.3s includes an asynchronous, non-blocking notification dispatcher supporting major collaboration platforms and corporate email.
+LNMP v3.1.7s includes an asynchronous, non-blocking notification dispatcher supporting major collaboration platforms and corporate email.
 
 ### Microsoft Teams Workflows Setup
 Microsoft Teams supports two integration patterns:
@@ -89,9 +90,9 @@ Microsoft Teams supports two integration patterns:
 3. Select provider `Slack`. Alerts render structured Block Kit sections with device status and telemetry.
 
 ### Direct Hardened SMTP Email Setup
-LNMP connects directly to external mail servers without requiring a local postfix/sendmail agent:
-- **Host & Port:** e.g., `smtp.office365.com` or `smtp.gmail.com` on Port `587`.
-- **Security:** Requires STARTTLS or SSL/TLS 1.2+.
+LNMP connects directly to external mail servers or internal relays without requiring a local postfix/sendmail agent:
+- **Host & Port:** Cloud relays (`smtp.office365.com`, `smtp.gmail.com` on Port `587`) or on-premise internal relays (`localhost`, `127.0.0.1`, RFC 1918 subnets on Port `25`/`587`).
+- **Security:** Requires STARTTLS or SSL/TLS 1.2+ for remote servers.
 - **Credentials:** Username and Application-Specific Password (encrypted at rest via AES-256-GCM).
 - **Recipients:** Comma-separated list of operational email addresses.
 
@@ -104,7 +105,7 @@ Always verify channel reachability before saving:
 
 ## 7. Reports & CSV Column Customizer
 
-LNMP v3.1.3s allows operators to tailor exported telemetry CSV files for audits and compliance reviews:
+LNMP v3.1.7s allows operators to tailor exported telemetry CSV files for audits and compliance reviews:
 
 1. Navigate to **Reports & SLA** (`/reports`) and click **Export Telemetry**.
 2. The interactive 820px configuration modal allows selecting target endpoints, time range, and metric columns:

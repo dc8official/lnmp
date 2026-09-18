@@ -373,11 +373,11 @@ async def test_create_alert_channel_smtp_ssrf_rejected():
     from fastapi import HTTPException
 
     payload = AlertChannelCreate(
-        name="Private SMTP Exfiltration",
+        name="Metadata SMTP Exfiltration",
         channel_type="EMAIL_SMTP",
         is_enabled=True,
         config={
-            "smtp_host": "127.0.0.1",
+            "smtp_host": "169.254.169.254",
             "smtp_port": 25,
             "from_address": "test@corp.com",
             "to_addresses": ["victim@corp.com"],
@@ -387,7 +387,7 @@ async def test_create_alert_channel_smtp_ssrf_rejected():
     with pytest.raises(HTTPException) as exc_info:
         await create_alert_channel(payload=payload, current_user={"username": "admin"}, db=AsyncMock())
     assert exc_info.value.status_code == 400
-    assert "SSRF" in str(exc_info.value.detail) or "loopback" in str(exc_info.value.detail).lower()
+    assert "SSRF" in str(exc_info.value.detail) or "blocked" in str(exc_info.value.detail).lower()
 
 
 @pytest.mark.anyio
@@ -575,6 +575,7 @@ async def test_delivery_log_handles_non_uuid_safely():
     channel.config = '{"webhook_url": "https://8.8.8.8/hook"}'
 
     mock_db = AsyncMock()
+    mock_db.add = MagicMock()
     dispatcher._send_to_provider = AsyncMock(return_value=("DELIVERED", 200, "OK"))
 
     # Non-UUID string passed as endpoint_id
