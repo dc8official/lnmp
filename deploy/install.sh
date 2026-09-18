@@ -142,7 +142,7 @@ print_header "Step 4: Installing system packages"
 PACKAGES="postgresql-16 postgresql-client-16 \
 timescaledb-2-postgresql-16 timescaledb-tools redis-server \
 python3-venv python3-pip traceroute iputils-tracepath iputils-ping libcap2-bin \
-nodejs nginx certbot python3-certbot-nginx"
+nodejs npm nginx certbot python3-certbot-nginx"
 
 MISSING=""
 for pkg in $PACKAGES; do
@@ -261,13 +261,26 @@ run "Installing Python dependencies" \
 # ============================================================
 print_header "Step 9: Building Vue frontend"
 
-if [ ! -d "$INSTALL_DIR/frontend/node_modules" ]; then
-    run "Installing frontend npm dependencies" \
-        bash -c "cd $INSTALL_DIR/frontend && npm install --silent"
+# Ensure vite executable exists; reinstall if missing or corrupt
+if [ ! -x "$INSTALL_DIR/frontend/node_modules/.bin/vite" ]; then
+    run "Installing frontend npm dependencies (including devDependencies)" \
+        bash -c "cd $INSTALL_DIR/frontend && npm install --include=dev"
 fi
 
-run "Building Vue frontend for production" \
-    bash -c "cd $INSTALL_DIR/frontend && npm run build"
+# Build frontend production bundle
+if [ "$DRY_RUN" = false ]; then
+    echo "--> Building Vue frontend for production"
+    if ! (cd "$INSTALL_DIR/frontend" && npm run build); then
+        if [ -f "$INSTALL_DIR/frontend/dist/index.html" ]; then
+            echo "--> [WARN] npm run build failed, but pre-built dist/index.html is present. Proceeding with existing bundle."
+        else
+            echo "Error: Failed to build Vue frontend and no pre-built assets found in $INSTALL_DIR/frontend/dist." >&2
+            exit 1
+        fi
+    fi
+else
+    echo "[DRY RUN] Would build Vue frontend for production (npm run build)"
+fi
 
 run "Setting frontend ownership" \
     chown -R netmon:netmon "$INSTALL_DIR/frontend/dist"
