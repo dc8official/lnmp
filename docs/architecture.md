@@ -1,6 +1,6 @@
-# LNMP Architecture Overview — Version 3.1.3s
+# LNMP Architecture Overview — Version 3.1.7s
 
-The Network Monitoring Platform (LNMP) v3.1.3s is architected with a decoupled, asynchronous design engineered for high-concurrency telemetry collection, real-time Server-Sent Events (SSE), dual-driver storage acceleration, enterprise multi-channel notifications, crossing-free topology visualization, and enterprise security governance.
+The Network Monitoring Platform (LNMP) v3.1.7s is architected with a decoupled, asynchronous design engineered for high-concurrency telemetry collection, real-time Server-Sent Events (SSE), dual-driver storage acceleration, enterprise multi-channel notifications, crossing-free topology visualization, and enterprise security governance.
 
 ---
 

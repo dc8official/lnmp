@@ -1,4 +1,4 @@
-# LNMP: Network Monitoring Platform v3.1.3s
+# LNMP: Network Monitoring Platform v3.1.7s
 
 A high-precision, decoupled network telemetry and monitoring solution designed for continuous endpoint status verification, low-latency multi-protocol polling, adaptive statistical alerting, automated root-cause analysis (RCA), real-time Server-Sent Events (SSE), dual-driver storage acceleration, enterprise multi-channel notifications, and dynamic topology visualization with crossing-free layout routing.
 
@@ -8,6 +8,9 @@ A high-precision, decoupled network telemetry and monitoring solution designed f
 
 The platform is decoupled into independent, modular layers to guarantee continuous telemetry collection regardless of client-side dashboard activity, heavy API load, or temporary network disruptions:
 
+* **Session Deduplication & Eviction Resilience:** Enforces atomic session registration and stateless JWT signing, eliminating premature session eviction under multi-session limits (`max_active_sessions_per_user`).
+* **Zero-Trust SSRF Defense & Private Relay Support:** Kernel-level connection validation permitting private RFC 1918 and loopback targets for internal corporate SMTP relays while strictly blocking link-local cloud metadata endpoints (`169.254.169.254`).
+* **Database Connection Retry Resilience:** Multi-attempt retry loop with backoff on cold startup (`check_database_connection`), preventing systemd service crash loops during host reboots.
 * **TimescaleDB Startup Chunk Pruning & Decompression Safety:** Bounds startup event closure queries to the active 7-day uncompressed window, enabling hypertable partition pruning and enforcing transaction overrides (`max_tuples_decompressed_per_dml_transaction = 0`) to prevent decompression limits from failing engine reboots.
 * **Multi-Worker Storage Driver Cluster Synchronization:** PostgreSQL `LISTEN`/`NOTIFY` inter-process coordination keeping Uvicorn multi-worker clusters instantly synchronized on active storage backend state transitions (`SYSTEM_SETTINGS_SYNC`).
 * **Bidirectional Warm Session State Migration:** Seamless, zero-downtime session transfer between PostgreSQL and Redis, ensuring zero session drop or operator logout when toggling storage drivers.
@@ -98,13 +101,13 @@ cd lnmp/deploy
 ./install.sh
 ```
 
-### 2. Upgrading to v3.1.3s (Zero Historical Data Loss)
+### 2. Upgrading to v3.1.7s (Zero Historical Data Loss)
 
-To upgrade an existing installation to Version 3.1.3s:
+To upgrade an existing installation to Version 3.1.7s:
 
 ```bash
 cd ~/lnmp
-git pull origin v3.1.3s
+git pull origin v3.1.7s
 sudo ./deploy/upgrade.sh
 ```
 

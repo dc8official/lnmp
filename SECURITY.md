@@ -4,9 +4,10 @@
 
 | Version | Supported          | Security Notes |
 | ------- | ------------------ | -------------- |
-| v3.1.3s | :white_check_mark: | Active production standard with multi-worker synchronization and startup chunk pruning |
-| v3.1.1s | :white_check_mark: | Preceding security standard with Zero-Trust Socket SSRF protection |
-| v3.1.0  | :x:                | Superseded by v3.1.3s |
+| v3.1.7s | :white_check_mark: | Active production standard: session deduplication, private SMTP SSRF allowlist, and startup resilience |
+| v3.1.3s | :white_check_mark: | Supported preceding release; upgrade to v3.1.7s recommended |
+| v3.1.1s | :white_check_mark: | Supported security release with Zero-Trust Socket SSRF protection |
+| v3.1.0  | :x:                | Superseded by v3.1.7s |
 | v3.0.x  | :x:                | Maintenance only — upgrade recommended |
 | < v3.0  | :x:                | End of Life (EOL) |
 
