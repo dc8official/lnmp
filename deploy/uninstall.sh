@@ -67,11 +67,12 @@ fi
 
 # 2. Stop and Disable Systemd Services
 echo -e "\n${BLUE}--- Step 2/4: Stopping & Removing Systemd Services ---${NC}"
-systemctl stop netmon-api netmon-engine 2>/dev/null || true
-systemctl disable netmon-api netmon-engine 2>/dev/null || true
+systemctl stop netmon-api netmon-engine netmon-flowd 2>/dev/null || true
+systemctl disable netmon-api netmon-engine netmon-flowd 2>/dev/null || true
 
 rm -f /etc/systemd/system/netmon-api.service
 rm -f /etc/systemd/system/netmon-engine.service
+rm -f /etc/systemd/system/netmon-flowd.service
 systemctl daemon-reload
 echo -e "${GREEN}[SUCCESS] LNMP background services disabled and removed from systemd.${NC}"
 

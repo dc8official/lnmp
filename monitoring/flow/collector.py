@@ -130,7 +130,7 @@ class FlowCollector:
                     "ts_start": f"{f.get('start_time', 0.0):.3f}",
                     "ts_end": f"{f.get('end_time', 0.0):.3f}",
                 }
-                pipe.xadd(STREAM_NETFLOW_RAW, stream_entry)
+                pipe.xadd(STREAM_NETFLOW_RAW, stream_entry, maxlen=100000, approximate=True)
             await pipe.execute()
         except Exception as e:
             logger.error("Failed to push batch of %d flows to Redis: %s", len(to_flush), e)

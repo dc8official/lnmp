@@ -463,6 +463,7 @@ run "Reloading systemd daemon" systemctl daemon-reload
 run "Enabling Redis service" bash -c "systemctl enable redis-server 2>/dev/null || systemctl enable redis 2>/dev/null || true"
 run "Enabling netmon-engine" systemctl enable netmon-engine
 run "Enabling netmon-api" systemctl enable netmon-api
+run "Enabling netmon-flowd" systemctl enable netmon-flowd
 
 # ============================================================
 print_header "Step 16: Configuring Nginx"
@@ -521,6 +522,7 @@ print_header "Step 18: Starting services"
 run "Starting Redis service" bash -c "systemctl start redis-server 2>/dev/null || systemctl start redis 2>/dev/null || true"
 run "Starting netmon-api" systemctl start netmon-api
 run "Starting netmon-engine" systemctl start netmon-engine
+run "Starting netmon-flowd" systemctl start netmon-flowd
 
 # ============================================================
 print_header "Installation Complete"
@@ -551,10 +553,12 @@ else
     echo "  Service status:"
     echo "  systemctl status netmon-api"
     echo "  systemctl status netmon-engine"
+    echo "  systemctl status netmon-flowd"
     echo ""
     echo "  Logs:"
     echo "  journalctl -u netmon-api -f"
     echo "  journalctl -u netmon-engine -f"
+    echo "  journalctl -u netmon-flowd -f"
     echo ""
 fi
 echo "========================================================"

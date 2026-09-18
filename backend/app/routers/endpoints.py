@@ -325,6 +325,8 @@ async def create_endpoint(
             enable_scheduled_discovery=request.enable_scheduled_discovery,
             is_l2_segment=request.is_l2_segment,
             manual_parent_id=request.manual_parent_id,
+            flow_exporter_ips=request.flow_exporter_ips,
+            flow_interface_aliases=request.flow_interface_aliases,
         )
         await auth_repo.create_audit_log(
             user_id=admin_uuid,
@@ -361,6 +363,8 @@ async def create_endpoint(
         enable_scheduled_discovery=request.enable_scheduled_discovery,
         is_l2_segment=request.is_l2_segment,
         manual_parent_id=request.manual_parent_id,
+        flow_exporter_ips=request.flow_exporter_ips,
+        flow_interface_aliases=request.flow_interface_aliases,
         endpoint_status="ACTIVE",
         created_by=admin_uuid,
     )

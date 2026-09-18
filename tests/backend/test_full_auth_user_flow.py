@@ -67,6 +67,7 @@ class TestFullAuthUserFlow(unittest.TestCase):
         mock_response = MagicMock()
         mock_http_request = MagicMock()
         mock_db = AsyncMock()
+        mock_db.add = MagicMock()
 
         user_row = MagicMock()
         user_row.username = "admin"
@@ -146,6 +147,7 @@ class TestFullAuthUserFlow(unittest.TestCase):
         mock_req = ResetPasswordRequest(password="newpassword123")
         current_user = {"sub": str(admin_id), "role": "ADMIN"}
         mock_db = AsyncMock()
+        mock_db.add = MagicMock()
 
         with self.assertRaises(HTTPException) as cm:
             self.loop.run_until_complete(
@@ -159,6 +161,7 @@ class TestFullAuthUserFlow(unittest.TestCase):
         admin_id = uuid4()
         current_user = {"sub": str(admin_id), "role": "ADMIN"}
         mock_db = AsyncMock()
+        mock_db.add = MagicMock()
 
         with self.assertRaises(HTTPException) as cm:
             self.loop.run_until_complete(

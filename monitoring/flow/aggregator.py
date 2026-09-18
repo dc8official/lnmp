@@ -51,6 +51,7 @@ class FlowAggregator:
             Tuple[datetime.datetime, UUID, Optional[UUID], Optional[UUID], str, str, int, int],
             List[int],
         ] = collections.defaultdict(lambda: [0, 0, 0]) if "collections" in globals() else {}
+        self._pending_msg_ids: List[str] = []
 
         self._running = False
         self._consume_task: Optional[asyncio.Task] = None
@@ -127,63 +128,87 @@ class FlowAggregator:
             entry[2] += 1
 
     async def flush_to_timescaledb(self) -> None:
-        if not self._accumulator:
+        if not self._accumulator and not self._pending_msg_ids:
             return
 
-        to_flush = self._accumulator
-        self._accumulator = {}
+        # Snapshot current accumulator entries and pending stream IDs
+        snapshot = {k: list(v) for k, v in self._accumulator.items()}
+        pending_ack = list(self._pending_msg_ids)
 
-        logger.debug("Flushing %d aggregated rollup entries to TimescaleDB...", len(to_flush))
+        if snapshot:
+            logger.debug("Flushing %d aggregated rollup entries to TimescaleDB...", len(snapshot))
 
-        # Build parameterized bulk insert query
-        rows = []
-        for key, vals in to_flush.items():
-            bucket, exp_id, src_ep_id, dst_ep_id, src_ip, dst_ip, proto, d_port = key
-            bytes_val, pkts_val, count_val = vals
-            rows.append(
-                {
-                    "bucket": bucket,
-                    "exporter_id": exp_id,
-                    "src_endpoint_id": src_ep_id,
-                    "dst_endpoint_id": dst_ep_id,
-                    "src_ip": src_ip,
-                    "dst_ip": dst_ip,
-                    "protocol": proto,
-                    "dst_port": d_port,
-                    "bytes": bytes_val,
-                    "packets": pkts_val,
-                    "flow_count": count_val,
-                }
-            )
+            # Build parameterized bulk insert query
+            rows = []
+            for key, vals in snapshot.items():
+                bucket, exp_id, src_ep_id, dst_ep_id, src_ip, dst_ip, proto, d_port = key
+                bytes_val, pkts_val, count_val = vals
+                rows.append(
+                    {
+                        "bucket": bucket,
+                        "exporter_id": exp_id,
+                        "src_endpoint_id": src_ep_id,
+                        "dst_endpoint_id": dst_ep_id,
+                        "src_ip": src_ip,
+                        "dst_ip": dst_ip,
+                        "protocol": proto,
+                        "dst_port": d_port,
+                        "bytes": bytes_val,
+                        "packets": pkts_val,
+                        "flow_count": count_val,
+                    }
+                )
 
-        insert_sql = text("""
-            INSERT INTO flow_minute_rollups (
-                bucket, exporter_id, src_endpoint_id, dst_endpoint_id,
-                src_ip, dst_ip, protocol, dst_port,
-                bytes, packets, flow_count
-            ) VALUES (
-                :bucket, :exporter_id, :src_endpoint_id, :dst_endpoint_id,
-                :src_ip::inet, :dst_ip::inet, :protocol, :dst_port,
-                :bytes, :packets, :flow_count
-            )
-            ON CONFLICT (bucket, exporter_id, src_ip, dst_ip, protocol, dst_port)
-            DO UPDATE SET
-                bytes = flow_minute_rollups.bytes + EXCLUDED.bytes,
-                packets = flow_minute_rollups.packets + EXCLUDED.packets,
-                flow_count = flow_minute_rollups.flow_count + EXCLUDED.flow_count;
-        """)
+            insert_sql = text("""
+                INSERT INTO flow_minute_rollups (
+                    bucket, exporter_id, src_endpoint_id, dst_endpoint_id,
+                    src_ip, dst_ip, protocol, dst_port,
+                    bytes, packets, flow_count
+                ) VALUES (
+                    :bucket, :exporter_id, :src_endpoint_id, :dst_endpoint_id,
+                    :src_ip::inet, :dst_ip::inet, :protocol, :dst_port,
+                    :bytes, :packets, :flow_count
+                )
+                ON CONFLICT (bucket, exporter_id, src_ip, dst_ip, protocol, dst_port)
+                DO UPDATE SET
+                    bytes = flow_minute_rollups.bytes + EXCLUDED.bytes,
+                    packets = flow_minute_rollups.packets + EXCLUDED.packets,
+                    flow_count = flow_minute_rollups.flow_count + EXCLUDED.flow_count;
+            """)
 
-        try:
-            async with self.db_factory() as session:
-                # Execute in batches of 1000
-                batch_size = 1000
-                for i in range(0, len(rows), batch_size):
-                    chunk = rows[i : i + batch_size]
-                    await session.execute(insert_sql, chunk)
-                await session.commit()
-            logger.info("Successfully persisted %d flow rollup records to TimescaleDB.", len(rows))
-        except Exception as e:
-            logger.error("Failed to commit flow rollup micro-batch to DB: %s", e)
+            try:
+                async with self.db_factory() as session:
+                    # Execute in batches of 1000
+                    batch_size = 1000
+                    for i in range(0, len(rows), batch_size):
+                        chunk = rows[i : i + batch_size]
+                        await session.execute(insert_sql, chunk)
+                    await session.commit()
+                logger.info("Successfully persisted %d flow rollup records to TimescaleDB.", len(rows))
+            except Exception as e:
+                logger.error("Failed to commit flow rollup micro-batch to DB: %s", e)
+                # Keep accumulator intact and do not ack messages on failure
+                return
+
+            # Only deduct committed quantities from accumulator on successful DB commit
+            for k, flushed_vals in snapshot.items():
+                if k in self._accumulator:
+                    self._accumulator[k][0] -= flushed_vals[0]
+                    self._accumulator[k][1] -= flushed_vals[1]
+                    self._accumulator[k][2] -= flushed_vals[2]
+                    if self._accumulator[k][2] <= 0:
+                        del self._accumulator[k]
+
+        # Acknowledge stream messages in Redis only after successful DB persistence
+        if pending_ack and self.redis:
+            try:
+                batch_ack = 500
+                for i in range(0, len(pending_ack), batch_ack):
+                    ack_chunk = pending_ack[i : i + batch_ack]
+                    await self.redis.xack(STREAM_KEY, GROUP_NAME, *ack_chunk)
+                self._pending_msg_ids = self._pending_msg_ids[len(pending_ack):]
+            except Exception as ack_err:
+                logger.warning("Failed to xack stream messages in Redis: %s", ack_err)
 
     async def _consume_stream(self) -> None:
         await self._setup_consumer_group()
@@ -211,10 +236,10 @@ class FlowAggregator:
                 if not entries:
                     continue
 
-                msg_ids_to_ack = []
                 for _, message_list in entries:
                     for msg_id, fields in message_list:
-                        msg_ids_to_ack.append(msg_id)
+                        raw_id = msg_id.decode("utf-8") if isinstance(msg_id, bytes) else str(msg_id)
+                        self._pending_msg_ids.append(raw_id)
                         try:
                             exp_ip = fields.get("exp", "")
                             src_ip = fields.get("src", "")
@@ -239,9 +264,6 @@ class FlowAggregator:
                             )
                         except Exception as parse_err:
                             logger.debug("Corrupted stream message %s: %s", msg_id, parse_err)
-
-                if msg_ids_to_ack:
-                    await self.redis.xack(STREAM_KEY, GROUP_NAME, *msg_ids_to_ack)
 
             except asyncio.CancelledError:
                 break

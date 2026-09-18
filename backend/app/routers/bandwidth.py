@@ -8,13 +8,17 @@ from typing import Any, Dict, List, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import func, select, text
+from sqlalchemy import case, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.database import get_db
 from app.models.endpoint import Endpoint
-from app.models.flow_rollup import FlowMinuteRollup
+from app.models.flow_rollup import (
+    FlowDailyRollup,
+    FlowHourlyRollup,
+    FlowMinuteRollup,
+)
 from app.routers.auth import get_current_user, require_admin
 from app.schemas import APIResponse
 from app.schemas.bandwidth import (
@@ -36,6 +40,40 @@ from app.services.driver_manager import driver_manager
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/bandwidth", tags=["bandwidth"])
+
+_flow_redis_pool: Optional[Any] = None
+
+
+async def get_flow_redis() -> Optional[Any]:
+    """
+    Returns an async Redis client for flow telemetry operations.
+    Reuses driver_manager's client if available; otherwise initializes an independent pool.
+    """
+    global _flow_redis_pool
+    dm_client = getattr(driver_manager, "_redis_client", None)
+    if dm_client is not None:
+        return dm_client
+
+    if not getattr(settings.redis, "enabled", True):
+        return None
+
+    if _flow_redis_pool is None:
+        try:
+            import redis.asyncio as aioredis
+            _flow_redis_pool = aioredis.Redis(
+                host=settings.redis.host,
+                port=settings.redis.port,
+                db=settings.redis.db,
+                password=settings.redis.password or None,
+                decode_responses=True,
+                socket_timeout=1.0,
+                socket_connect_timeout=1.0,
+            )
+        except Exception as e:
+            logger.debug("Failed to initialize standalone Redis client for flow: %s", e)
+            return None
+    return _flow_redis_pool
+
 
 PROTOCOL_MAP = {
     1: "ICMP",
@@ -77,7 +115,31 @@ def _get_window_delta(window: str) -> datetime.timedelta:
         return datetime.timedelta(days=7)
     if w == "30d":
         return datetime.timedelta(days=30)
+    if w == "1y":
+        return datetime.timedelta(days=365)
     return datetime.timedelta(hours=1)
+
+
+def _select_rollup_model_and_bucket_seconds(
+    window: str, endpoint_id: Optional[UUID] = None
+) -> Tuple[Any, float]:
+    """
+    Selects the optimal hypertable or continuous aggregate model and bucket interval.
+    1h, 6h -> FlowMinuteRollup (60s)
+    24h, 7d -> FlowHourlyRollup (3600s)
+    30d, 1y -> FlowDailyRollup (86400s) or FlowHourlyRollup if endpoint_id filtered
+    """
+    w = window.lower().strip()
+    if w in ("1h", "6h"):
+        return FlowMinuteRollup, 60.0
+    elif w in ("24h", "7d"):
+        return FlowHourlyRollup, 3600.0
+    elif w in ("30d", "1y"):
+        if endpoint_id is not None:
+            return FlowHourlyRollup, 3600.0
+        return FlowDailyRollup, 86400.0
+    else:
+        return FlowMinuteRollup, 60.0
 
 
 @router.get("/overview", response_model=APIResponse)
@@ -92,25 +154,57 @@ async def get_bandwidth_overview(
     five_min_ago = now - datetime.timedelta(minutes=5)
 
     stmt = select(
-        func.coalesce(func.sum(FlowMinuteRollup.bytes), 0),
-        func.coalesce(func.sum(FlowMinuteRollup.flow_count), 0),
-        func.count(func.distinct(FlowMinuteRollup.exporter_id)),
+        func.coalesce(func.sum(FlowMinuteRollup.bytes), 0).label("total_bytes"),
+        func.coalesce(
+            func.sum(
+                case(
+                    (FlowMinuteRollup.dst_endpoint_id.is_not(None), FlowMinuteRollup.bytes),
+                    else_=0,
+                )
+            ),
+            0,
+        ).label("ingress_bytes"),
+        func.coalesce(
+            func.sum(
+                case(
+                    (FlowMinuteRollup.src_endpoint_id.is_not(None), FlowMinuteRollup.bytes),
+                    else_=0,
+                )
+            ),
+            0,
+        ).label("egress_bytes"),
+        func.coalesce(func.sum(FlowMinuteRollup.flow_count), 0).label("total_flows"),
+        func.count(func.distinct(FlowMinuteRollup.exporter_id)).label("active_exporters"),
     ).where(FlowMinuteRollup.bucket >= five_min_ago)
 
     res = await db.execute(stmt)
     row = res.one_or_none()
-    total_bytes = row[0] if row else 0
-    total_flows = row[1] if row else 0
-    active_exporters = row[2] if row else 0
+
+    if row and len(row) >= 5:
+        total_bytes = int(row[0] or 0)
+        ingress_bytes = int(row[1] or 0)
+        egress_bytes = int(row[2] or 0)
+        total_flows = int(row[3] or 0)
+        active_exporters = int(row[4] or 0)
+        if ingress_bytes == 0 and egress_bytes == 0 and total_bytes > 0:
+            ingress_bytes = total_bytes // 2
+            egress_bytes = total_bytes - ingress_bytes
+    elif row and len(row) >= 3:
+        total_bytes = int(row[0] or 0)
+        total_flows = int(row[1] or 0)
+        active_exporters = int(row[2] or 0)
+        ingress_bytes = total_bytes // 2
+        egress_bytes = total_bytes - ingress_bytes
+    else:
+        total_bytes = ingress_bytes = egress_bytes = total_flows = active_exporters = 0
 
     # Calculate average bps over 300 seconds
-    avg_bps = (float(total_bytes) * 8.0) / 300.0 if total_bytes > 0 else 0.0
-    ingress_bps = avg_bps * 0.52
-    egress_bps = avg_bps * 0.48
+    ingress_bps = (float(ingress_bytes) * 8.0) / 300.0 if ingress_bytes > 0 else 0.0
+    egress_bps = (float(egress_bytes) * 8.0) / 300.0 if egress_bytes > 0 else 0.0
 
     # Fetch unmatched count from Redis
     unmatched_count = 0
-    redis_client = getattr(driver_manager, "_redis_client", None)
+    redis_client = await get_flow_redis()
     if redis_client:
         try:
             unmatched_count = await redis_client.scard("flow:unmatched:set")
@@ -138,42 +232,79 @@ async def get_traffic_series(
 ):
     """
     Returns time-series data points for Chart.js stacked area chart.
+    Dynamically routes to 1-minute hypertable, 1-hour CAGG, or 1-day CAGG based on window.
     """
     delta = _get_window_delta(window)
     now = datetime.datetime.now(datetime.timezone.utc)
     start_time = now - delta
 
-    filters = [FlowMinuteRollup.bucket >= start_time]
+    model, bucket_seconds = _select_rollup_model_and_bucket_seconds(window, endpoint_id)
+
+    filters = [model.bucket >= start_time]
     if exporter_id:
-        filters.append(FlowMinuteRollup.exporter_id == exporter_id)
-    if endpoint_id:
+        filters.append(model.exporter_id == exporter_id)
+    if endpoint_id and hasattr(model, "src_endpoint_id"):
         filters.append(
-            (FlowMinuteRollup.src_endpoint_id == endpoint_id)
-            | (FlowMinuteRollup.dst_endpoint_id == endpoint_id)
+            (model.src_endpoint_id == endpoint_id)
+            | (model.dst_endpoint_id == endpoint_id)
         )
+
+    # Ingress / Egress calculations via case expressions
+    if endpoint_id and hasattr(model, "src_endpoint_id"):
+        ingress_calc = func.sum(
+            case((model.dst_endpoint_id == endpoint_id, model.bytes), else_=0)
+        )
+        egress_calc = func.sum(
+            case((model.src_endpoint_id == endpoint_id, model.bytes), else_=0)
+        )
+    elif hasattr(model, "src_endpoint_id"):
+        ingress_calc = func.sum(
+            case((model.dst_endpoint_id.is_not(None), model.bytes), else_=0)
+        )
+        egress_calc = func.sum(
+            case((model.src_endpoint_id.is_not(None), model.bytes), else_=0)
+        )
+    else:
+        ingress_calc = func.sum(model.bytes) / 2
+        egress_calc = func.sum(model.bytes) / 2
 
     stmt = (
         select(
-            FlowMinuteRollup.bucket,
-            func.coalesce(func.sum(FlowMinuteRollup.bytes), 0).label("total_bytes"),
+            model.bucket,
+            func.coalesce(func.sum(model.bytes), 0).label("total_bytes"),
+            func.coalesce(ingress_calc, 0).label("ingress_bytes"),
+            func.coalesce(egress_calc, 0).label("egress_bytes"),
         )
         .where(*filters)
-        .group_by(FlowMinuteRollup.bucket)
-        .order_by(FlowMinuteRollup.bucket.asc())
+        .group_by(model.bucket)
+        .order_by(model.bucket.asc())
     )
 
     res = await db.execute(stmt)
     rows = res.all()
 
     points: List[TrafficSeriesPoint] = []
-    for bucket_time, byte_sum in rows:
-        bps = (float(byte_sum) * 8.0) / 60.0
+    for row in rows:
+        bucket_time = row[0]
+        byte_sum = int(row[1] or 0)
+        if len(row) >= 4:
+            in_bytes = int(row[2] or 0)
+            eg_bytes = int(row[3] or 0)
+            if in_bytes == 0 and eg_bytes == 0 and byte_sum > 0:
+                in_bytes = byte_sum // 2
+                eg_bytes = byte_sum - in_bytes
+        else:
+            in_bytes = byte_sum // 2
+            eg_bytes = byte_sum - in_bytes
+
+        in_bps = (float(in_bytes) * 8.0) / bucket_seconds
+        eg_bps = (float(eg_bytes) * 8.0) / bucket_seconds
         iso_str = bucket_time.astimezone(datetime.timezone.utc).isoformat()
         points.append(
             TrafficSeriesPoint(
                 timestamp=iso_str,
-                ingress_bps=round(bps * 0.52, 2),
-                egress_bps=round(bps * 0.48, 2),
+                ingress_bps=round(in_bps, 2),
+                egress_bps=round(eg_bps, 2),
             )
         )
 
@@ -203,6 +334,24 @@ async def get_top_talkers(
             FlowMinuteRollup.src_endpoint_id.label("ep_id"),
             func.sum(FlowMinuteRollup.bytes).label("total_bytes"),
             func.sum(FlowMinuteRollup.flow_count).label("total_flows"),
+            func.coalesce(
+                func.sum(
+                    case(
+                        (FlowMinuteRollup.dst_endpoint_id.is_not(None), FlowMinuteRollup.bytes),
+                        else_=0,
+                    )
+                ),
+                0,
+            ).label("ingress_bytes"),
+            func.coalesce(
+                func.sum(
+                    case(
+                        (FlowMinuteRollup.src_endpoint_id.is_not(None), FlowMinuteRollup.bytes),
+                        else_=0,
+                    )
+                ),
+                0,
+            ).label("egress_bytes"),
         )
         .where(FlowMinuteRollup.bucket >= start_time)
         .group_by(FlowMinuteRollup.src_ip, FlowMinuteRollup.src_endpoint_id)
@@ -223,17 +372,29 @@ async def get_top_talkers(
             hostnames[e_id] = h_name
 
     top_endpoints: List[TopTalkerItem] = []
-    for ip, ep_id, b_sum, f_sum in ep_rows:
-        h_name = hostnames.get(ep_id)
+    for row in ep_rows:
+        ip = row[0]
+        ep_id = row[1]
+        b_sum = row[2]
+        f_sum = row[3]
         total_b = int(b_sum or 0)
+        if len(row) >= 6:
+            in_b = int(row[4] or 0)
+            eg_b = int(row[5] or 0)
+            if in_b == 0 and eg_b == 0:
+                eg_b = total_b
+        else:
+            in_b = 0
+            eg_b = total_b
+        h_name = hostnames.get(ep_id)
         top_endpoints.append(
             TopTalkerItem(
                 endpoint_id=ep_id,
                 ip_address=str(ip),
                 hostname=h_name,
                 total_bytes=total_b,
-                ingress_bytes=int(total_b * 0.48),
-                egress_bytes=int(total_b * 0.52),
+                ingress_bytes=in_b,
+                egress_bytes=eg_b,
                 flow_count=int(f_sum or 0),
             )
         )
@@ -289,20 +450,23 @@ async def get_applications_breakdown(
 ):
     """
     Returns protocol and service port volume distribution for donut chart.
+    Dynamically routes to hypertable or continuous aggregates based on window.
     """
     delta = _get_window_delta(window)
     now = datetime.datetime.now(datetime.timezone.utc)
     start_time = now - delta
 
+    model, _ = _select_rollup_model_and_bucket_seconds(window)
+
     stmt = (
         select(
-            FlowMinuteRollup.protocol,
-            FlowMinuteRollup.dst_port,
-            func.sum(FlowMinuteRollup.bytes).label("total_bytes"),
+            model.protocol,
+            model.dst_port,
+            func.sum(model.bytes).label("total_bytes"),
         )
-        .where(FlowMinuteRollup.bucket >= start_time)
-        .group_by(FlowMinuteRollup.protocol, FlowMinuteRollup.dst_port)
-        .order_by(func.sum(FlowMinuteRollup.bytes).desc())
+        .where(model.bucket >= start_time)
+        .group_by(model.protocol, model.dst_port)
+        .order_by(func.sum(model.bytes).desc())
         .limit(15)
     )
 
@@ -361,7 +525,7 @@ async def list_flow_exporters(
         )
 
     unmatched_list: List[UnmatchedExporterItem] = []
-    redis_client = getattr(driver_manager, "_redis_client", None)
+    redis_client = await get_flow_redis()
     if redis_client:
         try:
             unmatched_ips = await redis_client.smembers("flow:unmatched:set")
@@ -429,7 +593,7 @@ async def map_unmatched_exporter(
         await db.commit()
 
     # Clear from Redis unmatched set
-    redis_client = getattr(driver_manager, "_redis_client", None)
+    redis_client = await get_flow_redis()
     if redis_client:
         try:
             await redis_client.delete(f"flow:unmatched:{clean_ip}")
