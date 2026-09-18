@@ -1,6 +1,6 @@
 # LNMP Security Model, Threat Architecture & Defense Specification
 
-**Document Version:** 3.1.1s  
+**Document Version:** 3.1.3s  
 **Last Updated:** September 2026  
 **Classification:** Public Security Specification & Threat Model  
 
@@ -21,11 +21,12 @@ The **Lightweight Network Monitoring Platform (LNMP)** is engineered for mission
 
 | Version | Release Type | Security Support Status | Recommended Action |
 | :--- | :--- | :--- | :--- |
-| **v3.1.1s** | Security Release | **Active / Current Standard** | Production standard for all deployments. |
-| **v3.1.0** | Feature Release | **Superseded by v3.1.1s** | Upgrade immediately to v3.1.1s for socket-level SSRF defense. |
-| **v3.0.x** | Major Release | **Maintenance Only** | Upgrade to v3.1.1s for enterprise alerting and security fixes. |
-| **v2.0.x** | Beta | **End of Life (EOL)** | Unmaintained; upgrade to v3.1.1s immediately. |
-| **v1.x** | Legacy Alpha | **End of Life (EOL)** | Unmaintained; migrate to v3.1.1s. |
+| **v3.1.3s** | Maintenance & Reliability | **Active / Current Standard** | Production standard for all deployments. |
+| **v3.1.1s** | Security Release | **Supported** | Preceding security standard; upgrade to v3.1.3s for cluster sync. |
+| **v3.1.0** | Feature Release | **Superseded by v3.1.3s** | Upgrade immediately to v3.1.3s for socket-level SSRF defense. |
+| **v3.0.x** | Major Release | **Maintenance Only** | Upgrade to v3.1.3s for enterprise alerting and security fixes. |
+| **v2.0.x** | Beta | **End of Life (EOL)** | Unmaintained; upgrade to v3.1.3s immediately. |
+| **v1.x** | Legacy Alpha | **End of Life (EOL)** | Unmaintained; migrate to v3.1.3s. |
 
 ---
 
@@ -79,7 +80,7 @@ The **Lightweight Network Monitoring Platform (LNMP)** is engineered for mission
 
 ## 4. Outbound Egress & Zero-Trust SSRF Protection (CWE-918)
 
-Version 3.1.1s introduces **Zero-Trust Socket-Level SSRF Protection** (`SSRFSafeBackend`), replacing traditional pre-flight hostname checks with kernel-boundary connection verification.
+LNMP v3.1.3s incorporates **Zero-Trust Socket-Level SSRF Protection** (`SSRFSafeBackend`), replacing traditional pre-flight hostname checks with kernel-boundary connection verification.
 
 ### A. The Threat: Time-of-Check to Time-of-Use (TOCTOU) DNS Rebinding
 In standard application architectures, validating a URL before making an HTTP request leaves an exploitable window: an attacker configures a domain with a 0-second TTL that returns a public IP during pre-flight validation, but rebinds to `169.254.169.254` (cloud metadata) or `127.0.0.1` when the HTTP client establishes its TCP connection.
