@@ -1,4 +1,4 @@
-# LNMP: Network Monitoring Platform v3.1.1s
+# LNMP: Network Monitoring Platform v3.1.3s
 
 A high-precision, decoupled network telemetry and monitoring solution designed for continuous endpoint status verification, low-latency multi-protocol polling, adaptive statistical alerting, automated root-cause analysis (RCA), real-time Server-Sent Events (SSE), dual-driver storage acceleration, enterprise multi-channel notifications, and dynamic topology visualization with crossing-free layout routing.
 
@@ -8,6 +8,9 @@ A high-precision, decoupled network telemetry and monitoring solution designed f
 
 The platform is decoupled into independent, modular layers to guarantee continuous telemetry collection regardless of client-side dashboard activity, heavy API load, or temporary network disruptions:
 
+* **TimescaleDB Startup Chunk Pruning & Decompression Safety:** Bounds startup event closure queries to the active 7-day uncompressed window, enabling hypertable partition pruning and enforcing transaction overrides (`max_tuples_decompressed_per_dml_transaction = 0`) to prevent decompression limits from failing engine reboots.
+* **Multi-Worker Storage Driver Cluster Synchronization:** PostgreSQL `LISTEN`/`NOTIFY` inter-process coordination keeping Uvicorn multi-worker clusters instantly synchronized on active storage backend state transitions (`SYSTEM_SETTINGS_SYNC`).
+* **Bidirectional Warm Session State Migration:** Seamless, zero-downtime session transfer between PostgreSQL and Redis, ensuring zero session drop or operator logout when toggling storage drivers.
 * **Enterprise Alerting & Notifications Engine:** Asynchronous, non-blocking notification dispatcher pushing state transitions and RCA incidents across Microsoft Teams (Adaptive Cards v1.4 & HTML fallback), Discord (Rich Embeds), Slack (Block Kit), Generic Webhooks, and direct hardened SMTP Email with socket-level SSRF defense, AES-256-GCM encryption at rest, flapping cooldown, and cascade suppression.
 * **Interactive CSV Column Customizer:** Dynamic telemetry export allowing operators to customize exported metrics while strictly enforcing locked, non-negotiable device identity columns (`Hostname`, `IP_Address`).
 * **SQLAlchemy 2.0 ORM & Repository Pattern:** Clean data access layer separating business logic from database operations, eliminating raw SQL queries and implementing SQL-level pagination (`limit`, `offset`) across all entities.
@@ -20,6 +23,7 @@ The platform is decoupled into independent, modular layers to guarantee continuo
 * **Interactive Crossing-Free Topology Map:** Vue 3 Vis-Network visualizer implementing **BFS DAG Longest-Path Layering** (`Level(v) = max(Level(u) + 1)`), **Sugiyama (1981)** barycenter crossing reduction, **Gansner (1993)** coordinate alignment, **frozen-physics real-time recoloring**, and **Horizontal (LR) ⇄ Vertical (UD)** layout switching.
 * **Enterprise Frontend & Accessibility Overhaul:** High-contrast monochrome design system, top summary KPI ribbon with instant filter pills, **Dual View Switcher** (Visual Card Grid vs. Dense Sortable Table), tabular monospace numbers, and WCAG 2.1 AA keyboard focus indicators.
 * **TimescaleDB Compression & Retention:** 7-day chunk compression (90%+ disk savings), automated continuous aggregates, and daily automated 90-day retention cleanup.
+* **Enterprise Logging Architecture:** Python `RotatingFileHandler` with bounded disk quotas (~150MB total footprint) and strict permission isolation (`0640 netmon:netmon`), preventing log exhaustion on high-volume production deployments.
 * **Security & Session Governance:** Sliding 2-hour inactivity timeouts, token-based concurrent session quotas (max 2 active sessions with FIFO rotation), and IP-scoped failed login lockouts (`<Client_IP>:<Username>`).
 
 ---
@@ -94,13 +98,13 @@ cd lnmp/deploy
 ./install.sh
 ```
 
-### 2. Upgrading to v3.1.1s (Zero Historical Data Loss)
+### 2. Upgrading to v3.1.3s (Zero Historical Data Loss)
 
-To upgrade an existing installation to Version 3.1.1s:
+To upgrade an existing installation to Version 3.1.3s:
 
 ```bash
 cd ~/lnmp
-git pull origin main
+git pull origin v3.1.3s
 sudo ./deploy/upgrade.sh
 ```
 
