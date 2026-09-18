@@ -250,3 +250,110 @@ class RedisSessionStore(SessionStore):
         except Exception as e:
             logger.error("RedisSessionStore.invalidate_all_user_sessions error: %s", e)
             raise
+
+
+async def migrate_sessions_pg_to_redis(session_factory, redis_client) -> int:
+    """
+    Warm-migrates active unexpired user sessions from PostgreSQL to Redis.
+    Preserves existing session lifetimes so active users remain authenticated across driver switches.
+    """
+    now = datetime.now(timezone.utc)
+    count = 0
+    try:
+        async with session_factory() as db:
+            stmt = (
+                select(UserSession)
+                .where(UserSession.expires_at > now)
+                .order_by(UserSession.created_at.asc())
+            )
+            res = await db.execute(stmt)
+            sessions = res.scalars().all()
+
+            user_map: dict[str, list[UserSession]] = {}
+            for s in sessions:
+                u_id = str(s.user_id)
+                user_map.setdefault(u_id, []).append(s)
+
+            for u_id, sess_list in user_map.items():
+                key = f"user_sessions:{u_id}"
+                jtis = [s.jti for s in sess_list if s.jti]
+                if not jtis:
+                    continue
+                max_exp = max(s.expires_at for s in sess_list)
+                ttl = int((max_exp - now).total_seconds())
+                if ttl > 0:
+                    await redis_client.set(key, json.dumps(jtis), ex=ttl)
+                    count += len(jtis)
+        logger.info(
+            "Warm session migration: Migrated %d active session(s) from PostgreSQL to Redis.",
+            count,
+        )
+    except Exception as exc:
+        logger.warning(
+            "Warm session migration (PostgreSQL -> Redis) encountered an error: %s",
+            exc,
+        )
+    return count
+
+
+async def migrate_sessions_redis_to_pg(redis_client, session_factory) -> int:
+    """
+    Warm-migrates active user sessions from Redis into PostgreSQL user_sessions.
+    Ensures active sessions remain valid during Redis-to-PostgreSQL fallback or driver switch.
+    """
+    now = datetime.now(timezone.utc)
+    count = 0
+    try:
+        async with session_factory() as db:
+            async for key in redis_client.scan_iter(match="user_sessions:*"):
+                key_str = key.decode("utf-8") if isinstance(key, bytes) else str(key)
+                parts = key_str.split(":", 1)
+                if len(parts) != 2:
+                    continue
+                user_id_str = parts[1]
+                try:
+                    u_uuid = UUID(user_id_str)
+                except (ValueError, TypeError):
+                    continue
+
+                raw = await redis_client.get(key)
+                if not raw:
+                    continue
+                jtis = json.loads(raw)
+                if not isinstance(jtis, list):
+                    continue
+
+                ttl = await redis_client.ttl(key)
+                ttl_sec = ttl if ttl > 0 else 86400
+                exp = now + timedelta(seconds=ttl_sec)
+
+                for jti in jtis:
+                    if not jti:
+                        continue
+                    stmt = select(UserSession.id).where(
+                        UserSession.user_id == u_uuid,
+                        UserSession.jti == jti,
+                        UserSession.expires_at > now,
+                    ).limit(1)
+                    res = await db.execute(stmt)
+                    if res.scalar_one_or_none() is None:
+                        new_sess = UserSession(
+                            user_id=u_uuid,
+                            jti=jti,
+                            created_at=now,
+                            expires_at=exp,
+                        )
+                        db.add(new_sess)
+                        count += 1
+            await db.commit()
+        logger.info(
+            "Warm session migration: Migrated %d active session(s) from Redis to PostgreSQL.",
+            count,
+        )
+    except Exception as exc:
+        logger.warning(
+            "Warm session migration (Redis -> PostgreSQL) encountered an error: %s",
+            exc,
+        )
+    return count
+
