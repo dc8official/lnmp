@@ -12,8 +12,19 @@ RED='\033[0;31m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
-# 1. Require Root / Administrative Privileges (bypassed in dry-run mode)
-if [[ ${EUID} -ne 0 && "${1:-}" != "--dry-run" ]]; then
+# ==============================================================================
+# 1. Parse Command-Line Options
+# ==============================================================================
+DRY_RUN=0
+if [[ "${1:-}" == "--dry-run" ]]; then
+    DRY_RUN=1
+    echo -e "${YELLOW}[DRY-RUN MODE] Simulating upgrade operations without making mutations.${NC}"
+fi
+
+# ==============================================================================
+# 2. Require Root / Administrative Privileges (bypassed in dry-run mode)
+# ==============================================================================
+if [[ ${EUID} -ne 0 && ${DRY_RUN} -eq 0 ]]; then
     echo -e "${RED}[ERROR] This script must be executed with root privileges (e.g., sudo ./upgrade.sh).${NC}" >&2
     exit 1
 fi
@@ -29,11 +40,11 @@ INSTALL_DIR="/opt/netmon/noop"
 REPO_URL="${NETMON_REPO_URL:-https://github.com/dc8official/lnmp.git}"
 UPGRADE_BRANCH="${NETMON_BRANCH:-main}"
 
-# 2. Read Configuration Values
+# 3. Read Configuration Values
 ENV_FILE="/etc/netmon/netmon.env"
 if [[ -f "${ENV_FILE}" ]]; then
     echo -e "${GREEN}[INFO] Loading environment configuration from ${ENV_FILE}${NC}"
-    if [[ ${DRY_RUN} -eq 0 ]]; then
+    if [[ ${DRY_RUN:-0} -eq 0 ]]; then
         chmod 0600 "${ENV_FILE}"
         chown netmon:netmon "${ENV_FILE}" 2>/dev/null || true
     fi
@@ -54,13 +65,6 @@ DB_USER="${NETMON_DB_USER:-${POSTGRES_USER:-netmon_user}}"
 DB_PASS="${NETMON_DB_PASSWORD:-${POSTGRES_PASSWORD:-netmon_secure_password}}"
 DB_HOST="${NETMON_DB_HOST:-${POSTGRES_HOST:-127.0.0.1}}"
 DB_PORT="${NETMON_DB_PORT:-${POSTGRES_PORT:-5432}}"
-
-# Handle Dry-Run Mode Option
-DRY_RUN=0
-if [[ "${1:-}" == "--dry-run" ]]; then
-    DRY_RUN=1
-    echo -e "${YELLOW}[DRY-RUN MODE] Simulating upgrade operations without making mutations.${NC}"
-fi
 
 # 3. Pre-Upgrade Database Backup
 BACKUP_DIR="/var/backups/netmon"
