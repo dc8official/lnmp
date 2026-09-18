@@ -144,6 +144,8 @@ def register_session(user_id: str, jti: str, max_sessions: int = 2) -> None:
     """
     u_id = str(user_id)
     active_list = _active_user_sessions.get(u_id, [])
+    if jti in active_list:
+        return
     active_list.append(jti)
     if len(active_list) > max_sessions:
         # Evict oldest session(s)
@@ -245,8 +247,6 @@ def create_access_token(
     jti: Optional[str] = None,
 ) -> str:
     session_id = jti or str(secrets.token_hex(16))
-    max_sess = getattr(settings.security, "max_active_sessions_per_user", 2)
-    register_session(user_id, session_id, max_sessions=max_sess)
 
     payload = {
         "sub": user_id,

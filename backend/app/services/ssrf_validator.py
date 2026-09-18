@@ -132,7 +132,11 @@ def create_ssrf_safe_client(
     )
 
 
-def validate_outbound_url(url: str, allow_private: bool | None = None) -> None:
+def validate_outbound_url(
+    url: str,
+    allow_private: bool | None = None,
+    allow_loopback: bool = False,
+) -> None:
     """
     Validates that a URL is safe for outbound dispatch (webhook / telemetry push).
     Rejects non-HTTP(S) protocols and destinations that resolve to loopback,
@@ -191,7 +195,7 @@ def validate_outbound_url(url: str, allow_private: bool | None = None) -> None:
                     f"SSRF violation: Host '{hostname}' resolves to blocked metadata address {str_ip}."
                 )
 
-            if ip.is_loopback:
+            if not allow_loopback and ip.is_loopback:
                 raise ValueError(
                     f"SSRF violation: Host '{hostname}' resolves to loopback address {str_ip}."
                 )

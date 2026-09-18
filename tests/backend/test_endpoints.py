@@ -28,6 +28,7 @@ class TestEndpointCreationAsync(unittest.TestCase):
     ) -> None:
         # Mock independent DB session context manager
         mock_bg_db = AsyncMock()
+        mock_bg_db.add = MagicMock()
         mock_session_local.return_value.__aenter__.return_value = mock_bg_db
 
         endpoint_id = uuid4()
@@ -59,6 +60,7 @@ class TestEndpointCreationAsync(unittest.TestCase):
         mock_session_local: MagicMock,
     ) -> None:
         mock_bg_db = AsyncMock()
+        mock_bg_db.add = MagicMock()
         mock_session_local.return_value.__aenter__.return_value = mock_bg_db
         mock_refresh_route.side_effect = Exception("Network timeout")
 

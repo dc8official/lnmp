@@ -265,6 +265,7 @@ class TestMilestone2DualStorageAndEventBroker(unittest.TestCase):
 
     def test_postgres_session_store_mock_db(self) -> None:
         mock_session = AsyncMock()
+        mock_session.add = MagicMock()
         mock_execute_res = MagicMock()
         mock_execute_res.scalars.return_value.all.return_value = []
         mock_execute_res.fetchall.return_value = []
