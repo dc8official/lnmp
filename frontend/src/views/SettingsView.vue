@@ -48,7 +48,7 @@
         :aria-selected="activeTab === 'performance'"
       >
         <span class="tab-icon">⚡</span>
-        <span class="tab-label">Performance & Storage</span>
+        <span class="tab-label">Performance & Telemetry</span>
       </button>
 
       <button 
@@ -249,11 +249,11 @@
       </div>
     </div>
 
-    <!-- TAB 2: Performance & Storage -->
+    <!-- TAB 2: Performance & Telemetry -->
     <div v-if="activeTab === 'performance'" class="tab-pane">
       <div class="settings-card">
         <div class="card-header">
-          <h2 class="card-title">⚡ Performance & Storage Engine</h2>
+          <h2 class="card-title">⚡ Performance & Caching Engine</h2>
           <span class="engine-badge" :class="settings.performanceMode ? 'badge-redis' : 'badge-pg'">
             {{ settings.performanceMode ? 'REDIS ACCELERATED' : 'POSTGRESQL NATIVE' }}
           </span>
@@ -272,7 +272,7 @@
               type="button" 
               class="btn-toggle-option" 
               :class="{ active: !settings.performanceMode }"
-              @click="settings.performanceMode = false"
+              @click="setPerformanceMode(false)"
             >
               Standard (PostgreSQL)
             </button>
@@ -280,7 +280,7 @@
               type="button" 
               class="btn-toggle-option" 
               :class="{ active: settings.performanceMode }"
-              @click="settings.performanceMode = true"
+              @click="setPerformanceMode(true)"
             >
               Accelerated (Redis)
             </button>
@@ -308,6 +308,16 @@
               <span class="slider round"></span>
             </label>
           </div>
+        </div>
+
+        <!-- Prerequisite Banner when Redis is disabled -->
+        <div v-if="!settings.performanceMode" class="alert-banner alert-warning mt-3" role="alert">
+          <div class="flex-row-center gap-2">
+            <span>⚠️ Redis Memory Acceleration is required to buffer raw packet streams. Please activate Redis first.</span>
+          </div>
+          <button type="button" class="btn-primary btn-small ml-3" @click="activateRedisDriver">
+            Activate Redis Driver
+          </button>
         </div>
 
         <div v-if="settings.flowIngestionEnabled" class="flow-config-fields mt-3">
@@ -991,10 +1001,38 @@ const showPreflightModal = ref(false)
 const preflightChecking = ref(false)
 const preflightResult = ref(null)
 
+function setPerformanceMode(val) {
+  if (!val && settings.flowIngestionEnabled) {
+    toast.add({
+      severity: 'warn',
+      summary: 'Action Blocked',
+      detail: 'Cannot disable Redis Memory Acceleration while Flow Ingestion is active. Please disable Flow Ingestion first.',
+      life: 5000,
+    })
+    return
+  }
+  settings.performanceMode = val
+}
+
+async function activateRedisDriver() {
+  settings.performanceMode = true
+  showPreflightModal.value = true
+  await runPreflightCheck()
+}
+
 async function toggleFlowIngestion(e) {
   const targetState = e.target.checked
   if (targetState) {
     e.target.checked = false
+    if (!settings.performanceMode) {
+      toast.add({
+        severity: 'warn',
+        summary: 'Prerequisite Required',
+        detail: 'Network Flow Telemetry requires Redis Memory Acceleration. Please activate Redis first.',
+        life: 5000,
+      })
+      return
+    }
     showPreflightModal.value = true
     await runPreflightCheck()
   } else {
@@ -1026,6 +1064,9 @@ async function runPreflightCheck() {
 }
 
 async function confirmFlowActivation() {
+  if (!preflightResult.value?.ready) {
+    return
+  }
   settings.flowIngestionEnabled = true
   showPreflightModal.value = false
   await saveAllSettings()
@@ -1206,6 +1247,18 @@ async function loadSettings() {
 }
 
 async function saveAllSettings() {
+  if (settings.flowIngestionEnabled && !settings.performanceMode) {
+    settings.flowIngestionEnabled = false
+    alertMessage.value = 'Cannot enable Network Flow Telemetry: Redis Memory Acceleration must be activated first.'
+    alertType.value = 'alert-error'
+    toast.add({
+      severity: 'error',
+      summary: 'Validation Error',
+      detail: alertMessage.value,
+      life: 5000,
+    })
+    return
+  }
   saving.value = true
   alertMessage.value = null
   try {
@@ -1225,6 +1278,12 @@ async function saveAllSettings() {
   } catch (err) {
     alertMessage.value = err.response?.data?.detail || 'Failed to update platform settings.'
     alertType.value = 'alert-error'
+    toast.add({
+      severity: 'error',
+      summary: 'Save Failed',
+      detail: alertMessage.value,
+      life: 5000,
+    })
   } finally {
     saving.value = false
   }
@@ -2168,6 +2227,7 @@ input:checked + .slider:before { transform: translateX(20px); }
 }
 .alert-success { background: rgba(16, 185, 129, 0.1); color: #10B981; border: 1px solid rgba(16, 185, 129, 0.3); }
 .alert-error { background: rgba(239, 68, 68, 0.1); color: #EF4444; border: 1px solid rgba(239, 68, 68, 0.3); }
+.alert-warning { background: rgba(245, 158, 11, 0.1); color: #F59E0B; border: 1px solid rgba(245, 158, 11, 0.3); }
 
 .role-badge {
   font-size: 11px; font-weight: 700;

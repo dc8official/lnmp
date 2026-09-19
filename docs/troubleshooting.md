@@ -1,4 +1,4 @@
-# LNMP Troubleshooting & Disaster Recovery Guide — Version 3.1.3s
+# LNMP Troubleshooting & Disaster Recovery Guide — Version 3.2.0
 
 This guide provides systematic diagnostic steps, platform logging architecture specifications, log triage procedures, and solutions for operational issues encountered when running LNMP in production.
 

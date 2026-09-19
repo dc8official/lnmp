@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Optional
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -208,6 +208,48 @@ async def update_settings(
     if alerting_val is None and payload.alertingEnabled is not None:
         alerting_val = payload.alertingEnabled
 
+    flow_ingestion_val = payload.flow_ingestion_enabled
+    if flow_ingestion_val is None and payload.flowIngestionEnabled is not None:
+        flow_ingestion_val = payload.flowIngestionEnabled
+
+    current_settings = await _read_settings_dict(db)
+
+    # Calculate effective values
+    if perf_mode_val is not None:
+        effective_perf_mode = bool(perf_mode_val)
+    else:
+        effective_perf_mode = bool(current_settings.get("performance_mode", False))
+
+    if flow_ingestion_val is not None:
+        effective_flow_enabled = bool(flow_ingestion_val)
+    else:
+        effective_flow_enabled = bool(current_settings.get("flow_ingestion_enabled", False))
+
+    current_flow_enabled = bool(current_settings.get("flow_ingestion_enabled", False))
+
+    # Rule C (Prevent Orphaned Flow Ingestion)
+    if current_flow_enabled and perf_mode_val is False and flow_ingestion_val is not False:
+        raise HTTPException(
+            status_code=400,
+            detail="Cannot disable Redis while Network Flow Telemetry is enabled. Please disable Flow Ingestion first.",
+        )
+
+    # Rule A (Enforce Redis Memory Acceleration)
+    if effective_flow_enabled and not effective_perf_mode:
+        raise HTTPException(
+            status_code=400,
+            detail="Cannot enable Network Flow Telemetry: Redis Memory Acceleration must be activated first.",
+        )
+
+    # Rule B (Enforce Active Redis Service Connectivity & Stream Capability)
+    if effective_flow_enabled:
+        ready, err_msg = await check_redis_flow_prerequisites()
+        if not ready:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Cannot enable Network Flow Telemetry: Redis prerequisite check failed ({err_msg}). Please ensure the Redis 6.0+ service is running.",
+            )
+
     reinit_driver = False
 
     if perf_mode_val is not None:
@@ -230,9 +272,6 @@ async def update_settings(
     if alerting_val is not None:
         await _upsert_setting(db, "alerting_enabled", "true" if alerting_val else "false")
 
-    flow_ingestion_val = payload.flow_ingestion_enabled
-    if flow_ingestion_val is None and payload.flowIngestionEnabled is not None:
-        flow_ingestion_val = payload.flowIngestionEnabled
     if flow_ingestion_val is not None:
         await _upsert_setting(
             db, "flow_ingestion_enabled", "true" if flow_ingestion_val else "false"
@@ -272,13 +311,7 @@ async def update_settings(
     return APIResponse.success(data=SettingsPayload(**updated_data))
 
 
-@router.post("/flow/preflight", response_model=APIResponse)
-async def test_flow_preflight(
-    current_user: dict = Depends(require_admin),
-):
-    """
-    Validates Redis 6+ connectivity and stream write capability required for Flow Telemetry.
-    """
+async def _run_redis_flow_check() -> FlowPreflightResponse:
     r_host = getattr(app_cfg.redis, "host", "127.0.0.1")
     r_port = getattr(app_cfg.redis, "port", 6379)
     r_db = getattr(app_cfg.redis, "db", 0)
@@ -328,24 +361,40 @@ async def test_flow_preflight(
             )
         )
 
-        return APIResponse.success(
-            data=FlowPreflightResponse(
-                redis_connected=True,
-                redis_version=redis_version,
-                redis_version_supported=version_supported,
-                stream_write_success=stream_ok,
-                ready=ready,
-                message=msg,
-            )
+        return FlowPreflightResponse(
+            redis_connected=True,
+            redis_version=redis_version,
+            redis_version_supported=version_supported,
+            stream_write_success=stream_ok,
+            ready=ready,
+            message=msg,
         )
     except Exception as exc:
-        return APIResponse.success(
-            data=FlowPreflightResponse(
-                redis_connected=False,
-                redis_version=None,
-                redis_version_supported=False,
-                stream_write_success=False,
-                ready=False,
-                message=f"Redis connection failed: {exc}",
-            )
+        return FlowPreflightResponse(
+            redis_connected=False,
+            redis_version=None,
+            redis_version_supported=False,
+            stream_write_success=False,
+            ready=False,
+            message=f"Redis connection failed: {exc}",
         )
+
+
+async def check_redis_flow_prerequisites() -> tuple[bool, str]:
+    """
+    Validates Redis 6+ connectivity and stream write capability required for Flow Telemetry.
+    Returns (ready: bool, message: str).
+    """
+    res = await _run_redis_flow_check()
+    return res.ready, res.message
+
+
+@router.post("/flow/preflight", response_model=APIResponse)
+async def test_flow_preflight(
+    current_user: dict = Depends(require_admin),
+):
+    """
+    Validates Redis 6+ connectivity and stream write capability required for Flow Telemetry.
+    """
+    res = await _run_redis_flow_check()
+    return APIResponse.success(data=res)

@@ -4,8 +4,8 @@
 
 | Version | Supported          | Security Notes |
 | ------- | ------------------ | -------------- |
-| v3.1.1s | :white_check_mark: | Active production standard with Zero-Trust Socket SSRF protection |
-| v3.1.0  | :x:                | Superseded by v3.1.1s |
+| v3.2.0  | :white_check_mark: | Active production standard with Flow Telemetry & Zero-Trust Socket protection |
+| v3.1.x  | :white_check_mark: | Supported maintenance track (v3.1.7s) |
 | v3.0.x  | :x:                | Maintenance only — upgrade recommended |
 | < v3.0  | :x:                | End of Life (EOL) |
 

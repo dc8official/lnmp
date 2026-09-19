@@ -275,7 +275,7 @@ On FreeBSD-based firewalls (pfSense and OPNsense), flow telemetry is provided vi
 ## 4. Enabling Flow Telemetry in LNMP
 
 1. Log in to the LNMP Web Interface as an **Administrator**.
-2. Navigate to **System Settings** -> **Tab 2: Performance & Storage Engine**.
+2. Navigate to **System Settings** -> **Tab 2: Performance & Telemetry Engine**.
 3. Under **Network Flow Telemetry Ingestion (v3.2.0)**:
    - Click **Run System Preflight Check** to verify Redis 6+ and stream write functionality.
    - Toggle **Enable Flow Telemetry Ingestion** to **Active**.
