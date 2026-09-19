@@ -22,8 +22,10 @@ class DatabaseSettings(BaseModel):
     host: str = "localhost"
     port: int = Field(default=5432, ge=1, le=65535)
     name: str = "netmon"
-    user: str = "postgres"
+    user: str = "netmon_user"
     password: str = "postgres"
+    pool_size: int = Field(default=10, ge=1, le=100)
+    max_overflow: int = Field(default=10, ge=0, le=100)
 
     model_config = ConfigDict(extra="ignore")
 
@@ -212,6 +214,20 @@ def load_settings() -> Settings:
     db_name = os.environ.get("NETMON_DB_NAME") or os.environ.get("POSTGRES_DB")
     if db_name:
         loaded.database.name = db_name
+
+    db_pool = os.environ.get("NETMON_DB_POOL_SIZE")
+    if db_pool:
+        try:
+            loaded.database.pool_size = int(db_pool)
+        except ValueError:
+            pass
+
+    db_overflow = os.environ.get("NETMON_DB_MAX_OVERFLOW")
+    if db_overflow:
+        try:
+            loaded.database.max_overflow = int(db_overflow)
+        except ValueError:
+            pass
 
     secret_key = os.environ.get("NETMON_SECRET_KEY")
     if secret_key:
