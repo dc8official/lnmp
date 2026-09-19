@@ -103,8 +103,12 @@ async def check_database_connection(max_retries: int = 5, retry_delay: float = 2
                 )
                 await asyncio.sleep(retry_delay)
             else:
-                print(
-                    f"[FATAL] Could not connect to the database after {max_retries} attempts: {exc}",
-                    file=sys.stderr,
+                logger.error(
+                    "Could not connect to the database after %d attempts: %s",
+                    max_retries,
+                    exc,
                 )
-                sys.exit(1)
+                raise RuntimeError(
+                    f"Could not connect to the database after {max_retries} attempts: {exc}"
+                )
+

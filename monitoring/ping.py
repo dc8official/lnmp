@@ -23,6 +23,9 @@ class PingResult:
     def total_count(self) -> int:
         return self.success_count + self.failed_count
 
+_subprocess_ping_semaphore = asyncio.Semaphore(25)
+
+
 async def run_system_ping_fallback(
     ip_address: str,
     count: int,
@@ -38,17 +41,18 @@ async def run_system_ping_fallback(
         # non-root users cannot set ping interval < 0.2
         safe_interval = max(0.2, interval)
         
-        proc = await asyncio.create_subprocess_exec(
-            "ping",
-            "-c", str(count),
-            "-i", str(safe_interval),
-            "-W", str(int(timeout)),
-            "--",
-            ip_address,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        stdout, stderr = await proc.communicate()
+        async with _subprocess_ping_semaphore:
+            proc = await asyncio.create_subprocess_exec(
+                "ping",
+                "-c", str(count),
+                "-i", str(safe_interval),
+                "-W", str(int(timeout)),
+                "--",
+                ip_address,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            stdout, stderr = await proc.communicate()
         stdout_str = stdout.decode("utf-8", errors="ignore")
         
         transmitted = 0

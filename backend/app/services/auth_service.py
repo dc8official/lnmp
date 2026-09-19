@@ -35,17 +35,9 @@ _failed_attempts: dict[str, dict] = {}
 # Key format: "<user_id>" -> [jti_1, jti_2] (ordered list of active session JWT IDs, FIFO rotated)
 _active_user_sessions: dict[str, list[str]] = {}
 
-READABLE_WORDS = [
-    "Atlas", "Beacon", "Cedar", "Drift", "Ember", "Falcon", "Gravel", "Haven",
-    "Iris", "Jasper", "Kestrel", "Lunar", "Matrix", "Nexus", "Opal", "Pulse",
-    "Quartz", "Ridge", "Solar", "Titan", "Vortex", "Zenith", "Anchor", "Breeze",
-]
-
-
 def generate_readable_password() -> str:
-    word = secrets.choice(READABLE_WORDS)
-    number = secrets.randbelow(900) + 100  # 100 to 999
-    return f"{word}-{number}"
+    """Generate high-entropy password (96 bits of entropy via secrets.token_urlsafe(16))."""
+    return secrets.token_urlsafe(16)
 
 
 def hash_password(password: str) -> str:
@@ -179,7 +171,7 @@ class AwaitableBool:
     def __eq__(self, other: object) -> bool:
         if isinstance(other, AwaitableBool):
             return self._val == other._val
-        return self._val == other
+        return self._val == bool(other)
 
     def __repr__(self) -> str:
         return repr(self._val)

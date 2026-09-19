@@ -97,19 +97,26 @@ async def get_fleet_summary(
     endpoints = res.scalars().all()
 
     stats_map = {}
+    now_utc = datetime.now(timezone.utc)
     cte_query = text("""
         WITH ranked_events AS (
             SELECT
                 endpoint_id,
                 operational_state,
                 detailed_state,
+                duration_seconds,
+                start_time,
+                end_time,
+                GREATEST(0, EXTRACT(EPOCH FROM (LEAST(:end_dt, COALESCE(end_time, NOW())) - GREATEST(:start_dt, start_time))))::BIGINT AS clamped_duration,
                 ROW_NUMBER() OVER (PARTITION BY endpoint_id ORDER BY start_time DESC) AS rn,
                 LAG(operational_state) OVER (PARTITION BY endpoint_id ORDER BY start_time ASC) AS prev_state
             FROM endpoint_events
-            WHERE start_time >= :start_dt AND start_time <= :end_dt
+            WHERE (end_time IS NULL OR end_time >= :start_dt) AND start_time <= :end_dt
         )
         SELECT
             endpoint_id,
+            COALESCE(SUM(CASE WHEN operational_state = 'UP' THEN clamped_duration ELSE 0 END), 0) AS up_seconds,
+            COALESCE(SUM(CASE WHEN operational_state = 'DOWN' THEN clamped_duration ELSE 0 END), 0) AS down_seconds,
             COUNT(CASE WHEN operational_state = 'UP' THEN 1 END) AS up_count,
             COUNT(CASE WHEN operational_state = 'DOWN' THEN 1 END) AS down_count,
             COUNT(CASE WHEN operational_state = 'DOWN' AND (prev_state IS NULL OR prev_state != 'DOWN') THEN 1 END) AS incident_count,
@@ -128,7 +135,7 @@ async def get_fleet_summary(
         ev_stmt = (
             select(EndpointEvent)
             .where(
-                EndpointEvent.start_time >= start_dt,
+                (EndpointEvent.end_time == None) | (EndpointEvent.end_time >= start_dt),
                 EndpointEvent.start_time <= end_dt,
             )
             .order_by(EndpointEvent.start_time.asc())
@@ -141,24 +148,36 @@ async def get_fleet_summary(
         for ep_key, evs in grouped_events.items():
             up_cnt = sum(1 for ev in evs if ev.operational_state == "UP")
             down_cnt = sum(1 for ev in evs if ev.operational_state == "DOWN")
+            up_sec = 0
+            down_sec = 0
             inc_cnt = 0
             prev_st = None
             for ev in evs:
-                if ev.operational_state == "DOWN" and prev_st != "DOWN":
-                    inc_cnt += 1
+                ev_start = ev.start_time
+                ev_end = ev.end_time or now_utc
+                dur = max(0, int((min(end_dt, ev_end) - max(start_dt, ev_start)).total_seconds()))
+                if dur == 0 and getattr(ev, "duration_seconds", 0) > 0:
+                    dur = ev.duration_seconds
+                if ev.operational_state == "UP":
+                    up_sec += dur
+                elif ev.operational_state == "DOWN":
+                    down_sec += dur
+                    if prev_st != "DOWN":
+                        inc_cnt += 1
                 prev_st = ev.operational_state
             last_ev = evs[-1]
             stats_map[ep_key] = {
                 "endpoint_id": ep_key,
                 "up_count": up_cnt,
                 "down_count": down_cnt,
+                "up_seconds": up_sec,
+                "down_seconds": down_sec,
                 "incident_count": inc_cnt,
                 "latest_operational_state": last_ev.operational_state,
                 "latest_detailed_state": last_ev.detailed_state,
             }
 
     gap_intervals = await get_service_gap_intervals(db, start_dt, end_dt)
-    now_utc = datetime.now(timezone.utc)
     endpoint_summaries = []
 
     for ep in endpoints:
@@ -191,6 +210,8 @@ async def get_fleet_summary(
         unknown_seconds = calculate_device_gap_seconds(
             effective_start, effective_end, gap_intervals
         )
+        up_sec = int(ep_stats["up_seconds"]) if (ep_stats and "up_seconds" in ep_stats) else up_count * 60
+        down_sec = int(ep_stats["down_seconds"]) if (ep_stats and "down_seconds" in ep_stats) else down_count * 60
         uptime_percentage = calculate_uptime_denominator_and_percentage(
             created_at=created_at,
             start_time=start_dt,
@@ -199,9 +220,10 @@ async def get_fleet_summary(
             up_events_count=up_count,
             unknown_seconds=unknown_seconds,
             gap_intervals=gap_intervals,
+            uptime_seconds=up_sec,
         )
-        uptime_seconds = up_count * 60
-        downtime_seconds = down_count * 60
+        uptime_seconds = up_sec
+        downtime_seconds = down_sec
 
         endpoint_summaries.append(
             FleetEndpointSummary(
@@ -283,11 +305,17 @@ async def get_uptime_report(
     uptime_seconds = 0
     downtime_seconds = 0
     for ev in events:
-        duration = 60
+        ev_start = ev.start_time
+        ev_end = ev.end_time or now_utc
+        dur = max(0, int((min(end_dt, ev_end) - max(start_dt, ev_start)).total_seconds()))
+        if dur == 0 and getattr(ev, "duration_seconds", 0) > 0:
+            dur = ev.duration_seconds
+        elif dur == 0:
+            dur = 60
         if ev.operational_state == "UP":
-            uptime_seconds += duration
+            uptime_seconds += dur
         else:
-            downtime_seconds += duration
+            downtime_seconds += dur
 
     uptime_percentage = calculate_uptime_denominator_and_percentage(
         created_at=created_at,
@@ -297,6 +325,7 @@ async def get_uptime_report(
         up_events_count=uptime_seconds // 60,
         unknown_seconds=unknown_seconds,
         gap_intervals=gap_intervals,
+        uptime_seconds=uptime_seconds,
     )
 
     incident_count = 0

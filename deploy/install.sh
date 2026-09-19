@@ -215,6 +215,9 @@ if [ ! -d "$INSTALL_DIR" ]; then
         --exclude='tests' \
         --exclude='pytest.ini' \
         --exclude='scratch' \
+        --exclude='.env' \
+        --exclude='backend/.env' \
+        --exclude='certs' \
         "$PROJECT_ROOT/" "$INSTALL_DIR/"
     run "Setting project ownership" \
         chown -R netmon:netmon "$INSTALL_DIR"
@@ -229,6 +232,9 @@ else
         --exclude='tests' \
         --exclude='pytest.ini' \
         --exclude='scratch' \
+        --exclude='.env' \
+        --exclude='backend/.env' \
+        --exclude='certs' \
         "$PROJECT_ROOT/" "$INSTALL_DIR/"
     run "Setting project ownership" \
         chown -R netmon:netmon "$INSTALL_DIR"

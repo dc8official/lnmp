@@ -611,7 +611,10 @@ class AlertDispatcher:
             )
 
     def _parse_channel_config(self, raw_config: str) -> Dict[str, Any]:
-        decrypted = decrypt_secret(raw_config)
+        try:
+            decrypted = decrypt_secret(raw_config)
+        except Exception:
+            return {}
         if isinstance(decrypted, dict):
             return decrypted
         try:

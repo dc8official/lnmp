@@ -300,6 +300,7 @@ if [[ ${DRY_RUN} -eq 0 ]]; then
             --exclude='tests' \
             --exclude='pytest.ini' \
             --exclude='scratch' \
+            --exclude='certs' \
             "${SOURCE_DIR}/" "${INSTALL_DIR}/"
         chown -R netmon:netmon "${INSTALL_DIR}"
     fi

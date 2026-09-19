@@ -51,9 +51,12 @@ class EndpointRepository(BaseRepository[Endpoint]):
         status: Optional[str] = None,
         since_utc: Optional[datetime] = None,
         now_utc: Optional[datetime] = None,
+        page: Optional[int] = None,
+        page_size: Optional[int] = None,
     ) -> Sequence[dict[str, Any]]:
         """
         List all active endpoints joined with latest operational state and 24h UP event counts.
+        Supports pagination via page and page_size.
         """
         if now_utc is None:
             now_utc = datetime.now()
@@ -118,6 +121,10 @@ class EndpointRepository(BaseRepository[Endpoint]):
 
         if status is not None:
             stmt = stmt.where(Endpoint.endpoint_status == status)
+
+        if isinstance(page, int) and isinstance(page_size, int):
+            offset = (page - 1) * page_size
+            stmt = stmt.offset(offset).limit(page_size)
 
         result = await self.session.execute(stmt)
         rows = result.all()
