@@ -1,6 +1,6 @@
 # LNMP Security Model, Threat Architecture & Defense Specification
 
-**Document Version:** 3.1.7s  
+**Document Version:** 3.1.28s  
 **Last Updated:** September 2026  
 **Classification:** Public Security Specification & Threat Model  
 
@@ -21,13 +21,14 @@ The **Lightweight Network Monitoring Platform (LNMP)** is engineered for mission
 
 | Version | Release Type | Security Support Status | Recommended Action |
 | :--- | :--- | :--- | :--- |
-| **v3.1.7s** | Maintenance & Security Hardening | **Active / Current Standard** | Production standard: session deduplication, private SMTP SSRF allowlist, and startup retry resilience. |
-| **v3.1.3s** | Maintenance & Reliability | **Supported** | Preceding standard; upgrade to v3.1.7s recommended. |
-| **v3.1.1s** | Security Release | **Supported** | Preceding security standard; upgrade to v3.1.7s for cluster sync & auth fixes. |
-| **v3.1.0** | Feature Release | **Superseded by v3.1.7s** | Upgrade immediately to v3.1.7s for socket-level SSRF defense. |
-| **v3.0.x** | Major Release | **Maintenance Only** | Upgrade to v3.1.7s for enterprise alerting and security fixes. |
-| **v2.0.x** | Beta | **End of Life (EOL)** | Unmaintained; upgrade to v3.1.7s immediately. |
-| **v1.x** | Legacy Alpha | **End of Life (EOL)** | Unmaintained; migrate to v3.1.7s. |
+| **v3.1.28s** | Enterprise Hardening & Zero Row Bloat | **Active / Current Standard** | Production standard: DNS pinning, production secret enforcement, continuous event lifecycle, rate limiting, and bounded concurrency. |
+| **v3.1.7s** | Maintenance & Security Hardening | **Supported** | Preceding standard: session deduplication, private SMTP SSRF allowlist, and startup retry resilience. |
+| **v3.1.3s** | Maintenance & Reliability | **Supported** | Preceding standard; upgrade to v3.1.28s recommended. |
+| **v3.1.1s** | Security Release | **Supported** | Preceding security standard; upgrade to v3.1.28s for cluster sync & auth fixes. |
+| **v3.1.0** | Feature Release | **Superseded by v3.1.28s** | Upgrade immediately to v3.1.28s for socket-level SSRF defense. |
+| **v3.0.x** | Major Release | **Maintenance Only** | Upgrade to v3.1.28s for enterprise alerting and security fixes. |
+| **v2.0.x** | Beta | **End of Life (EOL)** | Unmaintained; upgrade to v3.1.28s immediately. |
+| **v1.x** | Legacy Alpha | **End of Life (EOL)** | Unmaintained; migrate to v3.1.28s. |
 
 ---
 
@@ -81,17 +82,17 @@ The **Lightweight Network Monitoring Platform (LNMP)** is engineered for mission
 
 ## 4. Outbound Egress & Zero-Trust SSRF Protection (CWE-918)
 
-LNMP v3.1.7s incorporates **Zero-Trust Socket-Level SSRF Protection** (`SSRFSafeBackend`), replacing traditional pre-flight hostname checks with kernel-boundary connection verification.
+LNMP v3.1.28s incorporates **Zero-Trust Socket-Level SSRF Protection** (`SSRFSafeBackend`) and **Pre-Resolved Socket DNS Pinning** (`synthetic.py`), replacing traditional pre-flight hostname checks with kernel-boundary connection verification.
 
 ### A. The Threat: Time-of-Check to Time-of-Use (TOCTOU) DNS Rebinding
 In standard application architectures, validating a URL before making an HTTP request leaves an exploitable window: an attacker configures a domain with a 0-second TTL that returns a public IP during pre-flight validation, but rebinds to `169.254.169.254` (cloud metadata) or `127.0.0.1` when the HTTP client establishes its TCP connection.
 
-### B. The Defense: Millisecond-Level Socket Interception
-LNMP’s `SSRFSafeBackend` wraps the low-level `httpcore.AsyncNetworkBackend` engine. It intercepts the physical `connect_tcp()` call at the exact millisecond of the TCP handshake:
+### B. The Defense: Millisecond-Level Socket Interception & Socket DNS Pinning
+LNMP’s `SSRFSafeBackend` wraps the low-level `httpcore.AsyncNetworkBackend` engine, while `monitoring/synthetic.py` implements direct socket DNS pinning:
 
-1. **Connection-Time Resolution:** Performs an asynchronous DNS resolution immediately prior to opening the TCP socket.
+1. **Connection-Time Resolution & Pinning:** Performs an asynchronous DNS resolution immediately prior to opening sockets, and pins physical connections directly to the resolved IP.
 2. **Strict IP Enforcement:** Evaluates all returned addresses against the global routable IP specification:
-   - **RFC 1918 Private Subnets:** `10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16` are rejected for generic webhooks. *(Note: Starting in v3.1.7s, private RFC 1918 and loopback targets are permitted specifically for `EMAIL_SMTP` channels to support internal corporate relays).*
+   - **RFC 1918 Private Subnets:** `10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16` are rejected for generic webhooks. *(Note: Permitted specifically for `EMAIL_SMTP` channels to support internal corporate relays, and synthetic probes targeting internal corporate appliances).*
    - **RFC 6598 Carrier-Grade NAT (CGNAT):** `100.64.0.0/10` is explicitly blocked to protect internal Kubernetes pod networks, AWS VPC CNI overlays, and Tailscale/WireGuard meshes.
    - **Loopback & Localhost:** `127.0.0.0/8` and `::1/128` are rejected for outbound webhooks.
    - **Cloud Metadata Services:** `169.254.169.254` (AWS/GCP/Azure link-local metadata) and `fd00:ec2::254` (AWS IPv6 metadata) are **strictly and unconditionally rejected across all channels, including SMTP**.

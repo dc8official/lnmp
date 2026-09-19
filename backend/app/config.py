@@ -41,7 +41,14 @@ class MonitoringSettings(BaseModel):
 class ApiSettings(BaseModel):
     host: str = "0.0.0.0"
     port: int = Field(default=8000, ge=1, le=65535)
-    allowed_origins: List[str] = ["*"]
+    allowed_origins: List[str] = Field(
+        default_factory=lambda: [
+            "http://localhost:5173",
+            "http://127.0.0.1:5173",
+            "http://localhost:8000",
+            "http://127.0.0.1:8000",
+        ]
+    )
 
     model_config = ConfigDict(extra="ignore")
 
@@ -105,6 +112,7 @@ def resolve_config_file() -> Optional[Path]:
 
 
 class Settings(BaseSettings):
+    environment: str = Field(default="development")
     database: DatabaseSettings = Field(default_factory=DatabaseSettings)
     monitoring: MonitoringSettings = Field(default_factory=MonitoringSettings)
     api: ApiSettings = Field(default_factory=ApiSettings)
@@ -205,6 +213,23 @@ def load_settings() -> Settings:
     secret_key = os.environ.get("NETMON_SECRET_KEY")
     if secret_key:
         loaded.security.secret_key = secret_key
+
+    env_val = os.environ.get("NETMON_ENV") or os.environ.get("ENVIRONMENT")
+    if env_val:
+        loaded.environment = env_val.strip().lower()
+
+    # FIX-09 (SEC-02): Reject insecure default secret key in production / staging
+    if loaded.environment.lower() not in ("development", "test"):
+        if loaded.security.secret_key == "dev-secret-key-change-in-production-min-32-chars":
+            raise ValueError(
+                "Insecure configuration: NETMON_SECRET_KEY must be changed from the default development secret in non-development environments."
+            )
+
+    # FIX-10 (SEC-04): Validate that allowed_origins does not contain "*" when allow_credentials=True
+    if "*" in loaded.api.allowed_origins:
+        raise ValueError(
+            "CORS configuration error: allowed_origins cannot contain '*' when allow_credentials=True."
+        )
 
     return loaded
 

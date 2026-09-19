@@ -23,10 +23,11 @@ RESTRICTED_NETWORKS = [
 ]
 
 
-def validate_probe_target(host_or_ip: str) -> None:
+def validate_probe_target(host_or_ip: str) -> str:
     """
     Validates destination address against SSRF vulnerabilities (loopback & cloud metadata).
     Raises ValueError if target resolves to a restricted network.
+    Returns the validated resolved IP address string.
     """
     cleaned = host_or_ip.strip()
     try:
@@ -36,6 +37,7 @@ def validate_probe_target(host_or_ip: str) -> None:
                 raise ValueError(
                     f"SSRF Protection: Access to restricted network {net} is forbidden ({cleaned})"
                 )
+        return cleaned
     except ValueError as e:
         if "SSRF Protection" in str(e):
             raise
@@ -48,10 +50,16 @@ def validate_probe_target(host_or_ip: str) -> None:
                     raise ValueError(
                         f"SSRF Protection: Hostname {cleaned} resolved to restricted IP {resolved_ip}"
                     )
+            return resolved_ip
         except (socket.gaierror, ValueError) as res_err:
             if "SSRF Protection" in str(res_err):
                 raise
-            # Unresolvable hostname is handled during probe execution
+            return cleaned
+
+
+async def async_validate_probe_target(host_or_ip: str) -> str:
+    """Non-blocking DNS resolution and validation delegated to asyncio.to_thread."""
+    return await asyncio.to_thread(validate_probe_target, host_or_ip)
 
 
 async def run_tcp_probe(
@@ -61,9 +69,10 @@ async def run_tcp_probe(
 ) -> Dict[str, Any]:
     """
     Executes an asynchronous TCP connect probe to verify service port reachability.
+    Pins connection directly to resolved IP to eliminate TOCTOU DNS rebinding.
     """
     try:
-        validate_probe_target(host)
+        resolved_ip = await async_validate_probe_target(host)
     except ValueError as e:
         return {"success": False, "latency_ms": None, "port": port, "error": str(e)}
 
@@ -71,7 +80,7 @@ async def run_tcp_probe(
     writer = None
     try:
         reader, writer = await asyncio.wait_for(
-            asyncio.open_connection(host, port), timeout=timeout
+            asyncio.open_connection(resolved_ip, port), timeout=timeout
         )
         latency_ms = (time.perf_counter() - start_time) * 1000.0
         return {
@@ -122,7 +131,7 @@ def _sync_http_probe(
 
     req = urllib.request.Request(
         url,
-        headers={"User-Agent": "LNMP-SyntheticProbe/3.1.1s (+https://github.com/dc8official/lnmp)"},
+        headers={"User-Agent": "LNMP-SyntheticProbe/3.1.28s (+https://github.com/dc8official/lnmp)"},
         method="GET",
     )
 
@@ -188,75 +197,114 @@ def _sync_ssl_probe(
     timeout: float = 5.0,
 ) -> Dict[str, Any]:
     """Synchronous SSL certificate inspection executed in asyncio.to_thread."""
-    validate_probe_target(host)
-
-    context = ssl.create_default_context()
-    context.minimum_version = ssl.TLSVersion.TLSv1_2
-    context.check_hostname = False
-    context.verify_mode = ssl.CERT_NONE
+    resolved_ip = validate_probe_target(host)
 
     start_time = time.perf_counter()
+    cert = None
+    bin_cert = None
+    is_trusted = False
+    handshake_latency_ms = None
+
+    # First attempt: standard default context to verify trust
+    trusted_context = ssl.create_default_context()
+    trusted_context.minimum_version = ssl.TLSVersion.TLSv1_2
+
     try:
-        with socket.create_connection((host, port), timeout=timeout) as sock:
-            with context.wrap_socket(sock, server_hostname=host) as ssock:
+        with socket.create_connection((resolved_ip, port), timeout=timeout) as sock:
+            with trusted_context.wrap_socket(sock, server_hostname=host) as ssock:
+                handshake_latency_ms = (time.perf_counter() - start_time) * 1000.0
                 cert = ssock.getpeercert(binary_form=False)
-                latency_ms = (time.perf_counter() - start_time) * 1000.0
-                expiry_dt = None
-
-                if cert and "notAfter" in cert:
-                    # Standard format: 'May 15 12:00:00 2027 GMT'
-                    not_after_str = cert.get("notAfter")
-                    expiry_dt = datetime.strptime(
-                        not_after_str, "%b %d %H:%M:%S %Y %Z"
-                    ).replace(tzinfo=timezone.utc)
-                else:
-                    # Fallback binary form decode when verify_mode == CERT_NONE
-                    bin_cert = ssock.getpeercert(binary_form=True)
-                    if bin_cert:
-                        try:
-                            from cryptography import x509
-
-                            x509_cert = x509.load_der_x509_certificate(bin_cert)
-                            if hasattr(x509_cert, "not_valid_after_utc"):
-                                expiry_dt = x509_cert.not_valid_after_utc
-                            else:
-                                expiry_dt = x509_cert.not_valid_after.replace(
-                                    tzinfo=timezone.utc
-                                )
-                        except Exception as parse_err:
-                            logger.warning(
-                                "Failed to parse DER certificate for %s: %s",
-                                host,
-                                parse_err,
-                            )
-
-                if expiry_dt is None:
-                    return {
-                        "success": True,
-                        "days_until_expiry": None,
-                        "expires_at": None,
-                        "latency_ms": round(latency_ms, 2),
-                        "error": None,
-                    }
-
-                now_dt = datetime.now(timezone.utc)
-                days_left = (expiry_dt - now_dt).days
-
-                return {
-                    "success": True,
-                    "days_until_expiry": days_left,
-                    "expires_at": expiry_dt.isoformat(),
-                    "latency_ms": round(latency_ms, 2),
-                    "error": None,
-                }
+                bin_cert = ssock.getpeercert(binary_form=True)
+                is_trusted = True
+    except ssl.SSLCertVerificationError:
+        # Untrusted / self-signed certificate, but TLS connection works
+        is_trusted = False
     except Exception as e:
         return {
             "success": False,
             "days_until_expiry": None,
             "expires_at": None,
             "latency_ms": None,
+            "is_trusted": False,
             "error": f"{type(e).__name__}: {e}",
         }
+
+    # If untrusted or cert not obtained, inspect with CERT_NONE so appliance isn't rejected
+    if not is_trusted:
+        unverified_context = ssl.create_default_context()
+        unverified_context.minimum_version = ssl.TLSVersion.TLSv1_2
+        unverified_context.check_hostname = False
+        unverified_context.verify_mode = ssl.CERT_NONE
+
+        try:
+            start_time2 = time.perf_counter()
+            with socket.create_connection((resolved_ip, port), timeout=timeout) as sock:
+                with unverified_context.wrap_socket(sock, server_hostname=host) as ssock:
+                    if handshake_latency_ms is None:
+                        handshake_latency_ms = (time.perf_counter() - start_time2) * 1000.0
+                    cert = ssock.getpeercert(binary_form=False)
+                    bin_cert = ssock.getpeercert(binary_form=True)
+        except Exception as e:
+            return {
+                "success": False,
+                "days_until_expiry": None,
+                "expires_at": None,
+                "latency_ms": None,
+                "is_trusted": False,
+                "error": f"{type(e).__name__}: {e}",
+            }
+
+    expiry_dt = None
+    if cert and "notAfter" in cert:
+        # Standard format: 'May 15 12:00:00 2027 GMT'
+        not_after_str = cert.get("notAfter")
+        try:
+            expiry_dt = datetime.strptime(
+                not_after_str, "%b %d %H:%M:%S %Y %Z"
+            ).replace(tzinfo=timezone.utc)
+        except Exception:
+            pass
+
+    if expiry_dt is None and bin_cert:
+        try:
+            from cryptography import x509
+
+            x509_cert = x509.load_der_x509_certificate(bin_cert)
+            if hasattr(x509_cert, "not_valid_after_utc"):
+                expiry_dt = x509_cert.not_valid_after_utc
+            else:
+                expiry_dt = x509_cert.not_valid_after.replace(
+                    tzinfo=timezone.utc
+                )
+        except Exception as parse_err:
+            logger.warning(
+                "Failed to parse DER certificate for %s: %s",
+                host,
+                parse_err,
+            )
+
+    latency_val = round(handshake_latency_ms, 2) if handshake_latency_ms is not None else None
+    if expiry_dt is None:
+        return {
+            "success": True,
+            "days_until_expiry": None,
+            "expires_at": None,
+            "latency_ms": latency_val,
+            "is_trusted": is_trusted,
+            "error": None,
+        }
+
+    now_dt = datetime.now(timezone.utc)
+    days_left = (expiry_dt - now_dt).days
+
+    return {
+        "success": True,
+        "days_until_expiry": days_left,
+        "expires_at": expiry_dt.isoformat(),
+        "latency_ms": latency_val,
+        "is_trusted": is_trusted,
+        "error": None,
+    }
 
 
 async def run_ssl_probe(
@@ -275,5 +323,6 @@ async def run_ssl_probe(
             "days_until_expiry": None,
             "expires_at": None,
             "latency_ms": None,
+            "is_trusted": False,
             "error": str(e),
         }

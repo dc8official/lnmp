@@ -149,6 +149,8 @@ async def get_endpoint_rca(
 @router.get("/", response_model=APIResponse)
 async def list_endpoints(
     status: Optional[str] = Query(default=None),
+    page: Optional[int] = Query(default=None, ge=1),
+    page_size: Optional[int] = Query(default=None, ge=1, le=500),
     current_user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -165,11 +167,20 @@ async def list_endpoints(
                 detail=f"Invalid status filter '{status}'. Must be one of: {', '.join(sorted(ALLOWED_STATUSES))}",
             )
 
+    calc_page = page if isinstance(page, int) else None
+    calc_page_size = page_size if isinstance(page_size, int) else None
+    if calc_page is not None and calc_page_size is None:
+        calc_page_size = 50
+    elif calc_page_size is not None and calc_page is None:
+        calc_page = 1
+
     repo = EndpointRepository(db)
     rows = await repo.list_with_stats(
         status=clean_status,
         since_utc=since_utc,
         now_utc=now_utc,
+        page=calc_page,
+        page_size=calc_page_size,
     )
     gap_intervals = await get_service_gap_intervals(db, since_utc, now_utc)
 

@@ -1,4 +1,4 @@
-# LNMP: Network Monitoring Platform v3.1.7s
+# LNMP: Network Monitoring Platform v3.1.28s
 
 A high-precision, decoupled network telemetry and monitoring solution designed for continuous endpoint status verification, low-latency multi-protocol polling, adaptive statistical alerting, automated root-cause analysis (RCA), real-time Server-Sent Events (SSE), dual-driver storage acceleration, enterprise multi-channel notifications, and dynamic topology visualization with crossing-free layout routing.
 
@@ -8,6 +8,12 @@ A high-precision, decoupled network telemetry and monitoring solution designed f
 
 The platform is decoupled into independent, modular layers to guarantee continuous telemetry collection regardless of client-side dashboard activity, heavy API load, or temporary network disruptions:
 
+* **Continuous Event Lifecycle & Zero Row Bloat:** Active state events remain open with `end_time = NULL`. Monitoring cycles increment duration and cycle counters in-place on unchanged state instead of generating 1,440 duplicate rows per endpoint per day, completely eliminating row bloat while maintaining sub-second transition fidelity.
+* **Uptime Interval Calculus:** Mathematical SLA reporting intersects actual event durations (`clamped_duration`) with the reporting window, accurately factoring open events using `COALESCE(end_time, NOW())`.
+* **DNS Rebinding Prevention (Socket DNS Pinning):** Synthetic probes pre-resolve probe target hostnames and pin subsequent TCP/TLS socket handshakes directly to the validated IP address, eliminating TOCTOU DNS rebinding while preserving RFC 1918 private probing.
+* **Deterministic Probe Staggering:** Endpoint probes are deterministically distributed across the 60-second window based on endpoint UUID hash (`int.from_bytes(endpoint_id.bytes[:4], "big") % 60`), eliminating minute-boundary thundering herds.
+* **Diagnostic Trace & Subprocess Bounding:** Bounded queue depth (max 10 traces) per endpoint under database write semaphores, and concurrency-limited ICMP ping subprocess fallbacks (`asyncio.Semaphore(25)`).
+* **Enterprise Security & Credential Governance:** Enforced production secret key rejection (CWE-798), cryptographically secure 96-bit temporary password generation, strict CORS isolation, and decoupled `DecryptionError` exception handling.
 * **Session Deduplication & Eviction Resilience:** Enforces atomic session registration and stateless JWT signing, eliminating premature session eviction under multi-session limits (`max_active_sessions_per_user`).
 * **Zero-Trust SSRF Defense & Private Relay Support:** Kernel-level connection validation permitting private RFC 1918 and loopback targets for internal corporate SMTP relays while strictly blocking link-local cloud metadata endpoints (`169.254.169.254`).
 * **Database Connection Retry Resilience:** Multi-attempt retry loop with backoff on cold startup (`check_database_connection`), preventing systemd service crash loops during host reboots.
@@ -101,13 +107,13 @@ cd lnmp/deploy
 ./install.sh
 ```
 
-### 2. Upgrading to v3.1.7s (Zero Historical Data Loss)
+### 2. Upgrading to v3.1.28s (Zero Historical Data Loss)
 
-To upgrade an existing installation to Version 3.1.7s:
+To upgrade an existing installation to Version 3.1.28s:
 
 ```bash
 cd ~/lnmp
-git pull origin v3.1.7s
+git pull origin v3.1.28s
 sudo ./deploy/upgrade.sh
 ```
 

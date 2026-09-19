@@ -1,6 +1,6 @@
 {
   "name": "lnmp-frontend",
-  "version": "3.1.7s",
+  "version": "3.1.28s",
   "private": true,
   "scripts": {
     "dev": "vite",

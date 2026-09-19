@@ -52,9 +52,10 @@ def calculate_uptime_denominator_and_percentage(
     start_time: datetime,
     end_time: datetime,
     now_utc: datetime,
-    up_events_count: int,
+    up_events_count: int = 0,
     unknown_seconds: int = 0,
     gap_intervals: Optional[List[Tuple[datetime, datetime]]] = None,
+    uptime_seconds: Optional[int] = None,
 ) -> float:
     """
     Calculates uptime availability percentage with SLA precision.
@@ -100,7 +101,8 @@ def calculate_uptime_denominator_and_percentage(
     if denominator <= 0:
         return 100.0  # Return 100% availability if no elapsing time exists yet
 
-    uptime_seconds = up_events_count * 60
+    if uptime_seconds is None:
+        uptime_seconds = up_events_count * 60
     percentage = (uptime_seconds / denominator) * 100.0
     return max(0.0, min(100.0, round(percentage, 2)))
 

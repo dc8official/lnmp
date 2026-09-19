@@ -50,7 +50,10 @@ def _mask_channel_config(channel_type: str, config: Dict[str, Any]) -> Dict[str,
 
 
 def _decrypt_config_dict(raw_config: str) -> Dict[str, Any]:
-    decrypted = decrypt_secret(raw_config)
+    try:
+        decrypted = decrypt_secret(raw_config)
+    except Exception:
+        return {}
     if isinstance(decrypted, dict):
         return decrypted
     try:

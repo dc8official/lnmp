@@ -38,6 +38,43 @@ def safe_create_task(coro, task_name: str = "background_task") -> asyncio.Task:
     return task
 
 
+async def _resolve_endpoint_identity(
+    endpoint_id: UUID,
+    db: AsyncSession,
+) -> Tuple[Optional[str], Optional[str]]:
+    ep_hostname = None
+    ep_ip = None
+    try:
+        from app.services.topology import topology_manager
+        node = topology_manager.get_node(str(endpoint_id))
+        if node:
+            ep_hostname = node.get("label") or node.get("hostname")
+            ep_ip = node.get("ip_address")
+    except Exception:
+        pass
+
+    if not ep_hostname or not ep_ip:
+        try:
+            ep_row = (
+                await db.execute(
+                    text(
+                        """
+                        SELECT hostname, host(ip_address) AS ip_address
+                        FROM endpoints
+                        WHERE id = CAST(:endpoint_id AS uuid)
+                        """
+                    ),
+                    {"endpoint_id": str(endpoint_id)},
+                )
+            ).fetchone()
+            if ep_row:
+                ep_hostname = ep_hostname or ep_row.hostname
+                ep_ip = ep_ip or ep_row.ip_address
+        except Exception:
+            pass
+    return ep_hostname, ep_ip
+
+
 @dataclass
 class EndpointState:
     """Per-endpoint in-memory state tracked by the monitoring engine."""
@@ -95,36 +132,7 @@ class StateMachine:
         if row is None:
             return None
 
-        ep_hostname = None
-        ep_ip = None
-        try:
-            from app.services.topology import topology_manager
-            node = topology_manager.get_node(str(endpoint_id))
-            if node:
-                ep_hostname = node.get("label") or node.get("hostname")
-                ep_ip = node.get("ip_address")
-        except Exception:
-            pass
-
-        if not ep_hostname or not ep_ip:
-            try:
-                ep_row = (
-                    await db.execute(
-                        text(
-                            """
-                            SELECT hostname, host(ip_address) AS ip_address
-                            FROM endpoints
-                            WHERE id = CAST(:endpoint_id AS uuid)
-                            """
-                        ),
-                        {"endpoint_id": str(endpoint_id)},
-                    )
-                ).fetchone()
-                if ep_row:
-                    ep_hostname = ep_hostname or ep_row.hostname
-                    ep_ip = ep_ip or ep_row.ip_address
-            except Exception:
-                pass
+        ep_hostname, ep_ip = await _resolve_endpoint_identity(endpoint_id, db)
 
         return EndpointState(
             endpoint_id=endpoint_id,
@@ -184,7 +192,7 @@ class StateMachine:
                         :avg_rtt_ms,
                         false,
                         :start_time,
-                        :end_time,
+                        NULL,
                         0,
                         1
                     ) RETURNING id
@@ -199,7 +207,6 @@ class StateMachine:
                     "health_score": health_score,
                     "avg_rtt_ms": result.avg_rtt_ms,
                     "start_time": start_time,
-                    "end_time": start_time,
                 },
             )
         ).fetchone()
@@ -211,36 +218,7 @@ class StateMachine:
             detailed_state,
         )
 
-        ep_hostname = None
-        ep_ip = None
-        try:
-            from app.services.topology import topology_manager
-            node = topology_manager.get_node(str(endpoint_id))
-            if node:
-                ep_hostname = node.get("label") or node.get("hostname")
-                ep_ip = node.get("ip_address")
-        except Exception:
-            pass
-
-        if not ep_hostname or not ep_ip:
-            try:
-                ep_row = (
-                    await db.execute(
-                        text(
-                            """
-                            SELECT hostname, host(ip_address) AS ip_address
-                            FROM endpoints
-                            WHERE id = CAST(:endpoint_id AS uuid)
-                            """
-                        ),
-                        {"endpoint_id": str(endpoint_id)},
-                    )
-                ).fetchone()
-                if ep_row:
-                    ep_hostname = ep_hostname or ep_row.hostname
-                    ep_ip = ep_ip or ep_row.ip_address
-            except Exception:
-                pass
+        ep_hostname, ep_ip = await _resolve_endpoint_identity(endpoint_id, db)
 
         return EndpointState(
             endpoint_id=endpoint_id,
@@ -358,34 +336,7 @@ class StateMachine:
                     ep_hostname = getattr(state, "hostname", None)
                     ep_ip = getattr(state, "ip_address", None)
                     if not ep_hostname or not ep_ip:
-                        try:
-                            from app.services.topology import topology_manager
-                            node = topology_manager.get_node(str(state.endpoint_id))
-                            if node:
-                                ep_hostname = ep_hostname or node.get("label") or node.get("hostname")
-                                ep_ip = ep_ip or node.get("ip_address")
-                        except Exception:
-                            pass
-
-                    if not ep_hostname or not ep_ip:
-                        try:
-                            ep_row = (
-                                await db.execute(
-                                    text(
-                                        """
-                                        SELECT hostname, host(ip_address) AS ip_address
-                                        FROM endpoints
-                                        WHERE id = CAST(:endpoint_id AS uuid)
-                                        """
-                                    ),
-                                    {"endpoint_id": str(state.endpoint_id)},
-                                )
-                            ).fetchone()
-                            if ep_row:
-                                ep_hostname = ep_hostname or ep_row.hostname
-                                ep_ip = ep_ip or ep_row.ip_address
-                        except Exception:
-                            pass
+                        ep_hostname, ep_ip = await _resolve_endpoint_identity(state.endpoint_id, db)
 
                     next_state.hostname = ep_hostname
                     next_state.ip_address = ep_ip
@@ -476,55 +427,142 @@ class StateMachine:
                 ip_address=state.ip_address,
             )
 
-        # Step 3: Insert the record for this cycle to the database.
+        # Step 3: Continuous Event Lifecycle (COR-01)
         execution_time = datetime.now(timezone.utc)
 
-        row = (
-            await db.execute(
+        if state.confirmed_detailed_state == next_state.confirmed_detailed_state:
+            # Same state: Update active event row duration and cycle count
+            update_res = await db.execute(
                 text(
                     """
-                    INSERT INTO endpoint_events (
-                        endpoint_id,
-                        operational_state,
-                        detailed_state,
-                        success_count,
-                        failed_count,
-                        health_score,
-                        avg_rtt_ms,
-                        is_split_event,
-                        start_time,
-                        end_time,
-                        duration_seconds,
-                        monitoring_cycle_count
-                    ) VALUES (
-                        CAST(:endpoint_id AS uuid),
-                        :operational_state,
-                        :detailed_state,
-                        :success_count,
-                        :failed_count,
-                        :health_score,
-                        :avg_rtt_ms,
-                        false,
-                        :start_time,
-                        :end_time,
-                        0,
-                        1
-                    ) RETURNING id
+                    UPDATE endpoint_events
+                    SET duration_seconds = EXTRACT(EPOCH FROM (:execution_time - start_time))::integer,
+                        monitoring_cycle_count = monitoring_cycle_count + 1,
+                        success_count = success_count + :success_count,
+                        failed_count = failed_count + :failed_count,
+                        avg_rtt_ms = :avg_rtt_ms,
+                        health_score = :health_score
+                    WHERE id = CAST(:active_event_id AS uuid) AND end_time IS NULL
                     """
                 ),
                 {
-                    "endpoint_id": str(state.endpoint_id),
-                    "operational_state": next_state.confirmed_operational_state,
-                    "detailed_state": next_state.confirmed_detailed_state,
+                    "execution_time": execution_time,
                     "success_count": result.success_count,
                     "failed_count": result.failed_count,
-                    "health_score": result.health_score,
                     "avg_rtt_ms": result.avg_rtt_ms,
-                    "start_time": execution_time,
-                    "end_time": execution_time,
+                    "health_score": result.health_score,
+                    "active_event_id": str(state.active_event_id),
                 },
             )
-        ).fetchone()
-
-        next_state.active_event_id = row.id
+            # If for some reason no row was updated (e.g., active_event_id was closed or missing), insert a new open event
+            if update_res.rowcount == 0:
+                row = (
+                    await db.execute(
+                        text(
+                            """
+                            INSERT INTO endpoint_events (
+                                endpoint_id,
+                                operational_state,
+                                detailed_state,
+                                success_count,
+                                failed_count,
+                                health_score,
+                                avg_rtt_ms,
+                                is_split_event,
+                                start_time,
+                                end_time,
+                                duration_seconds,
+                                monitoring_cycle_count
+                            ) VALUES (
+                                CAST(:endpoint_id AS uuid),
+                                :operational_state,
+                                :detailed_state,
+                                :success_count,
+                                :failed_count,
+                                :health_score,
+                                :avg_rtt_ms,
+                                false,
+                                :start_time,
+                                NULL,
+                                0,
+                                1
+                            ) RETURNING id
+                            """
+                        ),
+                        {
+                            "endpoint_id": str(state.endpoint_id),
+                            "operational_state": next_state.confirmed_operational_state,
+                            "detailed_state": next_state.confirmed_detailed_state,
+                            "success_count": result.success_count,
+                            "failed_count": result.failed_count,
+                            "health_score": result.health_score,
+                            "avg_rtt_ms": result.avg_rtt_ms,
+                            "start_time": execution_time,
+                        },
+                    )
+                ).fetchone()
+                next_state.active_event_id = row.id
+        else:
+            # State change confirmed: Close previous open event
+            await db.execute(
+                text(
+                    """
+                    UPDATE endpoint_events
+                    SET end_time = :execution_time,
+                        duration_seconds = EXTRACT(EPOCH FROM (:execution_time - start_time))::integer
+                    WHERE endpoint_id = CAST(:endpoint_id AS uuid) AND end_time IS NULL
+                    """
+                ),
+                {
+                    "execution_time": execution_time,
+                    "endpoint_id": str(state.endpoint_id),
+                },
+            )
+            # Insert new open event
+            row = (
+                await db.execute(
+                    text(
+                        """
+                        INSERT INTO endpoint_events (
+                            endpoint_id,
+                            operational_state,
+                            detailed_state,
+                            success_count,
+                            failed_count,
+                            health_score,
+                            avg_rtt_ms,
+                            is_split_event,
+                            start_time,
+                            end_time,
+                            duration_seconds,
+                            monitoring_cycle_count
+                        ) VALUES (
+                            CAST(:endpoint_id AS uuid),
+                            :operational_state,
+                            :detailed_state,
+                            :success_count,
+                            :failed_count,
+                            :health_score,
+                            :avg_rtt_ms,
+                            false,
+                            :start_time,
+                            NULL,
+                            0,
+                            1
+                        ) RETURNING id
+                        """
+                    ),
+                    {
+                        "endpoint_id": str(state.endpoint_id),
+                        "operational_state": next_state.confirmed_operational_state,
+                        "detailed_state": next_state.confirmed_detailed_state,
+                        "success_count": result.success_count,
+                        "failed_count": result.failed_count,
+                        "health_score": result.health_score,
+                        "avg_rtt_ms": result.avg_rtt_ms,
+                        "start_time": execution_time,
+                    },
+                )
+            ).fetchone()
+            next_state.active_event_id = row.id
         return next_state
