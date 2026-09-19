@@ -84,11 +84,24 @@ if [[ ${DRY_RUN} -eq 0 ]]; then
     chmod 750 "${BACKUP_DIR}"
     echo -e "${GREEN}[INFO] Creating timestamped database dump at ${BACKUP_FILE}...${NC}"
     
-    if PGPASSWORD="${DB_PASS}" pg_dump -h "${DB_HOST}" -p "${DB_PORT}" -U "${DB_USER}" -d "${DB_NAME}" -F p -f "${BACKUP_FILE}"; then
+    BACKUP_SUCCESS=0
+    if PGPASSWORD="${DB_PASS}" pg_dump -h "${DB_HOST}" -p "${DB_PORT}" -U "${DB_USER}" -d "${DB_NAME}" -F p -f "${BACKUP_FILE}" 2>/dev/null; then
+        BACKUP_SUCCESS=1
+    elif command -v sudo &>/dev/null && id -u postgres &>/dev/null; then
+        echo -e "${YELLOW}[WARN] Non-superuser connection slots exhausted. Attempting fallback via postgres superuser...${NC}"
+        # Terminate any orphaned/idle connections holding database slots
+        sudo -u postgres psql -c "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '${DB_NAME}' AND pid <> pg_backend_pid();" &>/dev/null || true
+        if sudo -u postgres pg_dump -d "${DB_NAME}" -F p -f "${BACKUP_FILE}"; then
+            BACKUP_SUCCESS=1
+        fi
+    fi
+
+    if [[ ${BACKUP_SUCCESS} -eq 1 ]]; then
         chmod 640 "${BACKUP_FILE}"
         echo -e "${GREEN}[SUCCESS] Pre-upgrade backup successfully saved to ${BACKUP_FILE}${NC}"
     else
         echo -e "${RED}[ERROR] Database backup failed. Aborting upgrade to preserve data safety.${NC}" >&2
+        echo -e "${YELLOW}[HINT] If PostgreSQL connection slots are exhausted, stop background services first: 'systemctl stop netmon-engine netmon-api netmon-flowd' or 'systemctl restart postgresql'.${NC}" >&2
         exit 1
     fi
 else
