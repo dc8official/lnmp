@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 from uuid import UUID
 
 import ipaddress
 from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+ChannelType = Literal["TEAMS", "DISCORD", "SLACK", "EMAIL_SMTP", "GENERIC_WEBHOOK"]
 
 
 def _validate_subnets(v: Optional[List[str]]) -> Optional[List[str]]:
@@ -30,7 +32,7 @@ def _validate_subnets(v: Optional[List[str]]) -> Optional[List[str]]:
 
 class AlertChannelBase(BaseModel):
     name: str = Field(..., min_length=1, max_length=100)
-    channel_type: str = Field(..., min_length=1, max_length=50)
+    channel_type: ChannelType
     is_enabled: bool = True
     config: Dict[str, Any]
     endpoint_ids: List[UUID] = Field(default_factory=list)
@@ -51,7 +53,7 @@ class AlertChannelCreate(AlertChannelBase):
 
 class AlertChannelUpdate(BaseModel):
     name: Optional[str] = Field(default=None, min_length=1, max_length=100)
-    channel_type: Optional[str] = Field(default=None, min_length=1, max_length=50)
+    channel_type: Optional[ChannelType] = None
     is_enabled: Optional[bool] = None
     config: Optional[Dict[str, Any]] = None
     endpoint_ids: Optional[List[UUID]] = None
@@ -83,7 +85,7 @@ class AlertChannelResponse(BaseModel):
 
 class AlertTestRequest(BaseModel):
     channel_id: Optional[UUID] = None
-    channel_type: Optional[str] = None
+    channel_type: Optional[ChannelType] = None
     config: Optional[Dict[str, Any]] = None
     name: Optional[str] = None
 
