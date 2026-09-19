@@ -465,6 +465,14 @@ run "Enabling netmon-engine" systemctl enable netmon-engine
 run "Enabling netmon-api" systemctl enable netmon-api
 run "Enabling netmon-flowd" systemctl enable netmon-flowd
 
+# Grant netmon user sudo privilege to start/stop netmon-flowd dynamically from web UI
+if [ "$DRY_RUN" = false ] && [ -d "/etc/sudoers.d" ]; then
+    cat << 'EOF' > /etc/sudoers.d/netmon
+netmon ALL=(ALL) NOPASSWD: /usr/bin/systemctl start netmon-flowd, /usr/bin/systemctl stop netmon-flowd, /usr/bin/systemctl restart netmon-flowd, /usr/bin/systemctl is-active netmon-flowd, /usr/bin/systemctl enable netmon-flowd, /usr/bin/systemctl disable netmon-flowd
+EOF
+    chmod 0440 /etc/sudoers.d/netmon
+fi
+
 # ============================================================
 print_header "Step 16: Configuring Nginx"
 

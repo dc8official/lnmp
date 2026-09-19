@@ -397,6 +397,14 @@ if [[ ${DRY_RUN} -eq 0 ]]; then
         cp "${PROJECT_ROOT}/deploy/netmon-flowd.service" /etc/systemd/system/
     fi
 
+    # Grant netmon user sudo privilege to start/stop netmon-flowd dynamically from web UI
+    if [[ -d "/etc/sudoers.d" ]]; then
+        cat << 'EOF' > /etc/sudoers.d/netmon
+netmon ALL=(ALL) NOPASSWD: /usr/bin/systemctl start netmon-flowd, /usr/bin/systemctl stop netmon-flowd, /usr/bin/systemctl restart netmon-flowd, /usr/bin/systemctl is-active netmon-flowd, /usr/bin/systemctl enable netmon-flowd, /usr/bin/systemctl disable netmon-flowd
+EOF
+        chmod 0440 /etc/sudoers.d/netmon
+    fi
+
     echo -e "${GREEN}[INFO] Reloading systemd daemons and enabling auto-start on boot...${NC}"
     systemctl daemon-reload
     systemctl enable --now redis-server 2>/dev/null || systemctl enable --now redis 2>/dev/null || true
@@ -406,7 +414,13 @@ if [[ ${DRY_RUN} -eq 0 ]]; then
 
     # Network Flow Telemetry Ingestion (v3.2.0)
     FLOW_ENABLED=false
-    if grep -A 5 "\[flow\]" "${CONFIG_FILE}" 2>/dev/null | grep -q "enabled = true"; then
+    if [[ -n "${DB_PASS:-}" ]]; then
+        DB_FLOW_VAL=$(PGPASSWORD="${DB_PASS}" psql -h "${DB_HOST}" -p "${DB_PORT}" -U "${DB_USER}" -d "${DB_NAME}" -tAc "SELECT setting_value FROM app_settings WHERE setting_key = 'flow_ingestion_enabled';" 2>/dev/null || echo "")
+        if [[ "${DB_FLOW_VAL}" == "true" ]]; then
+            FLOW_ENABLED=true
+        fi
+    fi
+    if [[ "${FLOW_ENABLED}" == "false" ]] && grep -A 5 "\[flow\]" "${CONFIG_FILE}" 2>/dev/null | grep -q "enabled = true"; then
         FLOW_ENABLED=true
     fi
 
@@ -422,7 +436,7 @@ if [[ ${DRY_RUN} -eq 0 ]]; then
             ufw allow 4739/udp comment 'LNMP IPFIX Telemetry' || true
         fi
     else
-        echo -e "${YELLOW}[INFO] Flow telemetry is disabled in config.toml. netmon-flowd service installed but inactive.${NC}"
+        echo -e "${YELLOW}[INFO] Flow telemetry is disabled in settings. netmon-flowd service installed and ready for UI activation.${NC}"
     fi
 
     sleep 2

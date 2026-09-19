@@ -1,5 +1,4 @@
-from __future__ import annotations
-
+import asyncio
 import logging
 from typing import Any, Optional
 
@@ -19,6 +18,52 @@ from app.services.driver_manager import driver_manager
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/settings", tags=["settings"])
+
+
+import os
+
+async def manage_flow_service(enable: bool) -> tuple[bool, str]:
+    """
+    Attempts to start or stop the netmon-flowd systemd service.
+    First tries passwordless sudo systemctl, falling back to direct systemctl.
+    """
+    if not os.path.exists("/etc/systemd/system/netmon-flowd.service"):
+        logger.debug("netmon-flowd.service not installed; skipping service management")
+        return False, "netmon-flowd.service not installed"
+
+    action = "restart" if enable else "stop"
+    commands = [
+        ["sudo", "-n", "systemctl", action, "netmon-flowd"],
+        ["systemctl", action, "netmon-flowd"],
+    ]
+    last_err = ""
+    for cmd in commands:
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            stdout, stderr = await proc.communicate()
+            if proc.returncode == 0:
+                logger.info("Successfully executed %s for netmon-flowd via %s", action, cmd[0])
+                if enable:
+                    for en_cmd in [["sudo", "-n", "systemctl", "enable", "netmon-flowd"], ["systemctl", "enable", "netmon-flowd"]]:
+                        try:
+                            en_proc = await asyncio.create_subprocess_exec(*en_cmd, stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL)
+                            await en_proc.communicate()
+                            if en_proc.returncode == 0:
+                                break
+                        except Exception:
+                            pass
+                return True, f"Service netmon-flowd {action}ed successfully."
+            else:
+                last_err = stderr.decode().strip() or stdout.decode().strip()
+        except Exception as exc:
+            last_err = str(exc)
+
+    logger.debug("Could not automatically %s netmon-flowd via systemctl: %s", action, last_err)
+    return False, last_err
 
 
 class SettingsUpdate(BaseModel):
@@ -276,6 +321,7 @@ async def update_settings(
         await _upsert_setting(
             db, "flow_ingestion_enabled", "true" if flow_ingestion_val else "false"
         )
+        asyncio.create_task(manage_flow_service(enable=bool(flow_ingestion_val)))
 
     flow_nf_val = payload.flow_netflow_port
     if flow_nf_val is None and payload.flowNetflowPort is not None:
