@@ -80,8 +80,15 @@ if [[ ${DRY_RUN} -eq 0 ]]; then
         exit 1
     fi
 
+    # Gracefully stop services before backup to release database connection pool slots
+    if systemctl is-active --quiet netmon-engine || systemctl is-active --quiet netmon-api 2>/dev/null; then
+        echo -e "${GREEN}[INFO] Pausing background services to release database connection slots...${NC}"
+        systemctl stop netmon-engine netmon-api 2>/dev/null || true
+    fi
+
     mkdir -p "${BACKUP_DIR}"
-    chmod 750 "${BACKUP_DIR}"
+    chown root:postgres "${BACKUP_DIR}" 2>/dev/null || true
+    chmod 775 "${BACKUP_DIR}"
     echo -e "${GREEN}[INFO] Creating timestamped database dump at ${BACKUP_FILE}...${NC}"
     
     BACKUP_SUCCESS=0
@@ -91,7 +98,7 @@ if [[ ${DRY_RUN} -eq 0 ]]; then
         echo -e "${YELLOW}[WARN] Non-superuser connection slots exhausted. Attempting fallback via postgres superuser...${NC}"
         # Terminate any orphaned/idle connections holding database slots
         sudo -u postgres psql -c "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '${DB_NAME}' AND pid <> pg_backend_pid();" &>/dev/null || true
-        if sudo -u postgres pg_dump -d "${DB_NAME}" -F p -f "${BACKUP_FILE}"; then
+        if sudo -u postgres pg_dump -d "${DB_NAME}" -F p > "${BACKUP_FILE}"; then
             BACKUP_SUCCESS=1
         fi
     fi
