@@ -287,7 +287,8 @@ fi
 # 7. Synchronize Production Files to Target Directory
 echo -e "\n${BLUE}--- Step 5/7: Synchronizing Codebase & Enforcing Production Structure ---${NC}"
 if [[ ${DRY_RUN} -eq 0 ]]; then
-    mkdir -p "${INSTALL_DIR}"
+    mkdir -p "${INSTALL_DIR}" /run/netmon /var/log/netmon
+    chown -R netmon:netmon /run/netmon /var/log/netmon 2>/dev/null || true
     if [[ "${SOURCE_DIR}" != "${INSTALL_DIR}" ]]; then
         echo -e "${GREEN}[INFO] Syncing repository files from ${SOURCE_DIR} to ${INSTALL_DIR}...${NC}"
         rsync -a --delete \
@@ -396,6 +397,10 @@ if [[ ${DRY_RUN} -eq 0 ]]; then
     elif [[ -f "${PROJECT_ROOT}/deploy/netmon-flowd.service" ]]; then
         cp "${PROJECT_ROOT}/deploy/netmon-flowd.service" /etc/systemd/system/
     fi
+
+    # Ensure runtime and log directories exist before daemon activation
+    mkdir -p /run/netmon /var/log/netmon
+    chown -R netmon:netmon /run/netmon /var/log/netmon 2>/dev/null || true
 
     # Grant netmon user sudo privilege to start/stop netmon-flowd dynamically from web UI
     if [[ -d "/etc/sudoers.d" ]]; then

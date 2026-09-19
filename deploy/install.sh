@@ -192,7 +192,7 @@ else
         useradd -r -s /usr/sbin/nologin netmon
 fi
 
-for dir in /opt/netmon "$CONFIG_DIR" "$LOG_DIR" "$BACKUP_DIR"; do
+for dir in /opt/netmon "$CONFIG_DIR" "$LOG_DIR" "$BACKUP_DIR" /run/netmon; do
     if [ ! -d "$dir" ]; then
         run "Creating directory $dir" mkdir -p "$dir"
         run "Setting ownership: $dir" chown netmon:netmon "$dir"
