@@ -56,6 +56,15 @@ async def manage_flow_service(enable: bool) -> tuple[bool, str]:
                                 break
                         except Exception:
                             pass
+                else:
+                    for dis_cmd in [["sudo", "-n", "systemctl", "disable", "netmon-flowd"], ["systemctl", "disable", "netmon-flowd"]]:
+                        try:
+                            dis_proc = await asyncio.create_subprocess_exec(*dis_cmd, stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL)
+                            await dis_proc.communicate()
+                            if dis_proc.returncode == 0:
+                                break
+                        except Exception:
+                            pass
                 return True, f"Service netmon-flowd {action}ed successfully."
             else:
                 last_err = stderr.decode().strip() or stdout.decode().strip()

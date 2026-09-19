@@ -8,7 +8,7 @@ from typing import Any, Dict, List, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import case, func, select, text
+from sqlalchemy import case, func, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
@@ -38,6 +38,8 @@ from app.schemas.bandwidth import (
 from app.services.driver_manager import driver_manager
 
 logger = logging.getLogger(__name__)
+
+SENTINEL_UUID = UUID("00000000-0000-0000-0000-000000000000")
 
 router = APIRouter(prefix="/bandwidth", tags=["bandwidth"])
 
@@ -174,7 +176,14 @@ async def get_bandwidth_overview(
             0,
         ).label("egress_bytes"),
         func.coalesce(func.sum(FlowMinuteRollup.flow_count), 0).label("total_flows"),
-        func.count(func.distinct(FlowMinuteRollup.exporter_id)).label("active_exporters"),
+        func.count(
+            func.distinct(
+                case(
+                    (FlowMinuteRollup.exporter_id != SENTINEL_UUID, FlowMinuteRollup.exporter_id),
+                    else_=None,
+                )
+            )
+        ).label("active_exporters"),
     ).where(FlowMinuteRollup.bucket >= five_min_ago)
 
     res = await db.execute(stmt)
@@ -317,6 +326,7 @@ async def get_traffic_series(
 async def get_top_talkers(
     window: str = Query(default="1h"),
     limit: int = Query(default=10, ge=1, le=50),
+    endpoint_id: Optional[UUID] = Query(default=None),
     current_user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -328,6 +338,15 @@ async def get_top_talkers(
     start_time = now - delta
 
     # 1. Top endpoints
+    ep_filters = [FlowMinuteRollup.bucket >= start_time]
+    if endpoint_id is not None:
+        ep_filters.append(
+            or_(
+                FlowMinuteRollup.src_endpoint_id == endpoint_id,
+                FlowMinuteRollup.dst_endpoint_id == endpoint_id,
+            )
+        )
+
     top_ep_stmt = (
         select(
             FlowMinuteRollup.src_ip.label("ip"),
@@ -353,7 +372,7 @@ async def get_top_talkers(
                 0,
             ).label("egress_bytes"),
         )
-        .where(FlowMinuteRollup.bucket >= start_time)
+        .where(*ep_filters)
         .group_by(FlowMinuteRollup.src_ip, FlowMinuteRollup.src_endpoint_id)
         .order_by(func.sum(FlowMinuteRollup.bytes).desc())
         .limit(limit)
@@ -400,6 +419,15 @@ async def get_top_talkers(
         )
 
     # 2. Top Conversations
+    conv_filters = [FlowMinuteRollup.bucket >= start_time]
+    if endpoint_id is not None:
+        conv_filters.append(
+            or_(
+                FlowMinuteRollup.src_endpoint_id == endpoint_id,
+                FlowMinuteRollup.dst_endpoint_id == endpoint_id,
+            )
+        )
+
     top_conv_stmt = (
         select(
             FlowMinuteRollup.src_ip,
@@ -409,7 +437,7 @@ async def get_top_talkers(
             func.sum(FlowMinuteRollup.bytes).label("total_bytes"),
             func.sum(FlowMinuteRollup.flow_count).label("total_flows"),
         )
-        .where(FlowMinuteRollup.bucket >= start_time)
+        .where(*conv_filters)
         .group_by(
             FlowMinuteRollup.src_ip,
             FlowMinuteRollup.dst_ip,

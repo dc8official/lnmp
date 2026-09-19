@@ -238,8 +238,10 @@ export function getTrafficSeries(window = '1h', exporterId = null, endpointId = 
   return api.get('/bandwidth/traffic-series', { params })
 }
 
-export function getTopTalkers(window = '1h', limit = 10) {
-  return api.get('/bandwidth/top-talkers', { params: { window, limit } })
+export function getTopTalkers(window = '1h', limit = 10, endpointId = null) {
+  const params = { window, limit }
+  if (endpointId) params.endpoint_id = endpointId
+  return api.get('/bandwidth/top-talkers', { params })
 }
 
 export function getApplicationDistribution(window = '1h') {

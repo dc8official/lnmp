@@ -15,6 +15,7 @@ from monitoring.flow.v9_parser import V9Parser
 logger = logging.getLogger(__name__)
 
 STREAM_NETFLOW_RAW = "stream:netflow:raw"
+MAX_QUEUE_SIZE = 50000
 
 
 class FlowUDPProtocol(asyncio.DatagramProtocol):
@@ -70,7 +71,7 @@ class FlowCollector:
         exporter_ip = addr[0]
         try:
             ip_obj = ipaddress.ip_address(exporter_ip)
-            if ip_obj.is_multicast or ip_obj.is_loopback or ip_obj.is_unspecified or ip_obj.is_reserved:
+            if ip_obj.is_multicast or (ip_obj.is_loopback and str(ip_obj) != "127.0.0.1") or ip_obj.is_unspecified or ip_obj.is_reserved:
                 return
         except ValueError:
             return
@@ -96,6 +97,24 @@ class FlowCollector:
             return
 
         if flows:
+            if len(self._queue) >= MAX_QUEUE_SIZE:
+                logger.warning(
+                    "FlowCollector: in-memory queue full (%d items). Dropping %d incoming flows due to backpressure.",
+                    len(self._queue),
+                    len(flows),
+                )
+                return
+            space = MAX_QUEUE_SIZE - len(self._queue)
+            if len(flows) > space:
+                logger.warning(
+                    "FlowCollector: queue near capacity (%d/%d). Accepting %d of %d flows.",
+                    len(self._queue),
+                    MAX_QUEUE_SIZE,
+                    space,
+                    len(flows),
+                )
+                flows = flows[:space]
+
             self._queue.extend(flows)
             if len(self._queue) >= self.batch_size:
                 asyncio.create_task(self.flush())

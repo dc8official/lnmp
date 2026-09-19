@@ -636,7 +636,7 @@ async function loadFlowTelemetry() {
     if (res.data?.data?.points) {
       flowSeriesPoints.value = res.data.data.points
     }
-    const talkersRes = await getTopTalkers(flowWindow.value, 20)
+    const talkersRes = await getTopTalkers(flowWindow.value, 20, epId)
     if (talkersRes.data?.data?.top_conversations) {
       const epIp = String(endpoint.value.ip_address).split('/')[0].trim()
       nodeConversations.value = talkersRes.data.data.top_conversations.filter(

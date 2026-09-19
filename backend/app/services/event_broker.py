@@ -33,6 +33,26 @@ class PostgresEventBroker(EventBroker):
 
     async def publish(self, channel: str, event_data: Dict[str, Any]) -> None:
         payload = json.dumps(event_data)
+        if len(payload.encode("utf-8")) > 7500:
+            data_copy = dict(event_data)
+            if "symptom_endpoint_ids" in data_copy and isinstance(data_copy["symptom_endpoint_ids"], list):
+                symptoms = data_copy["symptom_endpoint_ids"]
+                data_copy["symptom_count"] = len(symptoms)
+                data_copy["truncated"] = True
+                compacted: list[Any] = []
+                for s in symptoms:
+                    compacted.append(s)
+                    data_copy["symptom_endpoint_ids"] = compacted
+                    if len(json.dumps(data_copy).encode("utf-8")) > 7200:
+                        compacted.pop()
+                        break
+                data_copy["symptom_endpoint_ids"] = compacted
+            payload = json.dumps(data_copy)
+            if len(payload.encode("utf-8")) > 7500:
+                for k, v in list(data_copy.items()):
+                    if isinstance(v, str) and len(v) > 200:
+                        data_copy[k] = v[:200] + "... [truncated]"
+                payload = json.dumps(data_copy)
         async with self.session_factory() as db:
             try:
                 query = text("SELECT pg_notify(:channel, :payload);")

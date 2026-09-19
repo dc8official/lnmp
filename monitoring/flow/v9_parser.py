@@ -106,7 +106,7 @@ class V9Parser:
                 parsed = self._parse_data_flowset(
                     flowset_id, flowset_payload, exporter_ip, source_id, sys_uptime, unix_secs
                 )
-                if parsed:
+                if parsed is not None:
                     flows.extend(parsed)
                 else:
                     # Buffer as orphan awaiting template
@@ -130,6 +130,8 @@ class V9Parser:
         while idx + 4 <= len(payload):
             template_id, field_count = struct.unpack_from("!HH", payload, idx)
             idx += 4
+            if template_id < 256:
+                break
             fields: List[Tuple[int, int]] = []
             for _ in range(field_count):
                 if idx + 4 > len(payload):
@@ -137,6 +139,9 @@ class V9Parser:
                 ft, fl = struct.unpack_from("!HH", payload, idx)
                 fields.append((ft, fl))
                 idx += 4
+
+            if len(fields) != field_count:
+                continue
 
             tmpl = V9Template(template_id, fields)
             cache_key = (exporter_ip, source_id, template_id)
@@ -167,7 +172,7 @@ class V9Parser:
                 parsed = self._parse_data_flowset(
                     o_tmpl_id, o_payload, exporter_ip, source_id, o_sys_uptime, o_unix_secs
                 )
-                if parsed:
+                if parsed is not None:
                     out_flows.extend(parsed)
             else:
                 remaining.append(item)

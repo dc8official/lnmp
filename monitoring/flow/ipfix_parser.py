@@ -114,7 +114,7 @@ class IPFIXParser:
                 parsed = self._parse_data_set(
                     set_id, set_payload, exporter_ip, obs_domain_id, export_time
                 )
-                if parsed:
+                if parsed is not None:
                     flows.extend(parsed)
                 else:
                     q = self._orphan_buffer[(exporter_ip, obs_domain_id)]
@@ -136,6 +136,8 @@ class IPFIXParser:
         while idx + 4 <= len(payload):
             template_id, field_count = struct.unpack_from("!HH", payload, idx)
             idx += 4
+            if template_id < 256:
+                break
             fields: List[IPFIXFieldSpec] = []
             for _ in range(field_count):
                 if idx + 4 > len(payload):
@@ -151,6 +153,9 @@ class IPFIXParser:
                     enterprise_number = struct.unpack_from("!I", payload, idx)[0]
                     idx += 4
                 fields.append(IPFIXFieldSpec(ie_id, field_len, enterprise_number))
+
+            if len(fields) != field_count:
+                continue
 
             tmpl = IPFIXTemplate(template_id, fields)
             cache_key = (exporter_ip, obs_domain_id, template_id)
@@ -180,7 +185,7 @@ class IPFIXParser:
                 parsed = self._parse_data_set(
                     o_set_id, o_payload, exporter_ip, obs_domain_id, o_export_time
                 )
-                if parsed:
+                if parsed is not None:
                     out_flows.extend(parsed)
             else:
                 remaining.append(item)

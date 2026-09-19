@@ -60,6 +60,7 @@ class SSRFSafeBackend(httpcore.AsyncNetworkBackend):
         if not addr_info:
             raise ValueError(f"DNS resolution failure for host '{host}': No address returned.")
 
+        target_ip: str | None = None
         for item in addr_info:
             ip_str = item[4][0]
             try:
@@ -93,8 +94,11 @@ class SSRFSafeBackend(httpcore.AsyncNetworkBackend):
                         f"SSRF violation: Host '{host}' resolves to forbidden address {str_ip}."
                     )
 
+            if target_ip is None:
+                target_ip = str_ip
+
         return await self._inner.connect_tcp(
-            host,
+            target_ip or host,
             port,
             timeout=timeout,
             local_address=local_address,

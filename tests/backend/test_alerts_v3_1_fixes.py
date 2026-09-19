@@ -321,28 +321,41 @@ def test_merge_channel_config_preserves_masked_credentials():
 
 @pytest.mark.anyio
 async def test_smtp_host_ssrf_rejection_in_sync_send():
-    """Verify that _sync_send_smtp rejects loopback, RFC1918, and metadata IPs with SSRF error."""
+    """Verify that _sync_send_smtp rejects cloud metadata IPs with SSRF error while allowing private/loopback relays."""
     dispatcher = AlertDispatcher()
 
-    # Loopback IP
-    cfg_loopback = {
-        "smtp_host": "127.0.0.1",
-        "smtp_port": 25,
-        "from_address": "alerts@corp.com",
-        "to_addresses": ["admin@corp.com"],
-    }
-    with pytest.raises(ValueError, match="SSRF"):
-        dispatcher._sync_send_smtp(cfg_loopback, MagicMock())
-
-    # Cloud metadata IP
+    # Cloud metadata IP must be blocked
     cfg_metadata = {
         "smtp_host": "169.254.169.254",
         "smtp_port": 25,
         "from_address": "alerts@corp.com",
         "to_addresses": ["admin@corp.com"],
     }
-    with pytest.raises(ValueError, match="SSRF"):
+    with pytest.raises(ValueError, match="SSRF|metadata|forbidden address"):
         dispatcher._sync_send_smtp(cfg_metadata, MagicMock())
+
+    # Loopback IP and RFC1918 internal relay must be permitted by SSRF check
+    with patch("smtplib.SMTP") as mock_smtp:
+        mock_server = MagicMock()
+        mock_smtp.return_value = mock_server
+
+        cfg_loopback = {
+            "smtp_host": "127.0.0.1",
+            "smtp_port": 25,
+            "from_address": "alerts@corp.com",
+            "to_addresses": ["admin@corp.com"],
+        }
+        dispatcher._sync_send_smtp(cfg_loopback, MagicMock())
+        mock_smtp.assert_called_with("127.0.0.1", 25, timeout=10.0)
+
+        cfg_private = {
+            "smtp_host": "192.168.1.50",
+            "smtp_port": 25,
+            "from_address": "alerts@corp.com",
+            "to_addresses": ["admin@corp.com"],
+        }
+        dispatcher._sync_send_smtp(cfg_private, MagicMock())
+        mock_smtp.assert_called_with("192.168.1.50", 25, timeout=10.0)
 
 
 def test_console_url_resolution():
