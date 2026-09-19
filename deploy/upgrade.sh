@@ -38,7 +38,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 INSTALL_DIR="/opt/netmon/noop"
 REPO_URL="${NETMON_REPO_URL:-https://github.com/dc8official/lnmp.git}"
-UPGRADE_BRANCH="${NETMON_BRANCH:-main}"
+# Resolve Active or Target Upgrade Branch (defaults to current git branch or v3.2.0)
+CURRENT_GIT_BRANCH="$(git -C "${PROJECT_ROOT}" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")"
+UPGRADE_BRANCH="${NETMON_BRANCH:-${CURRENT_GIT_BRANCH:-v3.2.0}}"
 
 # 3. Read Configuration Values
 ENV_FILE="/etc/netmon/netmon.env"
