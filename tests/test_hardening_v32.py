@@ -86,6 +86,40 @@ async def test_flow_aggregator_no_data_loss_on_db_error():
     assert "1700000000000-0" in mock_redis.xack.call_args[0]
 
 
+def test_flow_aggregator_insert_sql_bindparams():
+    """
+    Verifies that the insert_sql in FlowAggregator correctly parses all 11 bind parameters,
+    specifically ensuring that CAST(:src_ip AS inet) and CAST(:dst_ip AS inet) are recognized
+    as parameters rather than skipped due to double-colon escaping.
+    """
+    import inspect
+    import re
+    from sqlalchemy import text
+    from monitoring.flow import aggregator
+
+    # Extract insert_sql definition from source
+    src = inspect.getsource(aggregator.FlowAggregator.flush_to_timescaledb)
+    m = re.search(r'insert_sql\s*=\s*text\(\s*"""(.*?)"""\s*\)', src, re.DOTALL)
+    assert m is not None, "Could not find insert_sql in flush_to_timescaledb"
+    sql_text = text(m.group(1))
+
+    compiled_params = set(sql_text.compile().params.keys())
+    expected_params = {
+        "bucket",
+        "exporter_id",
+        "src_endpoint_id",
+        "dst_endpoint_id",
+        "src_ip",
+        "dst_ip",
+        "protocol",
+        "dst_port",
+        "bytes",
+        "packets",
+        "flow_count",
+    }
+    assert compiled_params == expected_params, f"Missing or incorrect params: {expected_params - compiled_params}"
+
+
 @pytest.mark.anyio
 async def test_flow_collector_bounded_stream_xadd():
     """

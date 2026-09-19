@@ -166,7 +166,7 @@ class FlowAggregator:
                     bytes, packets, flow_count
                 ) VALUES (
                     :bucket, :exporter_id, :src_endpoint_id, :dst_endpoint_id,
-                    :src_ip::inet, :dst_ip::inet, :protocol, :dst_port,
+                    CAST(:src_ip AS inet), CAST(:dst_ip AS inet), :protocol, :dst_port,
                     :bytes, :packets, :flow_count
                 )
                 ON CONFLICT (bucket, exporter_id, src_ip, dst_ip, protocol, dst_port)
