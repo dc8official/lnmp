@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import Optional, Sequence
 from uuid import UUID
 
-from sqlalchemy import case, func, select
+from sqlalchemy import case, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.endpoint_event import EndpointEvent
@@ -31,8 +31,11 @@ class ReportRepository:
             select(EndpointEvent)
             .where(
                 EndpointEvent.endpoint_id == endpoint_id,
-                EndpointEvent.start_time >= start_dt,
                 EndpointEvent.start_time <= end_dt,
+                or_(
+                    EndpointEvent.end_time.is_(None),
+                    EndpointEvent.end_time >= start_dt,
+                ),
             )
             .order_by(EndpointEvent.start_time.asc())
         )
