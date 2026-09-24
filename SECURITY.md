@@ -18,7 +18,7 @@ The LNMP engineering and security team takes the security of our network monitor
 
 ### How to Report
 
-- **Email:** Send details to `security@lnmp.internal`
+- **Email:** Send details to `dagera07@gmail.com`
 - **GitHub:** Use [Private Vulnerability Reporting](https://github.com/dc8official/noop/security/advisories/new) on the repository.
 
 Please include:
