@@ -558,22 +558,39 @@ const exportSelectedCSV = async () => {
   }
 }
 
-const fetchEndpoints = async () => {
+let isFetching = false
+const fetchEndpoints = async (isRetry = false) => {
+  if (isFetching) return
+  isFetching = true
   loading.value = true
-  error.value = null
+  if (!isRetry) {
+    error.value = null
+  }
   try {
     const response = await getEndpoints()
     endpoints.value = response.data.data || []
     lastRefreshed.value = new Date()
+    error.value = null
   } catch (err) {
+    if (err?.name === 'CanceledError' || err?.code === 'ERR_CANCELED') {
+      return
+    }
+    if (!isRetry && (!err.response || err.response.status >= 500)) {
+      console.warn('[DashboardView] Initial endpoint fetch failed, retrying in 500ms...', err)
+      isFetching = false
+      await new Promise((resolve) => setTimeout(resolve, 500))
+      return fetchEndpoints(true)
+    }
+    console.error('[DashboardView] Failed to fetch endpoints:', err)
     if (err.response?.status === 401) {
       clearUserState()
       router.push('/login')
     } else {
-      error.value = err.response?.data?.detail || err.response?.data?.error?.message || 'Failed to connect to backend engine.'
+      error.value = err.response?.data?.detail || err.response?.data?.error?.message || err.message || 'Failed to connect to backend engine.'
     }
   } finally {
     loading.value = false
+    isFetching = false
   }
 }
 
