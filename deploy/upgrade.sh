@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# LNMP Network Monitoring Platform v3.1.7s - Automated Upgrade Utility
+# LNMP Network Monitoring Platform v3.1.35s - Automated Upgrade Utility
 # ==============================================================================
 
 set -euo pipefail
@@ -30,7 +30,7 @@ if [[ ${EUID} -ne 0 && ${DRY_RUN} -eq 0 ]]; then
 fi
 
 echo -e "${BLUE}========================================================================${NC}"
-echo -e "${BLUE}    LNMP Network Monitoring Platform v3.1.7s - Upgrade Utility           ${NC}"
+echo -e "${BLUE}    LNMP Network Monitoring Platform v3.1.35s - Upgrade Utility          ${NC}"
 echo -e "${BLUE}========================================================================${NC}"
 
 # Resolve Script and Project Root Directory
@@ -38,7 +38,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 INSTALL_DIR="/opt/netmon/noop"
 REPO_URL="${NETMON_REPO_URL:-https://github.com/dc8official/lnmp.git}"
-UPGRADE_BRANCH="${NETMON_BRANCH:-main}"
+# Resolve Active or Target Upgrade Branch (defaults to current git branch or v3.1.35s)
+CURRENT_GIT_BRANCH="$(git -C "${PROJECT_ROOT}" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")"
+UPGRADE_BRANCH="${NETMON_BRANCH:-${CURRENT_GIT_BRANCH:-v3.1.35s}}"
 
 # 3. Read Configuration Values
 ENV_FILE="/etc/netmon/netmon.env"
@@ -78,15 +80,35 @@ if [[ ${DRY_RUN} -eq 0 ]]; then
         exit 1
     fi
 
+    # Gracefully stop services before backup to release database connection pool slots
+    if systemctl is-active --quiet netmon-engine || systemctl is-active --quiet netmon-api 2>/dev/null; then
+        echo -e "${GREEN}[INFO] Pausing background services to release database connection slots...${NC}"
+        systemctl stop netmon-engine netmon-api 2>/dev/null || true
+    fi
+
     mkdir -p "${BACKUP_DIR}"
-    chmod 750 "${BACKUP_DIR}"
+    chown root:postgres "${BACKUP_DIR}" 2>/dev/null || true
+    chmod 775 "${BACKUP_DIR}"
     echo -e "${GREEN}[INFO] Creating timestamped database dump at ${BACKUP_FILE}...${NC}"
     
-    if PGPASSWORD="${DB_PASS}" pg_dump -h "${DB_HOST}" -p "${DB_PORT}" -U "${DB_USER}" -d "${DB_NAME}" -F p -f "${BACKUP_FILE}"; then
+    BACKUP_SUCCESS=0
+    if PGPASSWORD="${DB_PASS}" pg_dump -h "${DB_HOST}" -p "${DB_PORT}" -U "${DB_USER}" -d "${DB_NAME}" -F p -f "${BACKUP_FILE}" 2>/dev/null; then
+        BACKUP_SUCCESS=1
+    elif command -v sudo &>/dev/null && id -u postgres &>/dev/null; then
+        echo -e "${YELLOW}[WARN] Non-superuser connection slots exhausted. Attempting fallback via postgres superuser...${NC}"
+        # Terminate any orphaned/idle connections holding database slots
+        sudo -u postgres psql -c "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '${DB_NAME}' AND pid <> pg_backend_pid();" &>/dev/null || true
+        if sudo -u postgres pg_dump -d "${DB_NAME}" -F p > "${BACKUP_FILE}"; then
+            BACKUP_SUCCESS=1
+        fi
+    fi
+
+    if [[ ${BACKUP_SUCCESS} -eq 1 ]]; then
         chmod 640 "${BACKUP_FILE}"
         echo -e "${GREEN}[SUCCESS] Pre-upgrade backup successfully saved to ${BACKUP_FILE}${NC}"
     else
         echo -e "${RED}[ERROR] Database backup failed. Aborting upgrade to preserve data safety.${NC}" >&2
+        echo -e "${YELLOW}[HINT] If PostgreSQL connection slots are exhausted, stop background services first: 'systemctl stop netmon-engine netmon-api' or 'systemctl restart postgresql'.${NC}" >&2
         exit 1
     fi
 else
@@ -210,15 +232,15 @@ if [[ ${DRY_RUN} -eq 0 ]]; then
         cd "${PROJECT_ROOT}"
         git config --global --add safe.directory "${PROJECT_ROOT}" 2>/dev/null || true
         git fetch --all --tags --prune || true
-        git checkout "${UPGRADE_BRANCH}" 2>/dev/null || git checkout v3.1.7s 2>/dev/null || true
-        git pull origin "${UPGRADE_BRANCH}" 2>/dev/null || git pull origin v3.1.7s 2>/dev/null || git pull || echo -e "${YELLOW}[WARN] Git pull finished with non-zero exit code. Proceeding with existing files.${NC}"
+        git checkout "${UPGRADE_BRANCH}" 2>/dev/null || git checkout v3.1.35s 2>/dev/null || true
+        git pull origin "${UPGRADE_BRANCH}" 2>/dev/null || git pull origin v3.1.35s 2>/dev/null || git pull || echo -e "${YELLOW}[WARN] Git pull finished with non-zero exit code. Proceeding with existing files.${NC}"
         SOURCE_DIR="${PROJECT_ROOT}"
     # Case B: Running from /opt/netmon/noop or non-git directory -> clone directly from remote
     else
         echo -e "${GREEN}[INFO] Staging fresh release from ${REPO_URL} (branch: ${UPGRADE_BRANCH})...${NC}"
         rm -rf "${STAGE_DIR}"
         if git clone --depth 1 --branch "${UPGRADE_BRANCH}" "${REPO_URL}" "${STAGE_DIR}" 2>/dev/null || \
-           git clone --depth 1 --branch "v3.1.7s" "${REPO_URL}" "${STAGE_DIR}" 2>/dev/null || \
+           git clone --depth 1 --branch "v3.1.35s" "${REPO_URL}" "${STAGE_DIR}" 2>/dev/null || \
            git clone --depth 1 "${REPO_URL}" "${STAGE_DIR}"; then
             echo -e "${GREEN}[SUCCESS] Downloaded latest codebase into staging directory.${NC}"
             SOURCE_DIR="${STAGE_DIR}"
@@ -263,6 +285,7 @@ if [[ ${DRY_RUN} -eq 0 ]]; then
             --exclude='tests' \
             --exclude='pytest.ini' \
             --exclude='scratch' \
+            --exclude='certs' \
             "${SOURCE_DIR}/" "${INSTALL_DIR}/"
         chown -R netmon:netmon "${INSTALL_DIR}"
     fi
@@ -374,6 +397,6 @@ else
 fi
 
 echo -e "\n${GREEN}========================================================================${NC}"
-echo -e "${GREEN}   [UPGRADE COMPLETE] LNMP v3.1.7s Platform upgraded successfully!       ${NC}"
+echo -e "${GREEN}   [UPGRADE COMPLETE] LNMP v3.1.35s Platform upgraded successfully!      ${NC}"
 echo -e "${GREEN}   Pre-Upgrade Database Backup Saved At: ${BACKUP_FILE}${NC}"
 echo -e "${GREEN}========================================================================${NC}"

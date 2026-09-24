@@ -3,7 +3,7 @@
     <div class="login-container">
       <div class="login-card">
         <div class="brand-header">
-          <h1 class="brand-title">lnmp v3.1.7s</h1>
+          <h1 class="brand-title">lnmp v3.1.35s</h1>
           <p class="brand-subtitle">Network Uptime Monitoring Platform</p>
         </div>
 

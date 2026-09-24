@@ -4,10 +4,11 @@
 
 | Version | Supported          | Security Notes |
 | ------- | ------------------ | -------------- |
-| v3.1.7s | :white_check_mark: | Active production standard: session deduplication, private SMTP SSRF allowlist, and startup resilience |
-| v3.1.3s | :white_check_mark: | Supported preceding release; upgrade to v3.1.7s recommended |
-| v3.1.1s | :white_check_mark: | Supported security release with Zero-Trust Socket SSRF protection |
-| v3.1.0  | :x:                | Superseded by v3.1.7s |
+| v3.1.28s | :white_check_mark: | Active production standard: DNS pinning, production secret enforcement, continuous event lifecycle, rate limiting, and bounded concurrency |
+| v3.1.7s | :white_check_mark: | Supported preceding release: session deduplication, private SMTP SSRF allowlist, and startup resilience |
+| v3.1.3s | :white_check_mark: | Supported preceding release; upgrade to v3.1.28s recommended |
+| v3.1.1s | :x:                | Superseded by v3.1.28s |
+| v3.1.0  | :x:                | Superseded by v3.1.28s |
 | v3.0.x  | :x:                | Maintenance only — upgrade recommended |
 | < v3.0  | :x:                | End of Life (EOL) |
 

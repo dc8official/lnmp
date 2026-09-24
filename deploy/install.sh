@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # ============================================================
-# lnmp Network Monitoring Platform v3.1.7s - Production Installer
+# lnmp Network Monitoring Platform v3.1.35s - Production Installer
 # Supports: Debian 12+, Ubuntu 22.04+
 # Usage: sudo bash deploy/install.sh [--dry-run]
 # ============================================================
@@ -215,6 +215,9 @@ if [ ! -d "$INSTALL_DIR" ]; then
         --exclude='tests' \
         --exclude='pytest.ini' \
         --exclude='scratch' \
+        --exclude='.env' \
+        --exclude='backend/.env' \
+        --exclude='certs' \
         "$PROJECT_ROOT/" "$INSTALL_DIR/"
     run "Setting project ownership" \
         chown -R netmon:netmon "$INSTALL_DIR"
@@ -229,6 +232,9 @@ else
         --exclude='tests' \
         --exclude='pytest.ini' \
         --exclude='scratch' \
+        --exclude='.env' \
+        --exclude='backend/.env' \
+        --exclude='certs' \
         "$PROJECT_ROOT/" "$INSTALL_DIR/"
     run "Setting project ownership" \
         chown -R netmon:netmon "$INSTALL_DIR"
@@ -529,7 +535,7 @@ if [ "$DRY_RUN" = true ]; then
     echo "DRY RUN complete. No changes were made."
 else
     echo ""
-    echo "lnmp v3.1.7s is now running."
+    echo "lnmp v3.1.35s is now running."
     echo ""
     echo "  Dashboard:  https://$DOMAIN_NAME"
     echo "  API docs:   https://$DOMAIN_NAME/api/docs"

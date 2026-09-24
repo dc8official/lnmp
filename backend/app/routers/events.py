@@ -44,7 +44,7 @@ async def sse_event_generator(request: Request) -> AsyncGenerator[str, None]:
 
     try:
         # Initial greeting event
-        init_payload = json.dumps({"type": "CONNECTED", "message": "LNMP v3.1.7s SSE stream established."})
+        init_payload = json.dumps({"type": "CONNECTED", "message": "LNMP v3.1.35s SSE stream established."})
         yield f"data: {init_payload}\n\n"
 
         while True:
@@ -69,7 +69,10 @@ async def sse_event_generator(request: Request) -> AsyncGenerator[str, None]:
 
 
 @router.get("/stream")
-async def stream_events(request: Request):
+async def stream_events(
+    request: Request,
+    current_user: dict = Depends(get_current_user),
+):
     """
     Server-Sent Events (SSE) telemetry stream.
     Broadcasts real-time state transitions, node changes, and RCA alerts.

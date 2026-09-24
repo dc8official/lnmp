@@ -46,10 +46,16 @@ def encrypt_secret(plaintext: str) -> str:
     return f"ENC:v1:{nonce_b64}:{ct_b64}"
 
 
+class DecryptionError(Exception):
+    """Raised when an encrypted secret cannot be decrypted."""
+    pass
+
+
 def decrypt_secret(ciphertext: str) -> str:
     """
     Decrypts an AES-256-GCM encrypted payload.
     Falls back to plaintext for unencrypted strings (backward compatibility).
+    Raises DecryptionError if an encrypted payload cannot be decrypted.
     """
     if not ciphertext:
         return ""
@@ -58,7 +64,7 @@ def decrypt_secret(ciphertext: str) -> str:
 
     parts = ciphertext.split(":")
     if len(parts) != 4:
-        return ciphertext
+        raise DecryptionError("Malformed encrypted secret: invalid segment count.")
 
     try:
         nonce = base64.b64decode(parts[2])
@@ -67,9 +73,8 @@ def decrypt_secret(ciphertext: str) -> str:
         aesgcm = AESGCM(key)
         decrypted = aesgcm.decrypt(nonce, raw_ct, None)
         return decrypted.decode("utf-8")
-    except Exception:
-        # Fall back gracefully if decryption fails
-        return ciphertext
+    except Exception as exc:
+        raise DecryptionError(f"Failed to decrypt secret payload: {exc}") from exc
 
 
 def mask_secret(secret: str) -> str:
@@ -80,7 +85,10 @@ def mask_secret(secret: str) -> str:
         return ""
 
     if secret.startswith("ENC:v1:"):
-        secret = decrypt_secret(secret)
+        try:
+            secret = decrypt_secret(secret)
+        except DecryptionError:
+            return "••••••••"
 
     if secret.startswith("http://") or secret.startswith("https://"):
         try:

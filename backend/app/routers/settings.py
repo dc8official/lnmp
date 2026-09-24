@@ -5,6 +5,7 @@ from typing import Any, Optional
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, ConfigDict, Field
+from pydantic.alias_generators import to_camel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -22,32 +23,30 @@ router = APIRouter(prefix="/settings", tags=["settings"])
 
 class SettingsUpdate(BaseModel):
     performance_mode: Optional[bool] = None
-    performanceMode: Optional[bool] = None
     l2_auto_bypass: Optional[bool] = None
-    l2AutoBypass: Optional[bool] = None
     session_timeout: Optional[int] = Field(default=None, ge=1, le=1440)
-    sessionTimeout: Optional[int] = Field(default=None, ge=1, le=1440)
     lockout_threshold: Optional[int] = Field(default=None, ge=1, le=100)
-    lockoutThreshold: Optional[int] = Field(default=None, ge=1, le=100)
     alerting_enabled: Optional[bool] = None
-    alertingEnabled: Optional[bool] = None
 
-    model_config = ConfigDict(from_attributes=True)
+    model_config = ConfigDict(
+        alias_generator=to_camel,
+        populate_by_name=True,
+        from_attributes=True,
+    )
 
 
 class SettingsPayload(BaseModel):
     performance_mode: bool
-    performanceMode: bool
     l2_auto_bypass: bool
-    l2AutoBypass: bool
     session_timeout: int
-    sessionTimeout: int
     lockout_threshold: int
-    lockoutThreshold: int
     alerting_enabled: bool
-    alertingEnabled: bool
 
-    model_config = ConfigDict(from_attributes=True)
+    model_config = ConfigDict(
+        alias_generator=to_camel,
+        populate_by_name=True,
+        from_attributes=True,
+    )
 
 
 async def _read_settings_dict(db: AsyncSession) -> dict[str, Any]:
@@ -91,15 +90,10 @@ async def _read_settings_dict(db: AsyncSession) -> dict[str, Any]:
 
     return {
         "performance_mode": perf_mode,
-        "performanceMode": perf_mode,
         "l2_auto_bypass": l2_bypass,
-        "l2AutoBypass": l2_bypass,
         "session_timeout": session_timeout,
-        "sessionTimeout": session_timeout,
         "lockout_threshold": lockout_threshold,
-        "lockoutThreshold": lockout_threshold,
         "alerting_enabled": alerting_enabled,
-        "alertingEnabled": alerting_enabled,
     }
 
 
@@ -111,7 +105,7 @@ async def _upsert_setting(db: AsyncSession, key: str, value: str) -> None:
         setting.setting_value = value
     else:
         setting = AppSetting(setting_key=key, setting_value=value)
-        db.add(setting)
+    db.add(setting)
     await db.flush()
 
 
@@ -131,24 +125,10 @@ async def update_settings(
     db: AsyncSession = Depends(get_db),
 ):
     perf_mode_val = payload.performance_mode
-    if perf_mode_val is None and payload.performanceMode is not None:
-        perf_mode_val = payload.performanceMode
-
     l2_bypass_val = payload.l2_auto_bypass
-    if l2_bypass_val is None and payload.l2AutoBypass is not None:
-        l2_bypass_val = payload.l2AutoBypass
-
     session_timeout_val = payload.session_timeout
-    if session_timeout_val is None and payload.sessionTimeout is not None:
-        session_timeout_val = payload.sessionTimeout
-
     lockout_val = payload.lockout_threshold
-    if lockout_val is None and payload.lockoutThreshold is not None:
-        lockout_val = payload.lockoutThreshold
-
     alerting_val = payload.alerting_enabled
-    if alerting_val is None and payload.alertingEnabled is not None:
-        alerting_val = payload.alertingEnabled
 
     reinit_driver = False
 

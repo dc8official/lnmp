@@ -537,6 +537,7 @@ function initSSE() {
   unsubscribeSSE = subscribe((event) => {
     if (!event.data) return
     try {
+      const payload = JSON.parse(event.data)
       const isNodeStateChange = payload.type === 'NODE_STATE_CHANGE'
       const isStateTransition = payload.type === 'STATE_TRANSITION'
       if ((isNodeStateChange || isStateTransition) && payload.endpoint_id && nodesDataSet) {
