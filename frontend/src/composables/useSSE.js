@@ -8,7 +8,7 @@ function ensureConnection() {
   if (typeof window === 'undefined') return
   if (!eventSource || eventSource.readyState === EventSource.CLOSED) {
     try {
-      eventSource = new EventSource('/api/v1/events/stream')
+      eventSource = new EventSource('/api/v1/events/stream', { withCredentials: true })
       eventSource.onopen = () => {
         sseConnected.value = true
       }

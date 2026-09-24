@@ -431,31 +431,58 @@ class StateMachine:
         execution_time = datetime.now(timezone.utc)
 
         if state.confirmed_detailed_state == next_state.confirmed_detailed_state:
-            # Same state: Update active event row duration and cycle count
-            update_res = await db.execute(
-                text(
-                    """
-                    UPDATE endpoint_events
-                    SET duration_seconds = EXTRACT(EPOCH FROM (:execution_time - start_time))::integer,
-                        monitoring_cycle_count = monitoring_cycle_count + 1,
-                        success_count = success_count + :success_count,
-                        failed_count = failed_count + :failed_count,
-                        avg_rtt_ms = :avg_rtt_ms,
-                        health_score = :health_score
-                    WHERE id = CAST(:active_event_id AS uuid) AND end_time IS NULL
-                    """
-                ),
-                {
-                    "execution_time": execution_time,
-                    "success_count": result.success_count,
-                    "failed_count": result.failed_count,
-                    "avg_rtt_ms": result.avg_rtt_ms,
-                    "health_score": result.health_score,
-                    "active_event_id": str(state.active_event_id),
-                },
-            )
-            # If for some reason no row was updated (e.g., active_event_id was closed or missing), insert a new open event
-            if update_res.rowcount == 0:
+            # Check duration of active event for 24-hour rollover (STAB-01 / DAT-02)
+            rollover = False
+            if state.active_event_id:
+                dur_res = await db.execute(
+                    text(
+                        """
+                        SELECT EXTRACT(EPOCH FROM (:execution_time - start_time))::integer AS dur
+                        FROM endpoint_events
+                        WHERE id = CAST(:active_event_id AS uuid) AND end_time IS NULL
+                        """
+                    ),
+                    {
+                        "execution_time": execution_time,
+                        "active_event_id": str(state.active_event_id),
+                    },
+                )
+                dur_row = dur_res.fetchone() if dur_res else None
+                dur_val = getattr(dur_row, "dur", None)
+                if dur_val is None and hasattr(dur_row, "__getitem__"):
+                    try:
+                        dur_val = dur_row["dur"]
+                    except Exception:
+                        pass
+                if isinstance(dur_val, (int, float)) and dur_val >= 86400:
+                    rollover = True
+
+            if rollover:
+                # Close active event exceeding 24 hours to prevent updates into compressed chunks
+                await db.execute(
+                    text(
+                        """
+                        UPDATE endpoint_events
+                        SET end_time = :execution_time,
+                            duration_seconds = EXTRACT(EPOCH FROM (:execution_time - start_time))::integer,
+                            monitoring_cycle_count = monitoring_cycle_count + 1,
+                            success_count = success_count + :success_count,
+                            failed_count = failed_count + :failed_count,
+                            avg_rtt_ms = :avg_rtt_ms,
+                            health_score = :health_score
+                        WHERE id = CAST(:active_event_id AS uuid) AND end_time IS NULL
+                        """
+                    ),
+                    {
+                        "execution_time": execution_time,
+                        "success_count": result.success_count,
+                        "failed_count": result.failed_count,
+                        "avg_rtt_ms": result.avg_rtt_ms,
+                        "health_score": result.health_score,
+                        "active_event_id": str(state.active_event_id),
+                    },
+                )
+                # Open a new continuous event marked is_split_event = true
                 row = (
                     await db.execute(
                         text(
@@ -481,7 +508,7 @@ class StateMachine:
                                 :failed_count,
                                 :health_score,
                                 :avg_rtt_ms,
-                                false,
+                                true,
                                 :start_time,
                                 NULL,
                                 0,
@@ -502,6 +529,78 @@ class StateMachine:
                     )
                 ).fetchone()
                 next_state.active_event_id = row.id
+            else:
+                # Same state: Update active event row duration and cycle count
+                update_res = await db.execute(
+                    text(
+                        """
+                        UPDATE endpoint_events
+                        SET duration_seconds = EXTRACT(EPOCH FROM (:execution_time - start_time))::integer,
+                            monitoring_cycle_count = monitoring_cycle_count + 1,
+                            success_count = success_count + :success_count,
+                            failed_count = failed_count + :failed_count,
+                            avg_rtt_ms = :avg_rtt_ms,
+                            health_score = :health_score
+                        WHERE id = CAST(:active_event_id AS uuid) AND end_time IS NULL
+                        """
+                    ),
+                    {
+                        "execution_time": execution_time,
+                        "success_count": result.success_count,
+                        "failed_count": result.failed_count,
+                        "avg_rtt_ms": result.avg_rtt_ms,
+                        "health_score": result.health_score,
+                        "active_event_id": str(state.active_event_id),
+                    },
+                )
+                # If for some reason no row was updated (e.g., active_event_id was closed or missing), insert a new open event
+                if update_res.rowcount == 0:
+                    row = (
+                        await db.execute(
+                            text(
+                                """
+                                INSERT INTO endpoint_events (
+                                    endpoint_id,
+                                    operational_state,
+                                    detailed_state,
+                                    success_count,
+                                    failed_count,
+                                    health_score,
+                                    avg_rtt_ms,
+                                    is_split_event,
+                                    start_time,
+                                    end_time,
+                                    duration_seconds,
+                                    monitoring_cycle_count
+                                ) VALUES (
+                                    CAST(:endpoint_id AS uuid),
+                                    :operational_state,
+                                    :detailed_state,
+                                    :success_count,
+                                    :failed_count,
+                                    :health_score,
+                                    :avg_rtt_ms,
+                                    false,
+                                    :start_time,
+                                    NULL,
+                                    0,
+                                    1
+                                ) RETURNING id
+                                """
+                            ),
+                            {
+                                "endpoint_id": str(state.endpoint_id),
+                                "operational_state": next_state.confirmed_operational_state,
+                                "detailed_state": next_state.confirmed_detailed_state,
+                                "success_count": result.success_count,
+                                "failed_count": result.failed_count,
+                                "health_score": result.health_score,
+                                "avg_rtt_ms": result.avg_rtt_ms,
+                                "start_time": execution_time,
+                            },
+                        )
+                    ).fetchone()
+                    next_state.active_event_id = row.id
         else:
             # State change confirmed: Close previous open event
             await db.execute(

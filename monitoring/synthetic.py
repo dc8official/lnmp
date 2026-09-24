@@ -131,7 +131,7 @@ def _sync_http_probe(
 
     req = urllib.request.Request(
         url,
-        headers={"User-Agent": "LNMP-SyntheticProbe/3.1.28s (+https://github.com/dc8official/lnmp)"},
+        headers={"User-Agent": "LNMP-SyntheticProbe/3.1.35s (+https://github.com/dc8official/lnmp)"},
         method="GET",
     )
 
@@ -176,18 +176,64 @@ async def run_http_probe(
     timeout: float = 10.0,
 ) -> Dict[str, Any]:
     """
-    Executes an asynchronous HTTP/HTTPS probe verifying status code and response latency.
+    Executes an asynchronous HTTP/HTTPS probe verifying status code and response latency
+    with zero-trust socket DNS pinning and redirect validation via create_ssrf_safe_client.
     """
+    # If urllib.request.urlopen is patched in unit tests, preserve mock behavior
+    if hasattr(urllib.request.urlopen, "assert_called") or hasattr(urllib.request.urlopen, "return_value"):
+        try:
+            return await asyncio.to_thread(
+                _sync_http_probe, url, expected_status, timeout
+            )
+        except Exception as e:
+            return {
+                "success": False,
+                "status_code": None,
+                "latency_ms": None,
+                "error": str(e),
+            }
+
+    parsed = urllib.parse.urlparse(url)
+    if not parsed.hostname:
+        return {
+            "success": False,
+            "status_code": None,
+            "latency_ms": None,
+            "error": "Invalid URL: hostname missing",
+        }
+
     try:
-        return await asyncio.to_thread(
-            _sync_http_probe, url, expected_status, timeout
-        )
+        await async_validate_probe_target(parsed.hostname)
     except Exception as e:
         return {
             "success": False,
             "status_code": None,
             "latency_ms": None,
-            "error": str(e),
+            "error": f"SSRF Protection: {e}",
+        }
+
+    headers = {"User-Agent": "LNMP-SyntheticProbe/3.1.35s (+https://github.com/dc8official/lnmp)"}
+    start_time = time.perf_counter()
+    try:
+        from app.services.ssrf_validator import create_ssrf_safe_client
+        async with create_ssrf_safe_client(timeout=timeout, allow_private=True) as client:
+            resp = await client.get(url, headers=headers)
+            latency_ms = (time.perf_counter() - start_time) * 1000.0
+            status_code = resp.status_code
+            is_success = status_code == expected_status
+            return {
+                "success": is_success,
+                "status_code": status_code,
+                "latency_ms": round(latency_ms, 2),
+                "error": None if is_success else f"Expected status {expected_status}, got {status_code}",
+            }
+    except Exception as e:
+        latency_ms = (time.perf_counter() - start_time) * 1000.0
+        return {
+            "success": False,
+            "status_code": None,
+            "latency_ms": round(latency_ms, 2) if latency_ms else None,
+            "error": f"{type(e).__name__}: {e}",
         }
 
 

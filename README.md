@@ -1,4 +1,4 @@
-# LNMP: Network Monitoring Platform v3.1.28s
+# LNMP: Network Monitoring Platform v3.1.35s (Enterprise LTS)
 
 A high-precision, decoupled network telemetry and monitoring solution designed for continuous endpoint status verification, low-latency multi-protocol polling, adaptive statistical alerting, automated root-cause analysis (RCA), real-time Server-Sent Events (SSE), dual-driver storage acceleration, enterprise multi-channel notifications, and dynamic topology visualization with crossing-free layout routing.
 
@@ -107,13 +107,13 @@ cd lnmp/deploy
 ./install.sh
 ```
 
-### 2. Upgrading to v3.1.28s (Zero Historical Data Loss)
+### 2. Upgrading to v3.1.35s (Zero Historical Data Loss)
 
-To upgrade an existing installation to Version 3.1.28s:
+To upgrade an existing installation to Version 3.1.35s:
 
 ```bash
 cd ~/lnmp
-git pull origin v3.1.28s
+git pull origin v3.1.35s
 sudo ./deploy/upgrade.sh
 ```
 
