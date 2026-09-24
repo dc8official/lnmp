@@ -307,11 +307,9 @@ async def get_uptime_report(
     for ev in events:
         ev_start = ev.start_time
         ev_end = ev.end_time or now_utc
-        dur = max(0, int((min(end_dt, ev_end) - max(start_dt, ev_start)).total_seconds()))
-        if dur == 0 and getattr(ev, "duration_seconds", 0) > 0:
-            dur = ev.duration_seconds
-        elif dur == 0:
-            dur = 60
+        clamped_start = max(start_dt, ev_start)
+        clamped_end = min(end_dt, ev_end)
+        dur = max(0, int((clamped_end - clamped_start).total_seconds()))
         if ev.operational_state == "UP":
             uptime_seconds += dur
         else:
