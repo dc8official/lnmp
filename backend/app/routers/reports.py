@@ -19,7 +19,7 @@ from app.models.endpoint import Endpoint
 from app.models.endpoint_event import EndpointEvent
 from app.repositories.endpoint_repo import EndpointRepository
 from app.repositories.report_repo import ReportRepository
-from app.routers.auth import get_current_user
+from app.routers.auth import get_current_user, get_current_user_sse
 from app.schemas import (
     APIResponse,
     EventRecord,
@@ -664,7 +664,7 @@ telemetry_router = APIRouter(prefix="/api/v1/telemetry", tags=["telemetry"])
 @telemetry_router.post("/export/batch")
 async def batch_export_telemetry(
     request: BatchExportRequest,
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(get_current_user_sse),
 ):
     logger.info(
         "Starting batch telemetry CSV streaming export for %d endpoints",
