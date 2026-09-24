@@ -198,6 +198,7 @@ async def list_endpoints(
             now_utc=now_utc,
             up_events_count=row["up_events_count"],
             gap_intervals=gap_intervals,
+            uptime_seconds=row.get("uptime_seconds"),
         )
         data.append({
             "id": str(row["id"]),
@@ -262,6 +263,7 @@ async def get_endpoint(
         now_utc=now_utc,
         up_events_count=row["up_events_count"],
         gap_intervals=gap_intervals,
+        uptime_seconds=row.get("uptime_seconds"),
     )
 
     data = {

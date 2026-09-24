@@ -60,6 +60,25 @@ class SecuritySettings(BaseModel):
     max_active_sessions_per_user: int = Field(default=2, ge=1, le=10)
     hsts_enabled: bool = False
     secret_key: str = Field(default="dev-secret-key-change-in-production-min-32-chars")
+    jwt_secret: Optional[str] = None
+    crypto_key: Optional[str] = None
+    fallback_crypto_keys: List[str] = Field(default_factory=list)
+
+    @property
+    def effective_jwt_secret(self) -> str:
+        return self.jwt_secret or self.secret_key
+
+    @effective_jwt_secret.setter
+    def effective_jwt_secret(self, val: str) -> None:
+        self.jwt_secret = val
+
+    @property
+    def effective_crypto_key(self) -> str:
+        return self.crypto_key or self.secret_key
+
+    @effective_crypto_key.setter
+    def effective_crypto_key(self, val: str) -> None:
+        self.crypto_key = val
 
     model_config = ConfigDict(extra="ignore")
 
@@ -241,15 +260,33 @@ def load_settings() -> Settings:
     if secret_key:
         loaded.security.secret_key = secret_key
 
+    jwt_secret = os.environ.get("NETMON_JWT_SECRET")
+    if jwt_secret:
+        loaded.security.jwt_secret = jwt_secret
+
+    crypto_key = os.environ.get("NETMON_CRYPTO_KEY")
+    if crypto_key:
+        loaded.security.crypto_key = crypto_key
+
+    fallback_keys = os.environ.get("NETMON_FALLBACK_CRYPTO_KEYS")
+    if fallback_keys:
+        loaded.security.fallback_crypto_keys = [
+            k.strip() for k in fallback_keys.split(",") if k.strip()
+        ]
+
     env_val = os.environ.get("NETMON_ENV") or os.environ.get("ENVIRONMENT")
     if env_val:
         loaded.environment = env_val.strip().lower()
 
     # FIX-09 (SEC-02): Reject insecure default secret key in production / staging
     if loaded.environment.lower() not in ("development", "test"):
-        if loaded.security.secret_key == "dev-secret-key-change-in-production-min-32-chars":
+        if (
+            loaded.security.secret_key == "dev-secret-key-change-in-production-min-32-chars"
+            or loaded.security.effective_jwt_secret == "dev-secret-key-change-in-production-min-32-chars"
+            or loaded.security.effective_crypto_key == "dev-secret-key-change-in-production-min-32-chars"
+        ):
             raise ValueError(
-                "Insecure configuration: NETMON_SECRET_KEY must be changed from the default development secret in non-development environments."
+                "Insecure configuration: Secret keys must be changed from the default development secret in non-development environments."
             )
 
     # FIX-10 (SEC-04): Validate that allowed_origins does not contain "*" when allow_credentials=True

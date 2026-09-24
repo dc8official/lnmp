@@ -16,8 +16,8 @@ _SALT = b"lnmp-alert-crypto-salt-v1"
 _INFO = b"lnmp-aes-256-gcm-key-derivation"
 
 
-def _get_aes_key() -> bytes:
-    master_secret = settings.security.secret_key.encode("utf-8")
+def _derive_key(secret_str: str) -> bytes:
+    master_secret = secret_str.encode("utf-8")
     hkdf = HKDF(
         algorithm=hashes.SHA256(),
         length=32,
@@ -25,6 +25,10 @@ def _get_aes_key() -> bytes:
         info=_INFO,
     )
     return hkdf.derive(master_secret)
+
+
+def _get_aes_key() -> bytes:
+    return _derive_key(settings.security.effective_crypto_key)
 
 
 def encrypt_secret(plaintext: str) -> str:
@@ -55,6 +59,7 @@ def decrypt_secret(ciphertext: str) -> str:
     """
     Decrypts an AES-256-GCM encrypted payload.
     Falls back to plaintext for unencrypted strings (backward compatibility).
+    Supports key rotation across effective_crypto_key and fallback_crypto_keys.
     Raises DecryptionError if an encrypted payload cannot be decrypted.
     """
     if not ciphertext:
@@ -69,12 +74,27 @@ def decrypt_secret(ciphertext: str) -> str:
     try:
         nonce = base64.b64decode(parts[2])
         raw_ct = base64.b64decode(parts[3])
-        key = _get_aes_key()
-        aesgcm = AESGCM(key)
-        decrypted = aesgcm.decrypt(nonce, raw_ct, None)
-        return decrypted.decode("utf-8")
     except Exception as exc:
-        raise DecryptionError(f"Failed to decrypt secret payload: {exc}") from exc
+        raise DecryptionError(f"Malformed base64 in encrypted secret: {exc}") from exc
+
+    # Candidate keys for decryption (effective key first, then fallback keys)
+    candidate_keys = [settings.security.effective_crypto_key]
+    for fb in settings.security.fallback_crypto_keys:
+        if fb and fb not in candidate_keys:
+            candidate_keys.append(fb)
+
+    last_exc = None
+    for key_str in candidate_keys:
+        try:
+            key = _derive_key(key_str)
+            aesgcm = AESGCM(key)
+            decrypted = aesgcm.decrypt(nonce, raw_ct, None)
+            return decrypted.decode("utf-8")
+        except Exception as exc:
+            last_exc = exc
+            continue
+
+    raise DecryptionError(f"Failed to decrypt secret payload: {last_exc}") from last_exc
 
 
 def mask_secret(secret: str) -> str:

@@ -32,6 +32,8 @@ The platform is decoupled into independent, modular layers to guarantee continuo
 
 For comprehensive guides, references, and operational procedures, refer to the `docs/` directory:
 
+* **[v3.2.0 Release Notes](docs/release-notes/v3.2.0.md):** Major release highlights, new features, and upgrade instructions for v3.2.0.
+* **[v3.2 Hybrid Active/Passive Architecture Guide](docs/architecture/v3.2-hybrid-active-passive.md):** Architectural breakdown of active synthetic polling integrated with line-rate NetFlow/IPFIX flow ingestion.
 * **[Changelog & Technical Evolution](docs/changelog.md):** Complete release notes and evolutionary milestones from Version 1.0 to Version 3.2.0.
 * **[Network Flow Configuration & Telemetry Guide](docs/netflow-guide.md):** Production runbook for NetFlow v5/v9 and IPFIX collector setup, exporter vendor configuration templates (Cisco, Juniper, Mikrotik, Linux `fprobe`, pfSense/OPNsense), timeout standards, and UI alias mapping.
 * **[Architecture Deep-Dive](docs/architecture.md):** In-depth analysis of the Repository Layer, Dual-Driver Storage, Concurrency Sweeper, Network Flow Telemetry Pipeline (`netmon-flowd`), and Topology DAG.

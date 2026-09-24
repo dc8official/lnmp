@@ -250,7 +250,7 @@ def create_access_token(
     }
     return jwt.encode(
         payload,
-        settings.security.secret_key,
+        settings.security.effective_jwt_secret,
         algorithm=ALGORITHM,
     )
 
@@ -259,7 +259,7 @@ def decode_access_token(token: str) -> Optional[dict]:
     try:
         return jwt.decode(
             token,
-            settings.security.secret_key,
+            settings.security.effective_jwt_secret,
             algorithms=[ALGORITHM],
         )
     except JWTError:

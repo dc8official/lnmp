@@ -367,6 +367,33 @@ async def update_settings(
 
 
 async def _run_redis_flow_check() -> FlowPreflightResponse:
+    import socket
+
+    # 1. Linux Kernel Socket Receive Buffer (rmem_max) check
+    rmem_val = None
+    rmem_ok = True
+    try:
+        if os.path.exists("/proc/sys/net/core/rmem_max"):
+            with open("/proc/sys/net/core/rmem_max", "r") as f:
+                rmem_val = int(f.read().strip())
+                rmem_ok = rmem_val >= 2097152
+    except Exception as e:
+        logger.debug("Could not inspect /proc/sys/net/core/rmem_max: %s", e)
+
+    # 2. UDP Ports bind availability check
+    netflow_p = getattr(app_cfg.flow, "netflow_port", 2055)
+    ipfix_p = getattr(app_cfg.flow, "ipfix_port", 4739)
+    port_conflicts = []
+    for p in (netflow_p, ipfix_p):
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            s.bind(("0.0.0.0", p))
+            s.close()
+        except OSError:
+            port_conflicts.append(p)
+    udp_ports_ok = len(port_conflicts) == 0
+
     r_host = getattr(app_cfg.redis, "host", "127.0.0.1")
     r_port = getattr(app_cfg.redis, "port", 6379)
     r_db = getattr(app_cfg.redis, "db", 0)
@@ -405,22 +432,31 @@ async def _run_redis_flow_check() -> FlowPreflightResponse:
 
         await client.aclose()
 
-        ready = version_supported and stream_ok
-        msg = (
-            f"Redis v{redis_version} ready with Stream support."
-            if ready
-            else (
-                f"Redis v{redis_version} detected, but Redis 6.0+ is required."
-                if not version_supported
-                else "Redis stream capabilities failed."
-            )
-        )
+        ready = version_supported and stream_ok and udp_ports_ok
+        diag_parts = []
+        if ready:
+            diag_parts.append(f"Redis v{redis_version} ready with Stream support.")
+        elif not version_supported:
+            diag_parts.append(f"Redis v{redis_version} detected, but Redis 6.0+ is required.")
+        elif not stream_ok:
+            diag_parts.append("Redis stream capabilities failed.")
+
+        if not rmem_ok and rmem_val is not None:
+            diag_parts.append(f"Kernel rmem_max ({rmem_val} B) is below recommended 2MB (2097152 B).")
+        if not udp_ports_ok:
+            diag_parts.append(f"UDP port conflict on port(s): {port_conflicts}.")
+
+        msg = " ".join(diag_parts) if diag_parts else "Flow preflight passed successfully."
 
         return FlowPreflightResponse(
             redis_connected=True,
             redis_version=redis_version,
             redis_version_supported=version_supported,
             stream_write_success=stream_ok,
+            rmem_max=rmem_val,
+            rmem_max_supported=rmem_ok,
+            udp_ports_available=udp_ports_ok,
+            port_conflicts=port_conflicts,
             ready=ready,
             message=msg,
         )
@@ -430,6 +466,10 @@ async def _run_redis_flow_check() -> FlowPreflightResponse:
             redis_version=None,
             redis_version_supported=False,
             stream_write_success=False,
+            rmem_max=rmem_val,
+            rmem_max_supported=rmem_ok,
+            udp_ports_available=udp_ports_ok,
+            port_conflicts=port_conflicts,
             ready=False,
             message=f"Redis connection failed: {exc}",
         )

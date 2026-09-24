@@ -4,8 +4,10 @@ import asyncio
 import logging
 import time
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from sqlalchemy import text
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.config import settings
@@ -209,3 +211,56 @@ async def get_version():
 @app.get("/api/v1/health", tags=["system"])
 async def health_check():
     return APIResponse.success(data={"status": "ok", "version": "3.2.0"})
+
+
+@app.get("/health/liveness", tags=["system"])
+@app.get("/api/v1/health/liveness", tags=["system"])
+async def health_liveness():
+    return {"status": "ok", "process": "healthy", "version": "3.2.0"}
+
+
+@app.get("/health/readiness", tags=["system"])
+@app.get("/api/v1/health/readiness", tags=["system"])
+async def health_readiness():
+    db_ok = True
+    db_err = None
+    try:
+        async with AsyncSessionLocal() as session:
+            await session.execute(text("SELECT 1"))
+    except Exception as exc:
+        db_ok = False
+        db_err = str(exc)
+
+    redis_ok = True
+    redis_err = None
+    if settings.redis.enabled:
+        try:
+            client = driver_manager.get_redis_client()
+            if client is not None:
+                await client.ping()
+            else:
+                redis_ok = False
+                redis_err = "Redis client not initialized"
+        except Exception as exc:
+            redis_ok = False
+            redis_err = str(exc)
+
+    is_ready = db_ok and (not settings.redis.enabled or redis_ok)
+    status_code = (
+        status.HTTP_200_OK if is_ready else status.HTTP_503_SERVICE_UNAVAILABLE
+    )
+
+    return JSONResponse(
+        status_code=status_code,
+        content={
+            "status": "ready" if is_ready else "degraded",
+            "ready": is_ready,
+            "database": {"status": "ok" if db_ok else "error", "error": db_err},
+            "redis": {
+                "status": "ok" if (not settings.redis.enabled or redis_ok) else "error",
+                "enabled": settings.redis.enabled,
+                "error": redis_err,
+            },
+            "version": "3.2.0",
+        },
+    )

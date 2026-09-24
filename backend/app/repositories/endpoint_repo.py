@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import Any, Optional, Sequence
 from uuid import UUID
 
-from sqlalchemy import func, select, update as sa_update
+from sqlalchemy import func, or_, select, update as sa_update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.diagnostic_trace import EndpointDiagnosticTrace
@@ -77,14 +77,19 @@ class EndpointRepository(BaseRepository[Endpoint]):
             .subquery("latest_events")
         )
 
+        clamped_start = func.greatest(EndpointEvent.start_time, since_utc)
+        clamped_end = func.least(func.coalesce(EndpointEvent.end_time, now_utc), now_utc)
+        duration_expr = func.greatest(0, func.extract("epoch", clamped_end - clamped_start))
+
         up_counts_sub = (
             select(
                 EndpointEvent.endpoint_id,
                 func.count().label("up_events_count"),
+                func.coalesce(func.sum(duration_expr), 0).label("uptime_seconds"),
             )
             .where(
-                EndpointEvent.start_time >= since_utc,
-                EndpointEvent.start_time <= now_utc,
+                EndpointEvent.start_time < now_utc,
+                or_(EndpointEvent.end_time.is_(None), EndpointEvent.end_time > since_utc),
                 EndpointEvent.operational_state == "UP",
             )
             .group_by(EndpointEvent.endpoint_id)
@@ -107,6 +112,9 @@ class EndpointRepository(BaseRepository[Endpoint]):
                 latest_event_sub.c.last_seen,
                 func.coalesce(up_counts_sub.c.up_events_count, 0).label(
                     "up_events_count"
+                ),
+                func.coalesce(up_counts_sub.c.uptime_seconds, 0).label(
+                    "uptime_seconds"
                 ),
             )
             .outerjoin(
@@ -155,6 +163,7 @@ class EndpointRepository(BaseRepository[Endpoint]):
                 "current_health_score": float(row.current_health_score),
                 "avg_rtt_ms": float(row.avg_rtt_ms) if row.avg_rtt_ms is not None else None,
                 "last_seen": row.last_seen,
+                "uptime_seconds": int(row.uptime_seconds),
                 "up_events_count": int(row.up_events_count),
             })
         return data
@@ -181,13 +190,28 @@ class EndpointRepository(BaseRepository[Endpoint]):
             .subquery("latest_event")
         )
 
+        clamped_start = func.greatest(EndpointEvent.start_time, since_utc)
+        clamped_end = func.least(func.coalesce(EndpointEvent.end_time, now_utc), now_utc)
+        duration_expr = func.greatest(0, func.extract("epoch", clamped_end - clamped_start))
+
         up_count_sub = (
             select(func.count().label("up_events_count"))
             .where(
                 EndpointEvent.endpoint_id == endpoint_id,
-                EndpointEvent.start_time >= since_utc,
-                EndpointEvent.start_time <= now_utc,
                 EndpointEvent.operational_state == "UP",
+                EndpointEvent.start_time < now_utc,
+                or_(EndpointEvent.end_time.is_(None), EndpointEvent.end_time > since_utc),
+            )
+            .scalar_subquery()
+        )
+
+        up_seconds_sub = (
+            select(func.coalesce(func.sum(duration_expr), 0).label("uptime_seconds"))
+            .where(
+                EndpointEvent.endpoint_id == endpoint_id,
+                EndpointEvent.operational_state == "UP",
+                EndpointEvent.start_time < now_utc,
+                or_(EndpointEvent.end_time.is_(None), EndpointEvent.end_time > since_utc),
             )
             .scalar_subquery()
         )
@@ -207,6 +231,7 @@ class EndpointRepository(BaseRepository[Endpoint]):
                 latest_event_sub.c.avg_rtt_ms,
                 latest_event_sub.c.last_seen,
                 func.coalesce(up_count_sub, 0).label("up_events_count"),
+                func.coalesce(up_seconds_sub, 0).label("uptime_seconds"),
             )
             .outerjoin(
                 latest_event_sub,
@@ -247,6 +272,7 @@ class EndpointRepository(BaseRepository[Endpoint]):
             "current_health_score": float(row.current_health_score),
             "avg_rtt_ms": float(row.avg_rtt_ms) if row.avg_rtt_ms is not None else None,
             "last_seen": row.last_seen,
+            "uptime_seconds": int(row.uptime_seconds),
             "up_events_count": int(row.up_events_count),
         }
 

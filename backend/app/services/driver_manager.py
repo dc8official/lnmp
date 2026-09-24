@@ -151,6 +151,9 @@ class StorageDriverManager:
     def driver_mode(self) -> str:
         return self._driver_mode
 
+    def get_redis_client(self):
+        return self._redis_client
+
 
 # Global storage driver manager singleton
 driver_manager = StorageDriverManager()

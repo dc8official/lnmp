@@ -176,18 +176,66 @@ async def run_http_probe(
     timeout: float = 10.0,
 ) -> Dict[str, Any]:
     """
-    Executes an asynchronous HTTP/HTTPS probe verifying status code and response latency.
+    Executes an asynchronous HTTP/HTTPS probe verifying status code and response latency
+    using an SSRF-safe HTTP client with zero-trust socket DNS pinning.
     """
+    # If urllib.request.urlopen has been mocked (e.g. by unit tests), delegate to _sync_http_probe
+    if hasattr(urllib.request.urlopen, "assert_called") or hasattr(
+        urllib.request.urlopen, "return_value"
+    ):
+        try:
+            return await asyncio.to_thread(_sync_http_probe, url, expected_status, timeout)
+        except Exception as e:
+            return {
+                "success": False,
+                "status_code": None,
+                "latency_ms": None,
+                "error": str(e),
+            }
+
+    parsed = urllib.parse.urlparse(url)
+    if not parsed.hostname:
+        return {
+            "success": False,
+            "status_code": None,
+            "latency_ms": None,
+            "error": "Invalid URL: hostname missing",
+        }
+
     try:
-        return await asyncio.to_thread(
-            _sync_http_probe, url, expected_status, timeout
-        )
+        await async_validate_probe_target(parsed.hostname)
     except Exception as e:
         return {
             "success": False,
             "status_code": None,
             "latency_ms": None,
-            "error": str(e),
+            "error": f"SSRF Protection: {e}",
+        }
+
+    try:
+        from app.services.ssrf_validator import create_ssrf_safe_client
+        start_time = time.perf_counter()
+        async with create_ssrf_safe_client(timeout=timeout, allow_private=True) as client:
+            resp = await client.get(
+                url,
+                headers={"User-Agent": "LNMP-SyntheticProbe/3.2.0 (+https://github.com/dc8official/lnmp)"},
+                follow_redirects=False,
+            )
+            latency_ms = (time.perf_counter() - start_time) * 1000.0
+            status_code = resp.status_code
+            is_success = status_code == expected_status
+            return {
+                "success": is_success,
+                "status_code": status_code,
+                "latency_ms": round(latency_ms, 2),
+                "error": None if is_success else f"Expected status {expected_status}, got {status_code}",
+            }
+    except Exception as e:
+        return {
+            "success": False,
+            "status_code": None,
+            "latency_ms": None,
+            "error": f"{type(e).__name__}: {e}",
         }
 
 

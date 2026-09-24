@@ -657,3 +657,179 @@ async def test_top_talkers_with_endpoint_id_filter():
     found_filter = any("src_endpoint_id = :src_endpoint_id" in q or "dst_endpoint_id = :dst_endpoint_id" in q for q in queries)
     assert found_filter, f"Endpoint ID filter not found in queries: {queries}"
 
+
+@pytest.mark.anyio
+async def test_decoupled_secret_keys_and_rotation():
+    """
+    STAB-09 / SEC-04: Verifies secret key decoupling in SecuritySettings
+    and seamless decrypt fallback for key rotation in crypto_service.
+    """
+    from app.config import SecuritySettings
+    from app.services.crypto_service import encrypt_secret, decrypt_secret
+    from unittest.mock import patch
+
+    sec = SecuritySettings(
+        secret_key="base-secret-key-12345678901234567890",
+        jwt_secret=None,
+        crypto_key=None,
+    )
+    assert sec.effective_jwt_secret == "base-secret-key-12345678901234567890"
+    assert sec.effective_crypto_key == "base-secret-key-12345678901234567890"
+
+    sec.jwt_secret = "custom-jwt-secret-098765432109876"
+    sec.crypto_key = "custom-crypto-secret-abcdefghijklm"
+    assert sec.effective_jwt_secret == "custom-jwt-secret-098765432109876"
+    assert sec.effective_crypto_key == "custom-crypto-secret-abcdefghijklm"
+
+    # Test key rotation: Encrypt with old key, decrypt with new primary key + fallback key
+    from app.config import settings
+    old_key = "old-production-crypto-key-123456789"
+    new_key = "new-rotated-crypto-key-98765432100"
+
+    with patch.object(settings.security, "crypto_key", old_key):
+        with patch.object(settings.security, "fallback_crypto_keys", []):
+            enc = encrypt_secret("my-super-secret-webhook-token")
+            assert enc.startswith("ENC:v1:")
+
+    # Attempt decrypt with new primary key without fallback -> should fail
+    with patch.object(settings.security, "crypto_key", new_key):
+        with patch.object(settings.security, "fallback_crypto_keys", []):
+            with pytest.raises(Exception):
+                decrypt_secret(enc)
+
+    # Attempt decrypt with new primary key + fallback key -> should succeed
+    with patch.object(settings.security, "crypto_key", new_key):
+        with patch.object(settings.security, "fallback_crypto_keys", [old_key]):
+            decrypted = decrypt_secret(enc)
+            assert decrypted == "my-super-secret-webhook-token"
+
+
+@pytest.mark.anyio
+async def test_redis_session_store_distributed_lockout():
+    """
+    SEC-03: Verifies RedisSessionStore distributed account lockout recording,
+    checking, and clearing.
+    """
+    from app.services.session_store import RedisSessionStore
+
+    mock_redis = AsyncMock()
+    store = RedisSessionStore(mock_redis)
+
+    # 1. Record attempt - under threshold
+    mock_redis.incr.return_value = 1
+    await store.record_failed_attempt("192.168.1.100", "admin", max_attempts=5, lockout_seconds=900)
+    mock_redis.incr.assert_called_with("auth:failed:192.168.1.100:admin")
+    mock_redis.expire.assert_called_with("auth:failed:192.168.1.100:admin", 1800)
+    mock_redis.set.assert_not_called()
+
+    # 2. Record attempt - at threshold (5)
+    mock_redis.incr.return_value = 5
+    await store.record_failed_attempt("192.168.1.100", "admin", max_attempts=5, lockout_seconds=900)
+    mock_redis.set.assert_called_with("auth:locked:192.168.1.100:admin", "1", ex=900)
+
+    # 3. Check lockout
+    mock_redis.exists.return_value = 1
+    assert await store.is_account_locked("192.168.1.100", "admin") is True
+
+    mock_redis.exists.return_value = 0
+    assert await store.is_account_locked("192.168.1.100", "admin") is False
+
+    # 4. Clear lockout
+    await store.clear_failed_attempts("192.168.1.100", "admin")
+    mock_redis.delete.assert_called_with(
+        "auth:failed:192.168.1.100:admin", "auth:locked:192.168.1.100:admin"
+    )
+
+
+@pytest.mark.anyio
+async def test_redis_event_broker_streams():
+    """
+    STAB-06 / ARCH-01: Verifies RedisEventBroker writes to both Pub/Sub and
+    Redis Streams (xadd).
+    """
+    from app.services.event_broker import RedisEventBroker
+
+    mock_redis = AsyncMock()
+    broker = RedisEventBroker(mock_redis)
+
+    payload = {"event": "INCIDENT_TRIGGERED", "endpoint_id": str(uuid4())}
+    await broker.publish("lnmp:events", payload)
+
+    mock_redis.publish.assert_called_once()
+    mock_redis.xadd.assert_called_once()
+    call_args = mock_redis.xadd.call_args
+    assert call_args[0][0] == "stream:lnmp:events"
+    assert "payload" in call_args[0][1]
+
+
+def test_multi_process_engine_partitioning():
+    """
+    PERF-01 / STAB-07: Verifies that multi-process engine partitions endpoints
+    evenly and deterministically by UUID bytes without overlap.
+    """
+    import os
+    from uuid import uuid4
+
+    endpoints = [MagicMock(id=uuid4()) for _ in range(100)]
+    num_workers = 3
+
+    worker_0_assigned = [
+        ep for ep in endpoints
+        if (int.from_bytes(ep.id.bytes[:4], "big") % num_workers) == 0
+    ]
+    worker_1_assigned = [
+        ep for ep in endpoints
+        if (int.from_bytes(ep.id.bytes[:4], "big") % num_workers) == 1
+    ]
+    worker_2_assigned = [
+        ep for ep in endpoints
+        if (int.from_bytes(ep.id.bytes[:4], "big") % num_workers) == 2
+    ]
+
+    # No overlap
+    set_0 = {ep.id for ep in worker_0_assigned}
+    set_1 = {ep.id for ep in worker_1_assigned}
+    set_2 = {ep.id for ep in worker_2_assigned}
+
+    assert set_0.isdisjoint(set_1)
+    assert set_0.isdisjoint(set_2)
+    assert set_1.isdisjoint(set_2)
+    assert len(set_0) + len(set_1) + len(set_2) == 100
+
+
+def test_deep_health_checks_liveness_and_readiness():
+    """
+    STAB-08 / OPS-01: Verifies /health/liveness and /health/readiness endpoints.
+    """
+    from app.main import app
+
+    client = TestClient(app)
+
+    # Liveness
+    resp = client.get("/health/liveness")
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "ok"
+    assert resp.json()["process"] == "healthy"
+
+    resp_v1 = client.get("/api/v1/health/liveness")
+    assert resp_v1.status_code == 200
+    assert resp_v1.json()["status"] == "ok"
+
+    # Readiness (with mocked db and redis)
+    with patch("app.main.AsyncSessionLocal") as mock_session_local:
+        mock_session = AsyncMock()
+        mock_session_local.return_value.__aenter__.return_value = mock_session
+        mock_session_local.return_value.__aexit__.return_value = None
+
+        with patch("app.services.driver_manager.driver_manager.get_redis_client") as mock_get_redis:
+            mock_redis = AsyncMock()
+            mock_get_redis.return_value = mock_redis
+
+            resp_ready = client.get("/health/readiness")
+            assert resp_ready.status_code == 200
+            data = resp_ready.json()
+            assert data["status"] == "ready"
+            assert data["ready"] is True
+            assert data["database"]["status"] == "ok"
+
+

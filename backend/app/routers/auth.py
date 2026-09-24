@@ -57,7 +57,16 @@ async def login(
     db: AsyncSession = Depends(get_db),
 ):
     client_ip = get_client_ip(http_request)
-    if is_account_locked(client_ip, payload.username):
+    store = driver_manager.get_session_store()
+    is_locked = False
+    try:
+        is_locked = await store.is_account_locked(client_ip, payload.username)
+    except Exception:
+        pass
+    if not is_locked:
+        is_locked = is_account_locked(client_ip, payload.username)
+
+    if is_locked:
         raise HTTPException(
             status_code=403,
             detail="Account temporarily locked for 15 minutes due to multiple failed login attempts from this location.",
@@ -71,14 +80,26 @@ async def login(
 
     if not user or not is_active:
         record_failed_attempt(client_ip, payload.username)
+        try:
+            await store.record_failed_attempt(client_ip, payload.username)
+        except Exception:
+            pass
         raise HTTPException(status_code=401, detail="Invalid username or password.")
 
     is_valid = await verify_password_async(payload.password, password_hash)
     if not is_valid:
         record_failed_attempt(client_ip, payload.username)
+        try:
+            await store.record_failed_attempt(client_ip, payload.username)
+        except Exception:
+            pass
         raise HTTPException(status_code=401, detail="Invalid username or password.")
 
     clear_failed_attempts(client_ip, payload.username)
+    try:
+        await store.clear_failed_attempts(client_ip, payload.username)
+    except Exception:
+        pass
 
     user_id = getattr(user, "id", None)
     username = getattr(user, "username", payload.username)

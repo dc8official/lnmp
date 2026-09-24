@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Dict, List, Optional
 from uuid import UUID
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class BandwidthOverview(BaseModel):
@@ -112,6 +112,10 @@ class FlowPreflightResponse(BaseModel):
     redis_version: Optional[str] = None
     redis_version_supported: bool
     stream_write_success: bool
+    rmem_max: Optional[int] = None
+    rmem_max_supported: bool = True
+    udp_ports_available: bool = True
+    port_conflicts: List[int] = Field(default_factory=list)
     ready: bool
     message: str
 

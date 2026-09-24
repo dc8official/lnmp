@@ -14,6 +14,17 @@
       </div>
 
       <div class="toolbar-right">
+        <!-- Auto-Refresh Interval Selector (UI-07) -->
+        <div class="auto-refresh-selector">
+          <label class="refresh-label">Refresh:</label>
+          <select v-model="autoRefreshInterval" @change="handleAutoRefreshChange" class="refresh-select">
+            <option value="0">Off</option>
+            <option value="15">15s</option>
+            <option value="30">30s</option>
+            <option value="60">60s</option>
+          </select>
+        </div>
+
         <!-- Window Filter Pills -->
         <div class="window-pills" role="group" aria-label="Time Window Selector">
           <button
@@ -39,36 +50,39 @@
       </div>
     </div>
 
-    <!-- Unmatched Exporter Discovery Banner -->
+    <!-- Unmatched Exporter Discovery Banner (BUG-05 Multi-IP Grid) -->
     <div
       v-if="unmatchedExporters.length > 0"
       class="unmatched-banner"
       role="alert"
       aria-live="polite"
     >
-      <div class="unmatched-icon">⚠</div>
-      <div class="unmatched-content">
+      <div class="unmatched-header-row">
+        <div class="unmatched-icon">⚠</div>
         <div class="unmatched-title">
-          Unmatched Exporter Discovery: {{ unmatchedExporters.length }} Unknown Router/Switch Detected
-        </div>
-        <div class="unmatched-desc">
-          Incoming NetFlow/IPFIX streams detected from unmonitored IP(s):
-          <span
-            v-for="u in unmatchedExporters"
-            :key="u.ip_address"
-            class="unmatched-ip-chip tnum"
-          >
-            {{ u.ip_address }}
-          </span>
+          Unmatched Flow Exporters: {{ unmatchedExporters.length }} Unknown Router/Switch Stream{{ unmatchedExporters.length > 1 ? 's' : '' }} Detected
         </div>
       </div>
-      <div class="unmatched-actions">
-        <button
-          class="btn-primary btn-small"
-          @click="openMappingModal(unmatchedExporters[0].ip_address)"
+      <div class="unmatched-grid">
+        <div 
+          v-for="u in unmatchedExporters" 
+          :key="u.ip_address"
+          class="unmatched-card"
         >
-          Link as Exporter Alias
-        </button>
+          <div class="unmatched-card-info">
+            <span class="unmatched-ip tnum font-mono">{{ u.ip_address }}</span>
+            <span class="unmatched-sub text-muted" v-if="u.flow_count">
+              {{ formatNumber(u.flow_count) }} flows
+            </span>
+          </div>
+          <button
+            class="btn-primary btn-small"
+            @click="openMappingModal(u.ip_address)"
+            :title="`Link ${u.ip_address} as endpoint alias`"
+          >
+            Link Exporter Alias →
+          </button>
+        </div>
       </div>
     </div>
 
@@ -196,9 +210,19 @@
 
     <!-- Full Width: Top Conversations Table -->
     <div class="table-card conversations-panel">
-      <div class="section-header">
-        <div class="section-title">Top Forensic Conversations (IP-to-IP Pairs)</div>
-        <span class="section-hint">Forensic tier granularity</span>
+      <div class="section-header section-header-split">
+        <div>
+          <div class="section-title">Top Forensic Conversations (IP-to-IP Pairs)</div>
+          <span class="section-hint">Forensic tier granularity</span>
+        </div>
+        <div class="conversation-filter-box">
+          <input 
+            v-model="conversationFilter" 
+            class="conversation-search-input" 
+            placeholder="Search IP, hostname, or port..." 
+            aria-label="Filter conversations"
+          />
+        </div>
       </div>
       <div class="table-responsive">
         <table class="dense-table" aria-label="Top Conversations Table">
@@ -213,7 +237,7 @@
             </tr>
           </thead>
           <tbody>
-            <tr v-for="(c, idx) in topConversations" :key="idx">
+            <tr v-for="(c, idx) in filteredConversations" :key="idx">
               <td>
                 <span class="tnum font-mono">{{ c.src_ip }}</span>
                 <span v-if="c.src_hostname" class="text-muted text-xs block">({{ c.src_hostname }})</span>
@@ -226,13 +250,17 @@
                 <span class="status-pill status-unknown">{{ c.protocol }}</span>
               </td>
               <td>
-                <span class="tnum font-mono">{{ c.dst_port }}</span>
+                <span class="service-port-badge" :class="getPortBadgeClass(c.dst_port)">
+                  {{ formatPortLabel(c.dst_port, c.protocol) }}
+                </span>
               </td>
               <td class="text-right tnum font-bold">{{ formatBytes(c.total_bytes) }}</td>
               <td class="text-right tnum text-muted">{{ formatNumber(c.flow_count) }}</td>
             </tr>
-            <tr v-if="topConversations.length === 0">
-              <td colspan="6" class="text-center text-muted">No conversations recorded in this window.</td>
+            <tr v-if="filteredConversations.length === 0">
+              <td colspan="6" class="text-center text-muted">
+                {{ topConversations.length === 0 ? 'No conversations recorded in this window.' : 'No conversations matching current search filter.' }}
+              </td>
             </tr>
           </tbody>
         </table>
@@ -291,7 +319,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, onUnmounted, computed } from 'vue'
 import { Line as LineChart, Doughnut as DoughnutChart } from 'vue-chartjs'
 import {
   Chart as ChartJS,
@@ -331,6 +359,25 @@ const windowOptions = ['1h', '6h', '24h', '7d', '30d']
 const selectedWindow = ref('1h')
 const loading = ref(false)
 
+// Auto-Refresh state (UI-07)
+const autoRefreshInterval = ref('0')
+let refreshTimer = null
+
+function handleAutoRefreshChange() {
+  if (refreshTimer) {
+    clearInterval(refreshTimer)
+    refreshTimer = null
+  }
+  const secs = parseInt(autoRefreshInterval.value, 10)
+  if (secs > 0) {
+    refreshTimer = setInterval(() => {
+      if (!loading.value) {
+        refreshData()
+      }
+    }, secs * 1000)
+  }
+}
+
 const overview = ref({
   total_ingress_bps: 0,
   total_egress_bps: 0,
@@ -346,6 +393,47 @@ const unmatchedExporters = ref([])
 const topEndpoints = ref([])
 const topConversations = ref([])
 const applicationStats = ref([])
+
+// Top conversations search filter (UI-09)
+const conversationFilter = ref('')
+const filteredConversations = computed(() => {
+  if (!conversationFilter.value.trim()) return topConversations.value
+  const q = conversationFilter.value.toLowerCase().trim()
+  return topConversations.value.filter((c) => {
+    return (
+      (c.src_ip && c.src_ip.toLowerCase().includes(q)) ||
+      (c.dst_ip && c.dst_ip.toLowerCase().includes(q)) ||
+      (c.src_hostname && c.src_hostname.toLowerCase().includes(q)) ||
+      (c.dst_hostname && c.dst_hostname.toLowerCase().includes(q)) ||
+      String(c.dst_port).includes(q) ||
+      (c.protocol && c.protocol.toLowerCase().includes(q))
+    )
+  })
+})
+
+function formatPortLabel(port, proto) {
+  const p = Number(port)
+  switch (p) {
+    case 443: return '443 / HTTPS'
+    case 80: return '80 / HTTP'
+    case 53: return '53 / DNS'
+    case 22: return '22 / SSH'
+    case 123: return '123 / NTP'
+    case 161: return '161 / SNMP'
+    case 2055: return '2055 / NetFlow'
+    case 4739: return '4739 / IPFIX'
+    default: return `${port}`
+  }
+}
+
+function getPortBadgeClass(port) {
+  const p = Number(port)
+  if (p === 443 || p === 80) return 'port-web'
+  if (p === 53) return 'port-dns'
+  if (p === 22) return 'port-ssh'
+  if (p === 2055 || p === 4739) return 'port-telemetry'
+  return 'port-generic'
+}
 
 // Mapping Modal
 const showMappingModal = ref(false)
@@ -388,35 +476,43 @@ const chartData = computed(() => {
   }
 })
 
-const chartOptions = {
-  responsive: true,
-  maintainAspectRatio: false,
-  scales: {
-    x: {
-      grid: { display: false },
-      ticks: { color: '#888888', font: { family: 'Inter', size: 11 } },
-    },
-    y: {
-      ticks: {
-        color: '#888888',
-        font: { family: 'JetBrains Mono', size: 11 },
-        callback: (val) => formatBps(val),
+// Dynamic theme-adaptive Chart.js options (UI-08)
+const chartOptions = computed(() => {
+  const isDark = typeof document !== 'undefined' && 
+    (document.documentElement.classList.contains('dark') || !document.documentElement.classList.contains('light'))
+  const textColor = isDark ? '#9ca3af' : '#4b5563'
+  const gridColor = isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.08)'
+
+  return {
+    responsive: true,
+    maintainAspectRatio: false,
+    scales: {
+      x: {
+        grid: { display: false },
+        ticks: { color: textColor, font: { family: 'Inter', size: 11 } },
       },
-      grid: { color: 'rgba(128, 128, 128, 0.1)' },
-    },
-  },
-  plugins: {
-    legend: {
-      position: 'top',
-      labels: { color: '#888888', font: { family: 'Inter', size: 12 } },
-    },
-    tooltip: {
-      callbacks: {
-        label: (ctx) => `${ctx.dataset.label}: ${formatBps(ctx.raw)}`,
+      y: {
+        ticks: {
+          color: textColor,
+          font: { family: 'JetBrains Mono', size: 11 },
+          callback: (val) => formatBps(val),
+        },
+        grid: { color: gridColor },
       },
     },
-  },
-}
+    plugins: {
+      legend: {
+        position: 'top',
+        labels: { color: textColor, font: { family: 'Inter', size: 12 } },
+      },
+      tooltip: {
+        callbacks: {
+          label: (ctx) => `${ctx.dataset.label}: ${formatBps(ctx.raw)}`,
+        },
+      },
+    },
+  }
+})
 
 const donutData = computed(() => {
   const labels = applicationStats.value.map((a) => a.service_label)
@@ -544,6 +640,13 @@ async function refreshData() {
 
 onMounted(() => {
   refreshData()
+})
+
+onUnmounted(() => {
+  if (refreshTimer) {
+    clearInterval(refreshTimer)
+    refreshTimer = null
+  }
 })
 </script>
 
@@ -811,5 +914,135 @@ html.dark .unmatched-banner {
 }
 .text-xs {
   font-size: 0.6875rem;
+}
+
+/* Auto-Refresh (UI-07) */
+.auto-refresh-selector {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.refresh-label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.refresh-select {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  color: var(--text-primary);
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  outline: none;
+  cursor: pointer;
+}
+
+/* Unmatched Exporter Grid (BUG-05) */
+.unmatched-header-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.unmatched-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 8px;
+  width: 100%;
+}
+
+.unmatched-card {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: var(--bg-surface);
+  padding: 8px 12px;
+  border-radius: 6px;
+  border: 1px solid var(--border-color);
+}
+
+.unmatched-card-info {
+  display: flex;
+  flex-direction: column;
+}
+
+.unmatched-ip {
+  font-weight: 700;
+  font-size: 0.85rem;
+  color: var(--text-primary);
+}
+
+.unmatched-sub {
+  font-size: 0.7rem;
+}
+
+/* Top Conversations Header & Search (UI-09) */
+.section-header-split {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.conversation-search-input {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  color: var(--text-primary);
+  padding: 5px 10px;
+  border-radius: 6px;
+  font-size: 0.8rem;
+  width: 220px;
+  outline: none;
+}
+
+.conversation-search-input:focus {
+  border-color: var(--accent, #3b82f6);
+}
+
+/* Service Port Badges (UI-09) */
+.service-port-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  font-family: var(--font-mono);
+  font-feature-settings: 'tnum';
+  font-weight: 600;
+}
+
+.port-web {
+  background: rgba(59, 130, 246, 0.12);
+  color: #3b82f6;
+  border: 1px solid rgba(59, 130, 246, 0.3);
+}
+
+.port-dns {
+  background: rgba(16, 185, 129, 0.12);
+  color: #10b981;
+  border: 1px solid rgba(16, 185, 129, 0.3);
+}
+
+.port-ssh {
+  background: rgba(245, 158, 11, 0.12);
+  color: #f59e0b;
+  border: 1px solid rgba(245, 158, 11, 0.3);
+}
+
+.port-telemetry {
+  background: rgba(139, 92, 246, 0.12);
+  color: #8b5cf6;
+  border: 1px solid rgba(139, 92, 246, 0.3);
+}
+
+.port-generic {
+  background: rgba(107, 114, 128, 0.12);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-color);
 }
 </style>

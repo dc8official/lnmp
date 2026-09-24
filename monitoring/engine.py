@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import random
 from datetime import datetime, timezone
 from uuid import UUID
@@ -246,10 +247,22 @@ async def main() -> None:
                 result = await db.execute(stmt)
                 active_endpoints = result.scalars().all()
 
-            db_active_map = {ep.id: ep for ep in active_endpoints}
+            # PERF-01 / STAB-07: Multi-process engine partitioning
+            worker_id = int(os.environ.get("NETMON_ENGINE_WORKER_ID", "0"))
+            num_workers = int(os.environ.get("NETMON_ENGINE_NUM_WORKERS", "1"))
+            if num_workers > 1:
+                assigned_endpoints = [
+                    ep
+                    for ep in active_endpoints
+                    if (int.from_bytes(ep.id.bytes[:4], "big") % num_workers) == worker_id
+                ]
+            else:
+                assigned_endpoints = list(active_endpoints)
+
+            db_active_map = {ep.id: ep for ep in assigned_endpoints}
 
             # Sync in-memory endpoint registry
-            for ep in active_endpoints:
+            for ep in assigned_endpoints:
                 def _spawn(target: MonitoredEndpoint):
                     return monitor_endpoint(
                         target.id,

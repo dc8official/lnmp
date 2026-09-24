@@ -41,6 +41,20 @@ class SessionStore(ABC):
     async def invalidate_all_user_sessions(self, user_id: str) -> None:
         pass
 
+    @abstractmethod
+    async def record_failed_attempt(
+        self, client_ip: str, username: str, max_attempts: int = 5, lockout_seconds: int = 900
+    ) -> None:
+        pass
+
+    @abstractmethod
+    async def is_account_locked(self, client_ip: str, username: str) -> bool:
+        pass
+
+    @abstractmethod
+    async def clear_failed_attempts(self, client_ip: str, username: str) -> None:
+        pass
+
 
 class PostgresSessionStore(SessionStore):
     """
@@ -180,6 +194,20 @@ class PostgresSessionStore(SessionStore):
                 await db.rollback()
                 logger.error("PostgresSessionStore.invalidate_all_user_sessions error: %s", e)
 
+    async def record_failed_attempt(
+        self, client_ip: str, username: str, max_attempts: int = 5, lockout_seconds: int = 900
+    ) -> None:
+        from app.services.auth_service import record_failed_attempt as sync_record
+        sync_record(client_ip, username)
+
+    async def is_account_locked(self, client_ip: str, username: str) -> bool:
+        from app.services.auth_service import is_account_locked as sync_is_locked
+        return sync_is_locked(client_ip, username)
+
+    async def clear_failed_attempts(self, client_ip: str, username: str) -> None:
+        from app.services.auth_service import clear_failed_attempts as sync_clear
+        sync_clear(client_ip, username)
+
 
 class RedisSessionStore(SessionStore):
     """
@@ -250,6 +278,40 @@ class RedisSessionStore(SessionStore):
         except Exception as e:
             logger.error("RedisSessionStore.invalidate_all_user_sessions error: %s", e)
             raise
+
+    def _get_lockout_keys(self, client_ip: str, username: str) -> tuple[str, str]:
+        ip = client_ip.strip() if client_ip else "127.0.0.1"
+        user = username.strip().lower() if username else ""
+        return f"auth:failed:{ip}:{user}", f"auth:locked:{ip}:{user}"
+
+    async def record_failed_attempt(
+        self, client_ip: str, username: str, max_attempts: int = 5, lockout_seconds: int = 900
+    ) -> None:
+        failed_key, locked_key = self._get_lockout_keys(client_ip, username)
+        try:
+            count = await self.redis.incr(failed_key)
+            if count == 1:
+                await self.redis.expire(failed_key, 1800)
+            if count >= max_attempts:
+                await self.redis.set(locked_key, "1", ex=lockout_seconds)
+        except Exception as e:
+            logger.error("RedisSessionStore.record_failed_attempt error: %s", e)
+
+    async def is_account_locked(self, client_ip: str, username: str) -> bool:
+        _, locked_key = self._get_lockout_keys(client_ip, username)
+        try:
+            res = await self.redis.exists(locked_key)
+            return bool(res)
+        except Exception as e:
+            logger.error("RedisSessionStore.is_account_locked error: %s", e)
+            return False
+
+    async def clear_failed_attempts(self, client_ip: str, username: str) -> None:
+        failed_key, locked_key = self._get_lockout_keys(client_ip, username)
+        try:
+            await self.redis.delete(failed_key, locked_key)
+        except Exception as e:
+            logger.error("RedisSessionStore.clear_failed_attempts error: %s", e)
 
 
 async def migrate_sessions_pg_to_redis(session_factory, redis_client) -> int:
