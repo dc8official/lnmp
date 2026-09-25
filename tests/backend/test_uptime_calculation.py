@@ -65,3 +65,28 @@ async def test_report_repo_get_uptime_events_boundary_overlap():
     query_str = str(mock_db.execute.call_args[0][0])
     assert "start_time <=" in query_str or "start_time <" in query_str
     assert "end_time IS NULL" in query_str or "end_time is null" in query_str.lower()
+
+
+@pytest.mark.anyio
+async def test_endpoint_repo_list_with_stats_no_ambiguous_columns():
+    """Verify list_with_stats query does not contain duplicate column aliases causing Ambiguous column name errors."""
+    from app.repositories.endpoint_repo import EndpointRepository
+    mock_db = AsyncMock()
+    repo = EndpointRepository(mock_db)
+
+    now = datetime.now(timezone.utc)
+    since = now - timedelta(hours=24)
+
+    mock_res = MagicMock()
+    mock_res.all.return_value = []
+    mock_db.execute.return_value = mock_res
+
+    rows = await repo.list_with_stats(since_utc=since, now_utc=now)
+    assert rows == []
+
+    # Verify query column labels in the select statement
+    stmt = mock_db.execute.call_args[0][0]
+    col_names = [c.name if hasattr(c, "name") else str(c) for c in stmt.selected_columns]
+    uptime_sec_count = col_names.count("uptime_seconds")
+    assert uptime_sec_count == 1, f"Expected 1 'uptime_seconds' column, got {uptime_sec_count}"
+
