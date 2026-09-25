@@ -67,8 +67,15 @@ class FlowCorrelator:
     async def _async_record_redis_unmatched(self, ip: str, timestamp: float) -> None:
         try:
             key = f"flow:unmatched:{ip}"
-            await self.redis.set(key, str(timestamp), ex=900)  # 15 min TTL
+            await self.redis.set(key, str(timestamp), ex=900)
             await self.redis.sadd("flow:unmatched:set", ip)
+            # Track in Redis ZSET with sliding-window 24h prune (Defect D4 / D12)
+            await self.redis.zadd("flow:unmatched:zset", {ip: timestamp})
+            cutoff = timestamp - 86400.0
+            await self.redis.zremrangebyscore("flow:unmatched:zset", "-inf", cutoff)
+            card = await self.redis.zcard("flow:unmatched:zset")
+            if card > 1000:
+                await self.redis.zremrangebyrank("flow:unmatched:zset", 0, card - 1001)
         except Exception as e:
             logger.debug("Failed to record unmatched exporter in Redis: %s", e)
 

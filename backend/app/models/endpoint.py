@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Optional
+from typing import Any, Optional
 from uuid import UUID, uuid4
 
 from sqlalchemy import Boolean, DateTime, ForeignKey, String, Text, func
@@ -92,10 +92,16 @@ class Endpoint(Base):
         server_default="{}",
         nullable=False,
     )
-    flow_interface_aliases: Mapped[dict[str, str]] = mapped_column(
+    flow_interface_aliases: Mapped[dict[str, Any]] = mapped_column(
         JSONB,
         default=dict,
         server_default="{}",
+        nullable=False,
+    )
+    device_role: Mapped[str] = mapped_column(
+        String(30),
+        default="ACTIVE_HOST",
+        server_default="ACTIVE_HOST",
         nullable=False,
     )
     manual_parent_id: Mapped[Optional[UUID]] = mapped_column(

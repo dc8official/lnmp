@@ -79,6 +79,7 @@ class FleetEndpointSummary(BaseModel):
     uptime_seconds: int
     downtime_seconds: int
     total_seconds: int
+    device_role: Optional[str] = "ACTIVE_HOST"
 
     model_config = ConfigDict(from_attributes=True)
 

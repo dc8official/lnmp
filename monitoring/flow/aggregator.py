@@ -6,7 +6,7 @@ import datetime
 import ipaddress
 import logging
 import time
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 from uuid import UUID
 
 from sqlalchemy import text
@@ -51,7 +51,15 @@ class FlowAggregator:
         self._accumulator: Dict[
             Tuple[datetime.datetime, UUID, Optional[UUID], Optional[UUID], str, str, int, int],
             List[int],
-        ] = collections.defaultdict(lambda: [0, 0, 0]) if "collections" in globals() else {}
+        ] = collections.defaultdict(lambda: [0, 0, 0])
+
+        # (bucket, exporter_id, interface_idx) -> [in_bytes, out_bytes, in_packets, out_packets, flow_count]
+        self._interface_accumulator: Dict[
+            Tuple[datetime.datetime, UUID, int],
+            List[int],
+        ] = collections.defaultdict(lambda: [0, 0, 0, 0, 0])
+
+        self._active_interfaces_set: Set[Tuple[UUID, int]] = set()
         self._pending_msg_ids: List[str] = []
         self._flush_lock = asyncio.Lock()
 
@@ -88,6 +96,57 @@ class FlowAggregator:
             pass
         return True
 
+    def accumulate_interface_flow(
+        self,
+        bucket: datetime.datetime,
+        exporter_id: UUID,
+        in_if: int,
+        out_if: int,
+        flow_bytes: int,
+        flow_packets: int,
+    ) -> None:
+        """
+        Accumulates per-interface telemetry with single-direction attribution:
+        - in_bytes and in_packets credited strictly to in_if (when in_if > 0)
+        - out_bytes and out_packets credited strictly to out_if (when out_if > 0)
+        - flow_count incremented on in_if, and also on out_if when out_if > 0 and out_if != in_if
+        - Strictly excludes SENTINEL_UUID
+        """
+        if exporter_id is None or exporter_id == SENTINEL_UUID:
+            return
+
+        # Ingress attribution
+        if 0 < in_if <= 2147483647:
+            key_in = (bucket, exporter_id, in_if)
+            if key_in not in self._interface_accumulator:
+                self._interface_accumulator[key_in] = [flow_bytes, 0, flow_packets, 0, 1]
+            else:
+                entry = self._interface_accumulator[key_in]
+                entry[0] += flow_bytes
+                entry[2] += flow_packets
+                entry[4] += 1
+            self._active_interfaces_set.add((exporter_id, in_if))
+
+        # Egress attribution
+        if 0 < out_if <= 2147483647:
+            key_out = (bucket, exporter_id, out_if)
+            is_diff = (out_if != in_if)
+            if key_out not in self._interface_accumulator:
+                self._interface_accumulator[key_out] = [
+                    0,
+                    flow_bytes,
+                    0,
+                    flow_packets,
+                    1 if is_diff else 0,
+                ]
+            else:
+                entry = self._interface_accumulator[key_out]
+                entry[1] += flow_bytes
+                entry[3] += flow_packets
+                if is_diff:
+                    entry[4] += 1
+            self._active_interfaces_set.add((exporter_id, out_if))
+
     def accumulate_flow(
         self,
         exporter_ip: str,
@@ -99,6 +158,8 @@ class FlowAggregator:
         flow_bytes: int,
         flow_packets: int,
         start_time_unix: float,
+        in_if: int = 0,
+        out_if: int = 0,
     ) -> None:
         if not src_ip or not dst_ip:
             return
@@ -137,14 +198,30 @@ class FlowAggregator:
             entry[1] += flow_packets
             entry[2] += 1
 
+        # Accumulate interface metrics if exporter is identified and not sentinel
+        if exporter_id is not None and exporter_id != SENTINEL_UUID:
+            self.accumulate_interface_flow(
+                bucket=bucket,
+                exporter_id=exporter_id,
+                in_if=in_if,
+                out_if=out_if,
+                flow_bytes=flow_bytes,
+                flow_packets=flow_packets,
+            )
+
     async def flush_to_timescaledb(self) -> None:
         async with self._flush_lock:
-            if not self._accumulator and not self._pending_msg_ids:
+            if not self._accumulator and not self._interface_accumulator and not self._pending_msg_ids:
                 return
 
             # Snapshot current accumulator entries and pending stream IDs
             snapshot = {k: list(v) for k, v in self._accumulator.items()}
+            if_snapshot = {k: list(v) for k, v in self._interface_accumulator.items()}
+            active_if_snapshot = set(self._active_interfaces_set)
             pending_ack = list(self._pending_msg_ids)
+
+            rows: List[Dict[str, Any]] = []
+            if_rows: List[Dict[str, Any]] = []
 
             if snapshot:
                 logger.debug("Flushing %d aggregated rollup entries to TimescaleDB...", len(snapshot))
@@ -182,47 +259,126 @@ class FlowAggregator:
 
                 rows = list(grouped_rows.values())
 
-                insert_sql = text("""
-                    INSERT INTO flow_minute_rollups (
-                        bucket, exporter_id, src_endpoint_id, dst_endpoint_id,
-                        src_ip, dst_ip, protocol, dst_port,
-                        bytes, packets, flow_count
-                    ) VALUES (
-                        :bucket, :exporter_id, :src_endpoint_id, :dst_endpoint_id,
-                        CAST(:src_ip AS inet), CAST(:dst_ip AS inet), :protocol, :dst_port,
-                        :bytes, :packets, :flow_count
-                    )
-                    ON CONFLICT (bucket, exporter_id, src_ip, dst_ip, protocol, dst_port)
-                    DO UPDATE SET
-                        bytes = flow_minute_rollups.bytes + EXCLUDED.bytes,
-                        packets = flow_minute_rollups.packets + EXCLUDED.packets,
-                        flow_count = flow_minute_rollups.flow_count + EXCLUDED.flow_count,
-                        src_endpoint_id = COALESCE(flow_minute_rollups.src_endpoint_id, EXCLUDED.src_endpoint_id),
-                        dst_endpoint_id = COALESCE(flow_minute_rollups.dst_endpoint_id, EXCLUDED.dst_endpoint_id);
-                """)
+            if if_snapshot:
+                logger.debug("Flushing %d interface rollup entries to TimescaleDB...", len(if_snapshot))
+                # Pre-aggregate interface rollups by (bucket, exporter_id, interface_idx)
+                grouped_if: Dict[Tuple[Any, ...], Dict[str, Any]] = {}
+                for key, vals in if_snapshot.items():
+                    bucket, exp_id, if_idx = key
+                    in_b, out_b, in_p, out_p, fc = vals
+                    pk = (bucket, exp_id, if_idx)
+                    if pk not in grouped_if:
+                        grouped_if[pk] = {
+                            "bucket": bucket,
+                            "exporter_id": exp_id,
+                            "interface_idx": if_idx,
+                            "in_bytes": in_b,
+                            "out_bytes": out_b,
+                            "in_packets": in_p,
+                            "out_packets": out_p,
+                            "flow_count": fc,
+                        }
+                    else:
+                        ex = grouped_if[pk]
+                        ex["in_bytes"] += in_b
+                        ex["out_bytes"] += out_b
+                        ex["in_packets"] += in_p
+                        ex["out_packets"] += out_p
+                        ex["flow_count"] += fc
 
+                if_rows = list(grouped_if.values())
+
+            insert_sql = text("""
+                INSERT INTO flow_minute_rollups (
+                    bucket, exporter_id, src_endpoint_id, dst_endpoint_id,
+                    src_ip, dst_ip, protocol, dst_port,
+                    bytes, packets, flow_count
+                ) VALUES (
+                    :bucket, :exporter_id, :src_endpoint_id, :dst_endpoint_id,
+                    CAST(:src_ip AS inet), CAST(:dst_ip AS inet), :protocol, :dst_port,
+                    :bytes, :packets, :flow_count
+                )
+                ON CONFLICT (bucket, exporter_id, src_ip, dst_ip, protocol, dst_port)
+                DO UPDATE SET
+                    bytes = flow_minute_rollups.bytes + EXCLUDED.bytes,
+                    packets = flow_minute_rollups.packets + EXCLUDED.packets,
+                    flow_count = flow_minute_rollups.flow_count + EXCLUDED.flow_count,
+                    src_endpoint_id = COALESCE(flow_minute_rollups.src_endpoint_id, EXCLUDED.src_endpoint_id),
+                    dst_endpoint_id = COALESCE(flow_minute_rollups.dst_endpoint_id, EXCLUDED.dst_endpoint_id);
+            """)
+
+            insert_if_sql = text("""
+                INSERT INTO flow_interface_minute_rollups (
+                    bucket, exporter_id, interface_idx,
+                    in_bytes, out_bytes, in_packets, out_packets, flow_count
+                ) VALUES (
+                    :bucket, :exporter_id, :interface_idx,
+                    :in_bytes, :out_bytes, :in_packets, :out_packets, :flow_count
+                )
+                ON CONFLICT (bucket, exporter_id, interface_idx)
+                DO UPDATE SET
+                    in_bytes = flow_interface_minute_rollups.in_bytes + EXCLUDED.in_bytes,
+                    out_bytes = flow_interface_minute_rollups.out_bytes + EXCLUDED.out_bytes,
+                    in_packets = flow_interface_minute_rollups.in_packets + EXCLUDED.in_packets,
+                    out_packets = flow_interface_minute_rollups.out_packets + EXCLUDED.out_packets,
+                    flow_count = flow_interface_minute_rollups.flow_count + EXCLUDED.flow_count;
+            """)
+
+            if rows or if_rows:
                 try:
                     async with self.db_factory() as session:
-                        # Execute in batches of 1000
-                        batch_size = 1000
-                        for i in range(0, len(rows), batch_size):
-                            chunk = rows[i : i + batch_size]
-                            await session.execute(insert_sql, chunk)
+                        if rows:
+                            batch_size = 1000
+                            for i in range(0, len(rows), batch_size):
+                                chunk = rows[i : i + batch_size]
+                                await session.execute(insert_sql, chunk)
+                        if if_rows:
+                            batch_size = 1000
+                            for i in range(0, len(if_rows), batch_size):
+                                chunk = if_rows[i : i + batch_size]
+                                await session.execute(insert_if_sql, chunk)
                         await session.commit()
-                    logger.info("Successfully persisted %d flow rollup records to TimescaleDB.", len(rows))
+                    if rows:
+                        logger.info("Successfully persisted %d flow rollup records to TimescaleDB.", len(rows))
+                    if if_rows:
+                        logger.info("Successfully persisted %d interface rollup records to TimescaleDB.", len(if_rows))
                 except Exception as e:
                     logger.error("Failed to commit flow rollup micro-batch to DB: %s", e)
                     # Keep accumulator intact and do not ack messages on failure
                     return
 
                 # Only deduct committed quantities from accumulator on successful DB commit
-                for k, flushed_vals in snapshot.items():
-                    if k in self._accumulator:
-                        self._accumulator[k][0] -= flushed_vals[0]
-                        self._accumulator[k][1] -= flushed_vals[1]
-                        self._accumulator[k][2] -= flushed_vals[2]
-                        if self._accumulator[k][2] <= 0:
-                            del self._accumulator[k]
+                if rows:
+                    for k, flushed_vals in snapshot.items():
+                        if k in self._accumulator:
+                            self._accumulator[k][0] -= flushed_vals[0]
+                            self._accumulator[k][1] -= flushed_vals[1]
+                            self._accumulator[k][2] -= flushed_vals[2]
+                            if self._accumulator[k][2] <= 0:
+                                del self._accumulator[k]
+
+                if if_rows:
+                    for k, flushed_vals in if_snapshot.items():
+                        if k in self._interface_accumulator:
+                            self._interface_accumulator[k][0] -= flushed_vals[0]
+                            self._interface_accumulator[k][1] -= flushed_vals[1]
+                            self._interface_accumulator[k][2] -= flushed_vals[2]
+                            self._interface_accumulator[k][3] -= flushed_vals[3]
+                            self._interface_accumulator[k][4] -= flushed_vals[4]
+                            if self._interface_accumulator[k][4] <= 0:
+                                del self._interface_accumulator[k]
+
+                # Flush active interfaces to Redis with TTL
+                if self.redis and active_if_snapshot:
+                    try:
+                        pipe = self.redis.pipeline()
+                        for exp_id, if_idx in active_if_snapshot:
+                            pipe.sadd(f"flow:exporter:{exp_id}:interfaces", if_idx)
+                            pipe.expire(f"flow:exporter:{exp_id}:interfaces", 7200)
+                        await pipe.execute()
+                        self._active_interfaces_set.difference_update(active_if_snapshot)
+                    except Exception as redis_err:
+                        logger.warning("Failed to record active interfaces in Redis: %s", redis_err)
 
             # Acknowledge stream messages in Redis only after successful DB persistence
             if pending_ack and self.redis:
@@ -283,6 +439,12 @@ class FlowAggregator:
                             f_pkts = int(fields.get("p", 0))
                             ts_start = float(fields.get("ts_start", time.time()))
 
+                            # Extract interface indexes with IPFIX 32-bit bound checks
+                            raw_in_if = int(fields.get("in_if", 0))
+                            raw_out_if = int(fields.get("out_if", 0))
+                            valid_in_if = raw_in_if if (0 < raw_in_if <= 2147483647) else 0
+                            valid_out_if = raw_out_if if (0 < raw_out_if <= 2147483647) else 0
+
                             self.accumulate_flow(
                                 exporter_ip=exp_ip,
                                 src_ip=src_ip,
@@ -293,6 +455,8 @@ class FlowAggregator:
                                 flow_bytes=f_bytes,
                                 flow_packets=f_pkts,
                                 start_time_unix=ts_start,
+                                in_if=valid_in_if,
+                                out_if=valid_out_if,
                             )
                         except Exception as parse_err:
                             logger.debug("Corrupted stream message %s: %s", msg_id, parse_err)

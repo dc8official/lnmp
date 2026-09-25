@@ -1,6 +1,6 @@
-# LNMP Architecture Overview — Version 3.2.0
+# LNMP Architecture Overview — Version 3.3.0
 
-The Network Monitoring Platform (LNMP) v3.2.0 is architected with a decoupled, asynchronous design engineered for high-concurrency telemetry collection, passive network flow telemetry ingestion (NetFlow v5, NetFlow v9, and IPFIX), real-time Server-Sent Events (SSE), dual-driver storage acceleration, enterprise multi-channel notifications, crossing-free topology visualization, and enterprise security governance.
+The Network Monitoring Platform (LNMP) v3.3.0 is architected with a decoupled, asynchronous design engineered for high-concurrency telemetry collection, passive network flow telemetry ingestion (NetFlow v5, NetFlow v9, and IPFIX), per-interface throughput accounting, real-time Server-Sent Events (SSE), dual-driver storage acceleration, enterprise multi-channel notifications, crossing-free topology visualization, and enterprise security governance.
 
 ---
 

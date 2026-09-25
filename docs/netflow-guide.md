@@ -1,12 +1,12 @@
-# LNMP Network Flow Telemetry Configuration & Operations Guide (v3.2.0)
+# LNMP Network Flow Telemetry Configuration & Operations Guide (v3.3.0)
 
-This operational manual details the architecture, firewall configuration, vendor router setup, and troubleshooting procedures for **Network Flow Telemetry Ingestion (NetFlow v5, NetFlow v9, and IPFIX)** in LNMP v3.2.0.
+This operational manual details the architecture, firewall configuration, vendor router setup, and troubleshooting procedures for **Network Flow Telemetry Ingestion (NetFlow v5, NetFlow v9, and IPFIX)** in LNMP v3.3.0.
 
 ---
 
 ## 1. Architectural Overview
 
-LNMP v3.2.0 introduces real-time, high-volume flow ingestion completely isolated from ICMP polling daemons:
+LNMP v3.3.0 introduces real-time, high-volume flow ingestion and per-interface throughput accounting completely isolated from ICMP polling daemons:
 
 ```
 +-------------------------------------------------------------------------------+

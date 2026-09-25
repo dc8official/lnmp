@@ -1,6 +1,6 @@
 # LNMP Security Model, Threat Architecture & Defense Specification
 
-**Document Version:** 3.2.0  
+**Document Version:** 3.3.0  
 **Last Updated:** September 2026  
 **Classification:** Public Security Specification & Threat Model  
 
@@ -22,12 +22,10 @@ The **Lightweight Network Monitoring Platform (LNMP)** is engineered for mission
 
 | Version | Release Type | Security Support Status | Recommended Action |
 | :--- | :--- | :--- | :--- |
-| **v3.2.0** | Feature & Ingestion Release | **Active / Current Standard** | Production standard for all deployments. |
-| **v3.1.1s** | Security Patch Release | **Supported** | Previous stable standard. Upgrade to v3.2.0 for flow telemetry. |
-| **v3.1.0** | Feature Release | **Superseded by v3.1.1s** | Upgrade immediately for socket-level SSRF defense. |
-| **v3.0.x** | Major Release | **Maintenance Only** | Upgrade to v3.2.0 for enterprise alerting and flow telemetry. |
-| **v2.0.x** | Beta | **End of Life (EOL)** | Unmaintained; upgrade to v3.2.0 immediately. |
-| **v1.x** | Legacy Alpha | **End of Life (EOL)** | Unmaintained; migrate to v3.2.0. |
+| **v3.3.0** | Feature & Ingestion Release | **Active / Current Standard** | Production standard with Flow Exporter & Interface Telemetry. |
+| **v3.1.35s** | Maintenance Release | **Supported** | Supported long-term maintenance track. |
+| **<= v3.2.0** | Legacy Release | **Superseded** | Upgrade to v3.3.0 recommended. |
+| **< v3.1** | Legacy Alpha / Beta | **End of Life (EOL)** | Unmaintained; migrate to v3.3.0 immediately. |
 
 ---
 

@@ -1,12 +1,12 @@
-# LNMP User & Operator Guide — Version 3.2.0
+# LNMP User & Operator Guide — Version 3.3.0
 
-Welcome to the LNMP Network Monitoring Platform v3.2.0 user guide. This document explains how to navigate the web dashboard, use the interactive topology visualizer, monitor fleet bandwidth telemetry, configure multi-channel enterprise alert notifications, use the CSV report customizer, interpret multi-protocol probes, and manage system settings.
+Welcome to the LNMP Network Monitoring Platform v3.3.0 user guide. This document explains how to navigate the web dashboard, use the interactive topology visualizer, monitor fleet bandwidth telemetry, configure multi-channel enterprise alert notifications, use the CSV report customizer, interpret multi-protocol probes, and manage system settings.
 
 ---
 
 ## 1. Authentication & Session Security
 
-LNMP v3.2.0 provides enterprise-grade session protection:
+LNMP v3.3.0 provides enterprise-grade session protection:
 * **Browser Password Autofill:** The login page supports native browser credential managers (Chrome, Edge, Safari, Firefox, Bitwarden, 1Password) for 1-click authentication.
 * **Sliding 2-Hour Inactivity Timeout:** Sessions slide forward on active requests. If idle for 120 minutes, sessions expire automatically.
 * **Concurrent Device Quotas:** Accounts are allowed up to 2 active sessions (managed via FIFO rotation).
@@ -17,7 +17,7 @@ LNMP v3.2.0 provides enterprise-grade session protection:
 
 ## 2. Real-Time Dashboard Overview (`/`)
 
-The v3.2.0 dashboard provides instantaneous fleet telemetry:
+The v3.3.0 dashboard provides instantaneous fleet telemetry:
 
 ### Global Network Health KPI Strip
 * **Summary Ribbon:** Displays total monitored devices, count of `🟢 UP`, `🟡 UNSTABLE`, `🔴 DOWN` devices, and the aggregate **Fleet SLA %**.
@@ -72,7 +72,7 @@ Administrators can configure platform behavior across five dedicated tabs:
 
 ## 6. Configuring Enterprise Alert Channels
 
-LNMP v3.2.0 includes an asynchronous, non-blocking notification dispatcher supporting major collaboration platforms and corporate email.
+LNMP v3.3.0 includes an asynchronous, non-blocking notification dispatcher supporting major collaboration platforms and corporate email.
 
 ### Microsoft Teams Workflows Setup
 Microsoft Teams supports two integration patterns:
@@ -110,7 +110,7 @@ Always verify channel reachability before saving:
 
 ## 7. Reports & CSV Column Customizer
 
-LNMP v3.2.0 allows operators to tailor exported telemetry CSV files for audits and compliance reviews:
+LNMP v3.3.0 allows operators to tailor exported telemetry CSV files for audits and compliance reviews:
 
 1. Navigate to **Reports & SLA** (`/reports`) and click **Export Telemetry**.
 2. The interactive 820px configuration modal allows selecting target endpoints, time range, and metric columns:
@@ -123,7 +123,7 @@ LNMP v3.2.0 allows operators to tailor exported telemetry CSV files for audits a
 
 ## 8. Fleet Bandwidth Monitoring & Flow Analytics (`/bandwidth`)
 
-LNMP v3.2.0 introduces passive network flow ingestion supporting NetFlow v5, NetFlow v9, and IPFIX. The dedicated `/bandwidth` dashboard provides complete visibility into network traffic volumes, protocol usage, and top communicating entities.
+LNMP v3.3.0 introduces passive network flow ingestion supporting NetFlow v5, NetFlow v9, and IPFIX along with per-interface telemetry and link utilization tracking. The dedicated `/bandwidth` dashboard provides complete visibility into network traffic volumes, protocol usage, router interfaces, and top communicating entities.
 
 ### Accessing the Bandwidth Dashboard
 Click the **🌊 Bandwidth** item in the main navigation header or navigate directly to `/bandwidth`.

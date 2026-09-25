@@ -17,6 +17,7 @@ from app.models.endpoint import Endpoint
 from app.models.flow_rollup import (
     FlowDailyRollup,
     FlowHourlyRollup,
+    FlowInterfaceMinuteRollup,
     FlowMinuteRollup,
 )
 from app.routers.auth import get_current_user, require_admin
@@ -25,8 +26,11 @@ from app.schemas.bandwidth import (
     ApplicationDistributionItem,
     ApplicationDistributionResponse,
     BandwidthOverview,
+    EnrollExporterRequest,
     ExportersResponse,
     FlowExporterItem,
+    InterfaceTelemetryItem,
+    InterfaceTelemetryResponse,
     MapExporterRequest,
     TopConversationItem,
     TopTalkerItem,
@@ -35,6 +39,7 @@ from app.schemas.bandwidth import (
     TrafficSeriesResponse,
     UnmatchedExporterItem,
 )
+from app.schemas.endpoints import InterfaceConfig
 from app.services.driver_manager import driver_manager
 
 logger = logging.getLogger(__name__)
@@ -327,11 +332,13 @@ async def get_top_talkers(
     window: str = Query(default="1h"),
     limit: int = Query(default=10, ge=1, le=50),
     endpoint_id: Optional[UUID] = Query(default=None),
+    exporter_id: Optional[UUID] = Query(default=None),
     current_user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """
     Returns top communicating endpoints and top IP conversations.
+    Supports scoping by router/exporter_id for transit flow forensics.
     """
     delta = _get_window_delta(window)
     now = datetime.datetime.now(datetime.timezone.utc)
@@ -339,6 +346,8 @@ async def get_top_talkers(
 
     # 1. Top endpoints
     ep_filters = [FlowMinuteRollup.bucket >= start_time]
+    if exporter_id is not None:
+        ep_filters.append(FlowMinuteRollup.exporter_id == exporter_id)
     if endpoint_id is not None:
         ep_filters.append(
             or_(
@@ -420,6 +429,8 @@ async def get_top_talkers(
 
     # 2. Top Conversations
     conv_filters = [FlowMinuteRollup.bucket >= start_time]
+    if exporter_id is not None:
+        conv_filters.append(FlowMinuteRollup.exporter_id == exporter_id)
     if endpoint_id is not None:
         conv_filters.append(
             or_(
@@ -548,6 +559,7 @@ async def list_flow_exporters(
                 primary_ip=str(ep.ip_address).split("/")[0],
                 flow_exporter_ips=exp_ips,
                 interface_aliases=aliases,
+                device_role=getattr(ep, "device_role", "ACTIVE_HOST"),
                 last_flow_time=None,
             )
         )
@@ -556,29 +568,138 @@ async def list_flow_exporters(
     redis_client = await get_flow_redis()
     if redis_client:
         try:
+            now_ts = time.time()
+            cutoff_ts = now_ts - 86400.0
+            # 1. Prune and query Redis ZSET flow:unmatched:zset (sliding 24h window)
+            await redis_client.zremrangebyscore("flow:unmatched:zset", "-inf", cutoff_ts)
+            zset_members = await redis_client.zrevrangebyscore(
+                "flow:unmatched:zset", "+inf", "-inf", withscores=True, start=0, num=100
+            )
+            seen_ips = set()
+            if zset_members:
+                for item in zset_members:
+                    if isinstance(item, (list, tuple)) and len(item) == 2:
+                        ip_val, score_val = item
+                    else:
+                        continue
+                    ip_str = ip_val.decode("utf-8") if isinstance(ip_val, bytes) else str(ip_val)
+                    try:
+                        dt = datetime.datetime.fromtimestamp(float(score_val), tz=datetime.timezone.utc)
+                        unmatched_list.append(
+                            UnmatchedExporterItem(
+                                ip_address=ip_str,
+                                last_seen=dt.isoformat(),
+                            )
+                        )
+                        seen_ips.add(ip_str)
+                    except (ValueError, TypeError):
+                        pass
+
+            # 2. Complement with legacy set if any exists not in zset
             unmatched_ips = await redis_client.smembers("flow:unmatched:set")
             for ip in unmatched_ips:
-                ts_str = await redis_client.get(f"flow:unmatched:{ip}")
+                ip_clean = ip.decode("utf-8") if isinstance(ip, bytes) else str(ip)
+                if ip_clean in seen_ips:
+                    continue
+                ts_str = await redis_client.get(f"flow:unmatched:{ip_clean}")
                 if ts_str:
                     try:
                         ts_val = float(ts_str)
                         dt = datetime.datetime.fromtimestamp(ts_val, tz=datetime.timezone.utc)
                         unmatched_list.append(
                             UnmatchedExporterItem(
-                                ip_address=ip,
+                                ip_address=ip_clean,
                                 last_seen=dt.isoformat(),
                             )
                         )
                     except ValueError:
                         pass
                 else:
-                    # Key expired from TTL, remove from set
                     await redis_client.srem("flow:unmatched:set", ip)
         except Exception as e:
             logger.debug("Failed to retrieve unmatched exporters from Redis: %s", e)
 
     return APIResponse.success(
         data=ExportersResponse(exporters=exporters, unmatched=unmatched_list)
+    )
+
+
+@router.post("/exporters/enroll", response_model=APIResponse)
+async def enroll_flow_exporter(
+    payload: EnrollExporterRequest,
+    current_user: dict = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Admin-protected 1-click enrollment for discovered NetFlow/IPFIX exporters.
+    Creates an endpoint with device_role='FLOW_EXPORTER' and monitoring_enabled=False.
+    """
+    clean_ip = payload.ip_address.strip()
+    try:
+        ipaddress.ip_address(clean_ip)
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"'{clean_ip}' is not a valid IP address.",
+        )
+
+    clean_hostname = payload.hostname.strip()
+    if not clean_hostname:
+        clean_hostname = f"flow-exporter-{clean_ip.replace('.', '-')}"
+
+    # Check for duplicate IP or hostname
+    dup_stmt = select(Endpoint).where(
+        or_(
+            Endpoint.ip_address == clean_ip,
+            Endpoint.hostname == clean_hostname,
+        ),
+        Endpoint.deleted_at.is_(None),
+    )
+    dup_res = await db.execute(dup_stmt)
+    if dup_res.scalar_one_or_none():
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"An endpoint with IP '{clean_ip}' or hostname '{clean_hostname}' already exists.",
+        )
+
+    endpoint = Endpoint(
+        hostname=clean_hostname,
+        ip_address=clean_ip,
+        device_type="Router",
+        device_role=payload.device_role or "FLOW_EXPORTER",
+        description=payload.description or f"Flow Exporter enrolled from {clean_ip}",
+        monitoring_enabled=False,
+        endpoint_status="ACTIVE",
+        flow_exporter_ips=[clean_ip],
+        flow_interface_aliases={},
+    )
+    db.add(endpoint)
+    await db.commit()
+    await db.refresh(endpoint)
+
+    # Clean up from Redis unmatched tracking
+    redis_client = await get_flow_redis()
+    if redis_client:
+        try:
+            await redis_client.delete(f"flow:unmatched:{clean_ip}")
+            await redis_client.srem("flow:unmatched:set", clean_ip)
+            await redis_client.zrem("flow:unmatched:zset", clean_ip)
+            await redis_client.publish(
+                "channel:registry_sync",
+                f'{{"event": "EXPORTER_ENROLLED", "endpoint_id": "{endpoint.id}", "ip": "{clean_ip}"}}',
+            )
+        except Exception as e:
+            logger.warning("Failed to clear Redis unmatched state for %s: %s", clean_ip, e)
+
+    return APIResponse.success(
+        data={
+            "id": str(endpoint.id),
+            "hostname": endpoint.hostname,
+            "ip_address": str(endpoint.ip_address),
+            "device_role": endpoint.device_role,
+            "monitoring_enabled": endpoint.monitoring_enabled,
+            "message": f"Successfully enrolled {endpoint.hostname} as flow exporter.",
+        }
     )
 
 
@@ -592,7 +713,6 @@ async def map_unmatched_exporter(
     """
     One-click binds an unmatched exporter IP to an existing endpoint's flow_exporter_ips.
     """
-    # Validate IP address format
     clean_ip = ip.strip()
     try:
         ipaddress.ip_address(clean_ip)
@@ -620,13 +740,13 @@ async def map_unmatched_exporter(
         endpoint.flow_exporter_ips = existing_ips
         await db.commit()
 
-    # Clear from Redis unmatched set
+    # Clear from Redis unmatched tracking (both ZSET and legacy SET)
     redis_client = await get_flow_redis()
     if redis_client:
         try:
             await redis_client.delete(f"flow:unmatched:{clean_ip}")
             await redis_client.srem("flow:unmatched:set", clean_ip)
-            # Notify correlator to refresh in-memory routing table immediately
+            await redis_client.zrem("flow:unmatched:zset", clean_ip)
             await redis_client.publish(
                 "channel:registry_sync",
                 f'{{"event": "EXPORTER_MAPPED", "endpoint_id": "{payload.endpoint_id}", "ip": "{clean_ip}"}}',
@@ -636,4 +756,188 @@ async def map_unmatched_exporter(
 
     return APIResponse.success(
         data={"message": f"Successfully mapped exporter IP {clean_ip} to {endpoint.hostname}."}
+    )
+
+
+@router.get("/interfaces", response_model=APIResponse)
+async def get_interfaces_telemetry(
+    exporter_id: UUID = Query(...),
+    window: str = Query(default="1h"),
+    current_user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Returns interface-level telemetry metrics for an exporter node.
+    Calculates ingress/egress bps and link utilization.
+    """
+    delta = _get_window_delta(window)
+    now = datetime.datetime.now(datetime.timezone.utc)
+    start_time = now - delta
+    window_seconds = max(1.0, delta.total_seconds())
+
+    # Get endpoint for alias & speed mappings
+    ep_stmt = select(Endpoint).where(
+        Endpoint.id == exporter_id,
+        Endpoint.deleted_at.is_(None),
+    )
+    ep_res = await db.execute(ep_stmt)
+    endpoint = ep_res.scalar_one_or_none()
+    aliases = getattr(endpoint, "flow_interface_aliases", {}) or {}
+
+    # Query flow_interface_minute_rollups
+    stmt = (
+        select(
+            FlowInterfaceMinuteRollup.interface_idx,
+            func.sum(FlowInterfaceMinuteRollup.in_bytes).label("in_bytes"),
+            func.sum(FlowInterfaceMinuteRollup.out_bytes).label("out_bytes"),
+            func.sum(FlowInterfaceMinuteRollup.in_packets).label("in_packets"),
+            func.sum(FlowInterfaceMinuteRollup.out_packets).label("out_packets"),
+            func.sum(FlowInterfaceMinuteRollup.flow_count).label("flow_count"),
+        )
+        .where(
+            FlowInterfaceMinuteRollup.exporter_id == exporter_id,
+            FlowInterfaceMinuteRollup.bucket >= start_time,
+        )
+        .group_by(FlowInterfaceMinuteRollup.interface_idx)
+        .order_by(FlowInterfaceMinuteRollup.interface_idx.asc())
+    )
+    res = await db.execute(stmt)
+    rows = res.all()
+
+    # Active interfaces from Redis if available
+    active_redis_indices: set[int] = set()
+    redis_client = await get_flow_redis()
+    if redis_client:
+        try:
+            members = await redis_client.smembers(f"flow:exporter:{exporter_id}:interfaces")
+            for m in members:
+                try:
+                    active_redis_indices.add(int(m))
+                except ValueError:
+                    pass
+        except Exception as e:
+            logger.debug("Failed to read active interfaces from Redis: %s", e)
+
+    # Collect known interface indexes from rollups and configured aliases
+    all_if_indices: dict[int, dict[str, Any]] = {}
+    for row in rows:
+        idx = int(row[0])
+        all_if_indices[idx] = {
+            "in_bytes": int(row[1] or 0) if len(row) > 1 else 0,
+            "out_bytes": int(row[2] or 0) if len(row) > 2 else 0,
+            "in_packets": int(row[3] or 0) if len(row) > 3 else 0,
+            "out_packets": int(row[4] or 0) if len(row) > 4 else 0,
+            "flow_count": int(row[5] or 0) if len(row) > 5 else 0,
+        }
+
+    # Include any interfaces configured in aliases even if 0 traffic recorded
+    for k_str, val in aliases.items():
+        try:
+            k_int = int(k_str)
+            if k_int not in all_if_indices:
+                all_if_indices[k_int] = {
+                    "in_bytes": 0,
+                    "out_bytes": 0,
+                    "in_packets": 0,
+                    "out_packets": 0,
+                    "flow_count": 0,
+                }
+        except ValueError:
+            pass
+
+    interfaces: List[InterfaceTelemetryItem] = []
+    for if_idx in sorted(all_if_indices.keys()):
+        stats = all_if_indices[if_idx]
+        in_b = stats["in_bytes"]
+        out_b = stats["out_bytes"]
+        in_bps = (in_b * 8.0) / window_seconds
+        out_bps = (out_b * 8.0) / window_seconds
+
+        # Resolve alias and configured speed
+        alias_data = aliases.get(str(if_idx))
+        if isinstance(alias_data, dict):
+            name = str(alias_data.get("name", f"Interface {if_idx}"))
+            speed_mbps = int(alias_data.get("speed_mbps", 1000))
+        elif isinstance(alias_data, str):
+            name = alias_data
+            speed_mbps = 1000
+        else:
+            name = f"Interface {if_idx}"
+            speed_mbps = 1000
+
+        speed_mbps = max(1, speed_mbps)
+        capacity_bps = speed_mbps * 1_000_000.0
+        peak_bps = max(in_bps, out_bps)
+        utilization = round(min(100.0, (peak_bps / capacity_bps) * 100.0), 2)
+        is_active = (if_idx in active_redis_indices) or (stats["flow_count"] > 0) or ((in_b + out_b) > 0)
+
+        interfaces.append(
+            InterfaceTelemetryItem(
+                interface_idx=if_idx,
+                name=name,
+                speed_mbps=speed_mbps,
+                in_bytes=in_b,
+                out_bytes=out_b,
+                in_bps=round(in_bps, 2),
+                out_bps=round(out_bps, 2),
+                in_packets=stats["in_packets"],
+                out_packets=stats["out_packets"],
+                flow_count=stats["flow_count"],
+                utilization_percentage=utilization,
+                is_active=is_active,
+            )
+        )
+
+    return APIResponse.success(
+        data=InterfaceTelemetryResponse(
+            exporter_id=exporter_id,
+            window=window,
+            interfaces=interfaces,
+        )
+    )
+
+
+@router.put("/endpoints/{id}/interfaces", response_model=APIResponse)
+async def update_endpoint_interfaces(
+    id: UUID,
+    payload: Dict[str, InterfaceConfig],
+    current_user: dict = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Admin-protected endpoint to configure interface names and link capacities.
+    """
+    stmt = select(Endpoint).where(
+        Endpoint.id == id,
+        Endpoint.deleted_at.is_(None),
+    )
+    res = await db.execute(stmt)
+    endpoint = res.scalar_one_or_none()
+    if not endpoint:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Endpoint {id} not found.",
+        )
+
+    aliases: Dict[str, Any] = {}
+    for idx_str, config in payload.items():
+        try:
+            int(idx_str)
+        except ValueError:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid interface index '{idx_str}'. Must be an integer string.",
+            )
+        aliases[idx_str] = config.model_dump()
+
+    endpoint.flow_interface_aliases = aliases
+    await db.commit()
+
+    return APIResponse.success(
+        data={
+            "id": str(endpoint.id),
+            "hostname": endpoint.hostname,
+            "flow_interface_aliases": endpoint.flow_interface_aliases,
+            "message": f"Successfully updated {len(aliases)} interfaces for {endpoint.hostname}.",
+        }
     )

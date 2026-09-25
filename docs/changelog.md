@@ -4,6 +4,23 @@ All notable technical changes, architectural upgrades, security enhancements, an
 
 The versioning format follows [Semantic Versioning](https://semver.org/).
 
+## [Version 3.3.0] — Flow Exporter & Interface Telemetry (ManageEngine Benchmark)
+### 📊 Per-Interface Throughput, Dedicated Exporter Roles, Utilization Tracking & 1-Click Enrollment
+
+| Upgrade Domain | Technical Implementation | Operational & Performance Benefit |
+| :--- | :--- | :--- |
+| **Dedicated Exporter Role (`FLOW_EXPORTER`)** | Added `device_role` column to `endpoints` table with check constraint (`ck_endpoints_device_role`: `STANDARD`, `FLOW_EXPORTER`, `EDGE_ROUTER`, `CORE_SWITCH`). Exporters default to passive mode (`monitoring_enabled=False`, status `PASSIVE`, health `100.0`). | Eliminates synthetic ICMP ping polling overhead and false down-alerts for pure flow-exporting routers and firewalls. |
+| **Per-Interface TimescaleDB Rollups** | Created `flow_interface_minute_rollups` hypertable with composite primary key `(bucket, exporter_id, interface_idx)`, index `idx_flow_if_rollups_exp_if_bucket`, TimescaleDB extension guard, and 7-day retention policy. | Enables granular, per-interface directional ingress/egress accounting without exploding unpartitioned database tables. |
+| **ManageEngine-Style Interface Telemetry** | Added `GET /api/v1/bandwidth/interfaces` calculating real-time bps throughput and link utilization percentages against provisioned line speeds (10M, 100M, 1G, 10G, 40G, 100G, Custom). | Provides immediate visibility into interface saturation, capacity bottlenecks, and idle uplinks across all managed routers. |
+| **Single-Direction Attribution & Bounds Guard** | Refactored `FlowAggregator` to attribute `in_bytes`/`in_pkts` strictly to `in_if` and `out_bytes`/`out_pkts` strictly to `out_if`, strictly skipping sentinel UUIDs and filtering invalid IPFIX 0/negative interface indices. | Guarantees mathematically precise bidirectional accounting and prevents database check constraint violations. |
+| **1-Click Exporter Enrollment Modal** | Implemented `POST /api/v1/bandwidth/exporters/enroll` and frontend modal in `BandwidthView.vue` allowing operators to instantly convert unmapped exporter streams into registered endpoints. | Streamlines network onboarding from minutes to seconds, automatically populating primary IP and secondary export aliases. |
+| **Interface Alias & Speed Governance** | Added `PUT /api/v1/bandwidth/endpoints/{id}/interfaces` and modal dialog in `EndpointDetailView.vue` with link speed presets and custom bandwidth configuration. | Operators can easily assign descriptive interface names (`Gi0/1`, `WAN-Uplink`) and configure provisioned capacities for accurate utilization meters. |
+| **Exporter-Scoped Forensics & Isolation** | Added Scope Switcher (Fleet Aggregate vs Individual Exporter) and click-to-isolate interface throughput curves on the `/bandwidth` page, with scoped Top Talkers transit queries. | Facilitates rapid root-cause analysis of interface-specific traffic surges and transit bandwidth hogs. |
+| **Fleet SLA & Availability Protection** | Updated fleet SLA calculation in `backend/app/routers/reports.py` and `endpoint_repo.py` to neutralize `FLOW_EXPORTER` devices from ICMP uptime penalties. | Protects executive SLA reports from false downtime penalties caused by non-pingable flow routing hardware. |
+| **Polymorphic Alias Backward Compatibility** | Implemented polymorphic Pydantic field validators coercing legacy `{"1": "Gi0/0"}` strings to structured `{"name": "Gi0/0", "speed_mbps": 1000}` objects. | Ensures zero downtime and zero schema validation failures during rolling v3.2.0 to v3.3.0 upgrades. |
+
+---
+
 ## [Version 3.2.0] — Passive Network Flow Telemetry Ingestion (NetFlow v5/v9 & IPFIX)
 ### 🌊 Hybrid Telemetry, Decoupled Flow Collector, 4-Tier Lifecycle & Fleet Bandwidth Analytics
 

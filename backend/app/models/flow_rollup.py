@@ -168,3 +168,58 @@ class FlowDailyRollup(Base):
         Integer,
         nullable=False,
     )
+
+
+class FlowInterfaceMinuteRollup(Base):
+    """
+    SQLAlchemy declarative model representing flow_interface_minute_rollups hypertable.
+    Retained for 7 days.
+    """
+
+    __tablename__ = "flow_interface_minute_rollups"
+
+    bucket: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        primary_key=True,
+        nullable=False,
+    )
+    exporter_id: Mapped[UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        primary_key=True,
+        nullable=False,
+    )
+    interface_idx: Mapped[int] = mapped_column(
+        Integer,
+        primary_key=True,
+        nullable=False,
+    )
+    in_bytes: Mapped[int] = mapped_column(
+        BigInteger,
+        default=0,
+        server_default="0",
+        nullable=False,
+    )
+    out_bytes: Mapped[int] = mapped_column(
+        BigInteger,
+        default=0,
+        server_default="0",
+        nullable=False,
+    )
+    in_packets: Mapped[int] = mapped_column(
+        BigInteger,
+        default=0,
+        server_default="0",
+        nullable=False,
+    )
+    out_packets: Mapped[int] = mapped_column(
+        BigInteger,
+        default=0,
+        server_default="0",
+        nullable=False,
+    )
+    flow_count: Mapped[int] = mapped_column(
+        Integer,
+        default=0,
+        server_default="0",
+        nullable=False,
+    )

@@ -26,7 +26,7 @@ logger = setup_logging(
 
 
 async def run_flow_daemon() -> None:
-    logger.info("Starting netmon-flowd Network Flow Telemetry Daemon (v3.2.0)...")
+    logger.info("Starting netmon-flowd Network Flow Telemetry Daemon (v3.3.0)...")
 
     # Verify database connection
     await check_database_connection()

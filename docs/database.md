@@ -1,6 +1,6 @@
-# LNMP Database & TimescaleDB Architecture — Version 3.2.0
+# LNMP Database & TimescaleDB Architecture — Version 3.3.0
 
-This document details the PostgreSQL 14+ schema design, TimescaleDB hypertable partitioning, continuous aggregates, columnar compression policies, and 4-tier lifecycle in LNMP v3.2.0.
+This document details the PostgreSQL 14+ schema design, TimescaleDB hypertable partitioning, continuous aggregates, columnar compression policies, and 4-tier lifecycle in LNMP v3.3.0.
 
 ---
 

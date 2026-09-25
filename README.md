@@ -1,6 +1,6 @@
-# LNMP: Network Monitoring Platform v3.2.0
+# LNMP: Network Monitoring Platform v3.3.0
 
-A high-precision, decoupled network telemetry and monitoring platform combining active multi-protocol health probing with passive high-volume network flow ingestion (NetFlow v5, NetFlow v9, and IPFIX). Engineered for continuous endpoint verification, sub-second route diagnostics, adaptive statistical alerting, automated root-cause analysis (RCA), real-time Server-Sent Events (SSE), dual-driver storage acceleration, enterprise multi-channel incident dispatch, and dynamic topology visualization with crossing-free layout routing.
+A high-precision, decoupled network telemetry and monitoring platform combining active multi-protocol health probing with passive high-volume network flow ingestion (NetFlow v5, NetFlow v9, and IPFIX) and per-interface throughput/utilization telemetry. Engineered for continuous endpoint verification, sub-second route diagnostics, adaptive statistical alerting, automated root-cause analysis (RCA), real-time Server-Sent Events (SSE), dual-driver storage acceleration, enterprise multi-channel incident dispatch, and dynamic topology visualization with crossing-free layout routing.
 
 ---
 
@@ -10,7 +10,7 @@ The platform is decoupled into independent, modular layers to guarantee continuo
 
 * **Network Flow Telemetry Ingestion (NetFlow v5, NetFlow v9, IPFIX):** Dedicated, decoupled collector daemon (`netmon-flowd`) listening on UDP 2055 (NetFlow) and UDP 4739 (IPFIX) with 4MB kernel socket buffers (`SO_RCVBUF`), zero-allocation binary decoders, dynamic template caching (1,800s TTL), orphan data set ring buffering, and dual-stack IPv4/IPv6 support.
 * **Dual-Role $\mathcal{O}(1)$ In-Memory Correlation & Discovery:** In-memory hash indexing providing sub-microsecond matching for both Exporters (primary IP + `flow_exporter_ips` aliases) and Monitored Participants without database lookups; automatic Redis-backed discovery banner for unmapped exporter candidates with 1-click UI alias binding.
-* **4-Tier Hierarchical Storage Lifecycle:** Sliding 2-hour Redis Stream shock-absorber (`stream:netflow:raw`) with memory circuit breaker (>85%), 7-day 1-minute TimescaleDB rollups (`flow_minute_rollups`) with 1-day columnar compression (85%+ disk savings), 30-day 1-hour continuous aggregates (`flow_hourly_rollups`), and 365-day daily totals (`flow_daily_rollups`).
+* **4-Tier Hierarchical Storage Lifecycle:** Sliding 2-hour Redis Stream shock-absorber (`stream:netflow:raw`) with memory circuit breaker (>85%), 7-day 1-minute TimescaleDB rollups (`flow_minute_rollups` and `flow_interface_minute_rollups`) with columnar compression, 30-day 1-hour continuous aggregates (`flow_hourly_rollups`), and 365-day daily totals (`flow_daily_rollups`).
 * **Fleet Bandwidth & Deep-Dive Perspective Tabs:** Fleet-wide `/bandwidth` dashboard featuring real-time KPI ribbon, Chart.js stacked Ingress/Egress area charts, Top Talkers, Application distribution donut, forensic IP-to-IP conversation explorer, and accessible tab switcher in `EndpointDetailView.vue` (ICMP Diagnostics ⇄ Flow Telemetry).
 * **Enterprise Alerting & Notifications Engine:** Asynchronous, non-blocking notification dispatcher pushing state transitions and RCA incidents across Microsoft Teams (Adaptive Cards v1.4 & HTML fallback), Discord (Rich Embeds), Slack (Block Kit), Generic Webhooks, and direct hardened SMTP Email with socket-level SSRF defense, AES-256-GCM encryption at rest, flapping cooldown, and cascade suppression.
 * **Interactive CSV Column Customizer:** Dynamic telemetry export allowing operators to customize exported metrics while strictly enforcing locked, non-negotiable device identity columns (`Hostname`, `IP_Address`).
@@ -33,9 +33,10 @@ The platform is decoupled into independent, modular layers to guarantee continuo
 
 For comprehensive guides, references, and operational procedures, refer to the `docs/` directory:
 
-* **[v3.2.0 Release Notes](docs/release-notes/v3.2.0.md):** Major release highlights, new features, and upgrade instructions for v3.2.0.
+* **[v3.3.0 Release Notes](docs/release-notes/v3.3.0.md):** Major release highlights, new features, and upgrade instructions for v3.3.0.
+* **[v3.2.0 Release Notes](docs/release-notes/v3.2.0.md):** Network flow telemetry foundation notes.
 * **[v3.2 Hybrid Active/Passive Architecture Guide](docs/architecture/v3.2-hybrid-active-passive.md):** Architectural breakdown of active synthetic polling integrated with line-rate NetFlow/IPFIX flow ingestion.
-* **[Changelog & Technical Evolution](docs/changelog.md):** Complete release notes and evolutionary milestones from Version 1.0 to Version 3.2.0.
+* **[Changelog & Technical Evolution](docs/changelog.md):** Complete release notes and evolutionary milestones from Version 1.0 to Version 3.3.0.
 * **[Network Flow Configuration & Telemetry Guide](docs/netflow-guide.md):** Production runbook for NetFlow v5/v9 and IPFIX collector setup, exporter vendor configuration templates (Cisco, Juniper, Mikrotik, Linux `fprobe`, pfSense/OPNsense), timeout standards, and UI alias mapping.
 * **[Architecture Deep-Dive](docs/architecture.md):** In-depth analysis of the Repository Layer, Dual-Driver Storage, Concurrency Sweeper, Network Flow Telemetry Pipeline (`netmon-flowd`), and Topology DAG.
 * **[Deployment & Operations Guide](docs/deployment.md):** Production installation, automated in-place upgrades (`upgrade.sh`), Redis configuration, and health verification.
@@ -102,9 +103,9 @@ cd lnmp/deploy
 ./install.sh
 ```
 
-### 2. Upgrading to v3.2.0 (Zero Historical Data Loss)
+### 2. Upgrading to v3.3.0 (Zero Historical Data Loss)
 
-To upgrade an existing installation to Version 3.2.0:
+To upgrade an existing installation to Version 3.3.0:
 
 ```bash
 cd ~/lnmp
@@ -120,7 +121,7 @@ The upgrade utility automatically executes:
 3. **Smart Config Migration**: Updates `/etc/netmon/config.toml` defaults (5 pings @ 8s, 120m timeout, Redis, Alerting, and `[flow]` telemetry sections) without overwriting secrets.
 4. **Service Pause**: Gracefully pauses background daemons (`netmon-api`, `netmon-engine`, and `netmon-flowd`).
 5. **Code & Dependency Sync**: Pulls latest updates, installs Python requirements, and compiles Vue 3 assets.
-6. **Alembic Forward Migrations**: Runs `alembic upgrade head` applying migration `0008_v3_2_network_flow_telemetry.py` to create `flow_exporter_ips`, `flow_interface_aliases`, `flow_minute_rollups` hypertable (with 1-day compression and 7-day retention), and continuous aggregate views (`flow_hourly_rollups`, `flow_daily_rollups`) while preserving all historical ICMP/probe metrics and continuous aggregates.
+6. **Alembic Forward Migrations**: Runs `alembic upgrade head` applying migration `0012_v3_3_flow_interface_telemetry.py` to add `device_role` (`ck_endpoints_device_role`) and create the `flow_interface_minute_rollups` hypertable (with 7-day retention) while preserving all historical ICMP/probe metrics and continuous aggregates.
 7. **Systemd Unit Refresh & Restart**: Installs `netmon-flowd.service`, reloads systemd daemons, enables auto-start on boot, and restarts `redis-server`, `netmon-api`, `netmon-engine`, and `nginx`. If `[flow].enabled = true`, automatically enables and starts `netmon-flowd` and configures UFW firewall rules for UDP 2055 and UDP 4739.
 8. **Health Check**: Validates live API status and version endpoint (`/api/v1/version`).
 

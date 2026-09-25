@@ -2,12 +2,12 @@
 
 ## Supported Versions
 
-| Version | Supported          | Security Notes |
-| ------- | ------------------ | -------------- |
-| v3.2.0  | :white_check_mark: | Active production standard with Flow Telemetry & Zero-Trust Socket protection |
-| v3.1.x  | :white_check_mark: | Supported maintenance track (v3.1.7s) |
-| v3.0.x  | :x:                | Maintenance only — upgrade recommended |
-| < v3.0  | :x:                | End of Life (EOL) |
+| Version   | Supported          | Security Notes |
+| --------- | ------------------ | -------------- |
+| v3.3.0    | :white_check_mark: | Active production standard with Flow Exporter & Interface Telemetry |
+| v3.1.35s  | :white_check_mark: | Supported long-term maintenance track (v3.1.35s) |
+| <= v3.2.0 | :x:                | Legacy release — upgrade to v3.3.0 recommended |
+| < v3.1    | :x:                | End of Life (EOL) |
 
 ## Reporting a Vulnerability
 
