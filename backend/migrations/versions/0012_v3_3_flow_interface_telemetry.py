@@ -1,6 +1,6 @@
 """v3.3.0 Flow Interface Telemetry and Device Role Model
 
-Revision ID: 0012_v3_3_flow_interface_telemetry
+Revision ID: 0012
 Revises: 0011
 Create Date: 2026-09-25 15:00:00.000000
 
@@ -10,7 +10,7 @@ from alembic import op
 import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 
-revision: str = "0012_v3_3_flow_interface_telemetry"
+revision: str = "0012"
 down_revision: Union[str, None] = "0011"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
