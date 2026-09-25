@@ -63,6 +63,7 @@ class AlertDispatcher:
         self._election_task: Optional[asyncio.Task] = None
         self._stop_event: asyncio.Event = asyncio.Event()
         self._dispatch_semaphore: asyncio.Semaphore = asyncio.Semaphore(10)
+        self._log_semaphore: asyncio.Semaphore = asyncio.Semaphore(5)
         self._dispatch_tasks: set[asyncio.Task] = set()
 
         # Rate limiting and flapping memory caches
@@ -507,7 +508,8 @@ class AlertDispatcher:
         # Check subnet filter
         if channel.subnet_filters and len(channel.subnet_filters) > 0:
             try:
-                ep_ip = ipaddress.ip_address(ip_address.strip() if isinstance(ip_address, str) else ip_address)
+                clean_ip = (ip_address.strip() if isinstance(ip_address, str) else str(ip_address)).split("/")[0]
+                ep_ip = ipaddress.ip_address(clean_ip)
                 matched = False
                 for cidr in channel.subnet_filters:
                     try:
@@ -548,7 +550,8 @@ class AlertDispatcher:
             return
 
         # Check Rate Limit (5 minutes per channel, endpoint, severity)
-        rl_key = (str(channel.id), str(endpoint_id), severity)
+        ep_key = str(endpoint_id) if endpoint_id else f"event:{event_type}:{endpoint_name or 'global'}"
+        rl_key = (str(channel.id), ep_key, severity)
         last_sent = self._rate_limits.get(rl_key)
         if last_sent and (timestamp - last_sent) < timedelta(minutes=5):
             # Log throttled
@@ -608,7 +611,10 @@ class AlertDispatcher:
             )
 
     def _parse_channel_config(self, raw_config: str) -> Dict[str, Any]:
-        decrypted = decrypt_secret(raw_config)
+        try:
+            decrypted = decrypt_secret(raw_config)
+        except Exception:
+            return {}
         if isinstance(decrypted, dict):
             return decrypted
         try:
@@ -720,7 +726,7 @@ class AlertDispatcher:
         elif ctype == "EMAIL_SMTP":
             smtp_host = config.get("smtp_host", "localhost")
             try:
-                await asyncio.to_thread(validate_outbound_url, f"http://{smtp_host}", False)
+                await asyncio.to_thread(validate_outbound_url, f"http://{smtp_host}", True, True)
             except ValueError as err:
                 if "SSRF violation" in str(err) or "Invalid protocol" in str(err) or "blocked" in str(err):
                     raise
@@ -760,7 +766,7 @@ class AlertDispatcher:
     def _sync_send_smtp(self, config: Dict[str, Any], msg: Any) -> None:
         host = config.get("smtp_host", "localhost")
         try:
-            validate_outbound_url(f"http://{host}", allow_private=False)
+            validate_outbound_url(f"http://{host}", allow_private=True, allow_loopback=True)
         except ValueError as err:
             if "SSRF violation" in str(err) or "Invalid protocol" in str(err) or "blocked" in str(err):
                 raise
@@ -824,9 +830,10 @@ class AlertDispatcher:
                 db.add(log_entry)
                 await db.commit()
             else:
-                async with AsyncSessionLocal() as session:
-                    session.add(log_entry)
-                    await session.commit()
+                async with self._log_semaphore:
+                    async with AsyncSessionLocal() as session:
+                        session.add(log_entry)
+                        await session.commit()
         except Exception as exc:
             logger.error("AlertDispatcher: Failed to write delivery log: %s", exc)
 

@@ -60,6 +60,7 @@ class SSRFSafeBackend(httpcore.AsyncNetworkBackend):
         if not addr_info:
             raise ValueError(f"DNS resolution failure for host '{host}': No address returned.")
 
+        target_ip: str | None = None
         for item in addr_info:
             ip_str = item[4][0]
             try:
@@ -93,8 +94,11 @@ class SSRFSafeBackend(httpcore.AsyncNetworkBackend):
                         f"SSRF violation: Host '{host}' resolves to forbidden address {str_ip}."
                     )
 
+            if target_ip is None:
+                target_ip = str_ip
+
         return await self._inner.connect_tcp(
-            host,
+            target_ip or host,
             port,
             timeout=timeout,
             local_address=local_address,
@@ -132,7 +136,11 @@ def create_ssrf_safe_client(
     )
 
 
-def validate_outbound_url(url: str, allow_private: bool | None = None) -> None:
+def validate_outbound_url(
+    url: str,
+    allow_private: bool | None = None,
+    allow_loopback: bool = False,
+) -> None:
     """
     Validates that a URL is safe for outbound dispatch (webhook / telemetry push).
     Rejects non-HTTP(S) protocols and destinations that resolve to loopback,
@@ -191,7 +199,7 @@ def validate_outbound_url(url: str, allow_private: bool | None = None) -> None:
                     f"SSRF violation: Host '{hostname}' resolves to blocked metadata address {str_ip}."
                 )
 
-            if ip.is_loopback:
+            if not allow_loopback and ip.is_loopback:
                 raise ValueError(
                     f"SSRF violation: Host '{hostname}' resolves to loopback address {str_ip}."
                 )

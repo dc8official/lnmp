@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 import sys
 from collections.abc import AsyncGenerator
@@ -22,8 +23,8 @@ logger = logging.getLogger(__name__)
 async_engine = create_async_engine(
     settings.db_url,
     echo=(settings.logging.level == "DEBUG"),
-    pool_size=20,
-    max_overflow=30,
+    pool_size=getattr(settings.database, "pool_size", 10),
+    max_overflow=getattr(settings.database, "max_overflow", 10),
     pool_pre_ping=True,
     pool_recycle=1800,
 )
@@ -82,20 +83,32 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
 # ---------------------------------------------------------------------------
 # Startup health check
 # ---------------------------------------------------------------------------
-async def check_database_connection() -> None:
-    """Verify database connectivity at application startup.
+async def check_database_connection(max_retries: int = 5, retry_delay: float = 2.0) -> None:
+    """Verify database connectivity at application startup with retry resilience.
 
-    Executes a simple ``SELECT 1`` query. Logs an INFO message on
-    success; prints a descriptive error to stderr and exits with code 1
-    on failure.
+    Executes a simple ``SELECT 1`` query. Retries up to max_retries with delay.
+    Logs an INFO message on success; prints a descriptive error to stderr and exits with code 1
+    only after all retries are exhausted.
     """
-    try:
-        async with async_engine.connect() as conn:
-            await conn.execute(text("SELECT 1"))
-        logger.info("Database connection established successfully.")
-    except Exception as exc:
-        print(
-            f"[FATAL] Could not connect to the database: {exc}",
-            file=sys.stderr,
-        )
-        sys.exit(1)
+    for attempt in range(1, max_retries + 1):
+        try:
+            async with async_engine.connect() as conn:
+                await conn.execute(text("SELECT 1"))
+            logger.info("Database connection established successfully.")
+            return
+        except Exception as exc:
+            if attempt < max_retries:
+                logger.warning(
+                    f"Database connection attempt {attempt}/{max_retries} failed: {exc}. Retrying in {retry_delay}s..."
+                )
+                await asyncio.sleep(retry_delay)
+            else:
+                logger.error(
+                    "Could not connect to the database after %d attempts: %s",
+                    max_retries,
+                    exc,
+                )
+                raise RuntimeError(
+                    f"Could not connect to the database after {max_retries} attempts: {exc}"
+                )
+

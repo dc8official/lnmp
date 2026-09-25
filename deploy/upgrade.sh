@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# LNMP Network Monitoring Platform v3.1.1s - Automated Upgrade Utility
+# LNMP Network Monitoring Platform v3.2.0 - Automated Upgrade Utility
 # ==============================================================================
 
 set -euo pipefail
@@ -12,14 +12,25 @@ RED='\033[0;31m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
-# 1. Require Root / Administrative Privileges (bypassed in dry-run mode)
-if [[ ${EUID} -ne 0 && "${1:-}" != "--dry-run" ]]; then
+# ==============================================================================
+# 1. Parse Command-Line Options
+# ==============================================================================
+DRY_RUN=0
+if [[ "${1:-}" == "--dry-run" ]]; then
+    DRY_RUN=1
+    echo -e "${YELLOW}[DRY-RUN MODE] Simulating upgrade operations without making mutations.${NC}"
+fi
+
+# ==============================================================================
+# 2. Require Root / Administrative Privileges (bypassed in dry-run mode)
+# ==============================================================================
+if [[ ${EUID} -ne 0 && ${DRY_RUN} -eq 0 ]]; then
     echo -e "${RED}[ERROR] This script must be executed with root privileges (e.g., sudo ./upgrade.sh).${NC}" >&2
     exit 1
 fi
 
 echo -e "${BLUE}========================================================================${NC}"
-echo -e "${BLUE}    LNMP Network Monitoring Platform v3.1.1s - Upgrade Utility           ${NC}"
+echo -e "${BLUE}    LNMP Network Monitoring Platform v3.2.0 - Upgrade Utility            ${NC}"
 echo -e "${BLUE}========================================================================${NC}"
 
 # Resolve Script and Project Root Directory
@@ -27,13 +38,15 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 INSTALL_DIR="/opt/netmon/noop"
 REPO_URL="${NETMON_REPO_URL:-https://github.com/dc8official/lnmp.git}"
-UPGRADE_BRANCH="${NETMON_BRANCH:-main}"
+# Resolve Active or Target Upgrade Branch (defaults to current git branch or v3.2.0)
+CURRENT_GIT_BRANCH="$(git -C "${PROJECT_ROOT}" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")"
+UPGRADE_BRANCH="${NETMON_BRANCH:-${CURRENT_GIT_BRANCH:-v3.2.0}}"
 
-# 2. Read Configuration Values
+# 3. Read Configuration Values
 ENV_FILE="/etc/netmon/netmon.env"
 if [[ -f "${ENV_FILE}" ]]; then
     echo -e "${GREEN}[INFO] Loading environment configuration from ${ENV_FILE}${NC}"
-    if [[ ${DRY_RUN} -eq 0 ]]; then
+    if [[ ${DRY_RUN:-0} -eq 0 ]]; then
         chmod 0600 "${ENV_FILE}"
         chown netmon:netmon "${ENV_FILE}" 2>/dev/null || true
     fi
@@ -55,13 +68,6 @@ DB_PASS="${NETMON_DB_PASSWORD:-${POSTGRES_PASSWORD:-netmon_secure_password}}"
 DB_HOST="${NETMON_DB_HOST:-${POSTGRES_HOST:-127.0.0.1}}"
 DB_PORT="${NETMON_DB_PORT:-${POSTGRES_PORT:-5432}}"
 
-# Handle Dry-Run Mode Option
-DRY_RUN=0
-if [[ "${1:-}" == "--dry-run" ]]; then
-    DRY_RUN=1
-    echo -e "${YELLOW}[DRY-RUN MODE] Simulating upgrade operations without making mutations.${NC}"
-fi
-
 # 3. Pre-Upgrade Database Backup
 BACKUP_DIR="/var/backups/netmon"
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
@@ -74,15 +80,35 @@ if [[ ${DRY_RUN} -eq 0 ]]; then
         exit 1
     fi
 
+    # Gracefully stop services before backup to release database connection pool slots
+    if systemctl is-active --quiet netmon-engine || systemctl is-active --quiet netmon-api || systemctl is-active --quiet netmon-flowd 2>/dev/null; then
+        echo -e "${GREEN}[INFO] Pausing background services to release database connection slots...${NC}"
+        systemctl stop netmon-engine netmon-api netmon-flowd 2>/dev/null || true
+    fi
+
     mkdir -p "${BACKUP_DIR}"
-    chmod 750 "${BACKUP_DIR}"
+    chown root:postgres "${BACKUP_DIR}" 2>/dev/null || true
+    chmod 775 "${BACKUP_DIR}"
     echo -e "${GREEN}[INFO] Creating timestamped database dump at ${BACKUP_FILE}...${NC}"
     
-    if PGPASSWORD="${DB_PASS}" pg_dump -h "${DB_HOST}" -p "${DB_PORT}" -U "${DB_USER}" -d "${DB_NAME}" -F p -f "${BACKUP_FILE}"; then
+    BACKUP_SUCCESS=0
+    if PGPASSWORD="${DB_PASS}" pg_dump -h "${DB_HOST}" -p "${DB_PORT}" -U "${DB_USER}" -d "${DB_NAME}" -F p -f "${BACKUP_FILE}" 2>/dev/null; then
+        BACKUP_SUCCESS=1
+    elif command -v sudo &>/dev/null && id -u postgres &>/dev/null; then
+        echo -e "${YELLOW}[WARN] Non-superuser connection slots exhausted. Attempting fallback via postgres superuser...${NC}"
+        # Terminate any orphaned/idle connections holding database slots
+        sudo -u postgres psql -c "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '${DB_NAME}' AND pid <> pg_backend_pid();" &>/dev/null || true
+        if sudo -u postgres pg_dump -d "${DB_NAME}" -F p > "${BACKUP_FILE}"; then
+            BACKUP_SUCCESS=1
+        fi
+    fi
+
+    if [[ ${BACKUP_SUCCESS} -eq 1 ]]; then
         chmod 640 "${BACKUP_FILE}"
         echo -e "${GREEN}[SUCCESS] Pre-upgrade backup successfully saved to ${BACKUP_FILE}${NC}"
     else
         echo -e "${RED}[ERROR] Database backup failed. Aborting upgrade to preserve data safety.${NC}" >&2
+        echo -e "${YELLOW}[HINT] If PostgreSQL connection slots are exhausted, stop background services first: 'systemctl stop netmon-engine netmon-api netmon-flowd' or 'systemctl restart postgresql'.${NC}" >&2
         exit 1
     fi
 else
@@ -130,6 +156,20 @@ performance_mode = false
 EOF
         echo -e "${GREEN}[INFO] Appended [redis] storage driver section to ${CONFIG_FILE}.${NC}"
     fi
+
+    # Add [flow] section if missing (v3.2.0 Network Flow Telemetry)
+    if ! grep -q "\[flow\]" "${CONFIG_FILE}"; then
+        cat << 'EOF' >> "${CONFIG_FILE}"
+
+[flow]
+enabled = false
+netflow_port = 2055
+ipfix_port = 4739
+sampling_multiplier = 1
+buffer_memory_limit_mb = 512
+EOF
+        echo -e "${GREEN}[INFO] Appended [flow] network telemetry section to ${CONFIG_FILE}.${NC}"
+    fi
 fi
 
 # Pre-Flight: Build Frontend Assets Before Service Pause
@@ -159,14 +199,14 @@ fi
 # 5. Service Pause
 echo -e "\n${BLUE}--- Step 3/7: Gracefully Pausing Platform Background Daemons ---${NC}"
 if [[ ${DRY_RUN} -eq 0 ]]; then
-    if systemctl is-active --quiet netmon-engine || systemctl is-active --quiet netmon-api; then
-        echo -e "${GREEN}[INFO] Stopping netmon-engine and netmon-api systemd services...${NC}"
-        systemctl stop netmon-engine netmon-api || true
+    if systemctl is-active --quiet netmon-engine || systemctl is-active --quiet netmon-api || systemctl is-active --quiet netmon-flowd; then
+        echo -e "${GREEN}[INFO] Stopping netmon-engine, netmon-api, and netmon-flowd systemd services...${NC}"
+        systemctl stop netmon-engine netmon-api netmon-flowd || true
     else
         echo -e "${YELLOW}[INFO] Platform systemd services are not active. Skipping stop.${NC}"
     fi
 else
-    echo -e "[DRY-RUN] Would run: systemctl stop netmon-engine netmon-api"
+    echo -e "[DRY-RUN] Would run: systemctl stop netmon-engine netmon-api netmon-flowd"
 fi
 
 # 6. Fetch Latest Release Files from Repository
@@ -206,15 +246,15 @@ if [[ ${DRY_RUN} -eq 0 ]]; then
         cd "${PROJECT_ROOT}"
         git config --global --add safe.directory "${PROJECT_ROOT}" 2>/dev/null || true
         git fetch --all --tags --prune || true
-        git checkout "${UPGRADE_BRANCH}" 2>/dev/null || git checkout v3.1.1s 2>/dev/null || true
-        git pull origin "${UPGRADE_BRANCH}" 2>/dev/null || git pull origin v3.1.1s 2>/dev/null || git pull || echo -e "${YELLOW}[WARN] Git pull finished with non-zero exit code. Proceeding with existing files.${NC}"
+        git checkout "${UPGRADE_BRANCH}" 2>/dev/null || git checkout v3.2.0 2>/dev/null || true
+        git pull origin "${UPGRADE_BRANCH}" 2>/dev/null || git pull origin v3.2.0 2>/dev/null || git pull || echo -e "${YELLOW}[WARN] Git pull finished with non-zero exit code. Proceeding with existing files.${NC}"
         SOURCE_DIR="${PROJECT_ROOT}"
     # Case B: Running from /opt/netmon/noop or non-git directory -> clone directly from remote
     else
         echo -e "${GREEN}[INFO] Staging fresh release from ${REPO_URL} (branch: ${UPGRADE_BRANCH})...${NC}"
         rm -rf "${STAGE_DIR}"
         if git clone --depth 1 --branch "${UPGRADE_BRANCH}" "${REPO_URL}" "${STAGE_DIR}" 2>/dev/null || \
-           git clone --depth 1 --branch "v3.1.1s" "${REPO_URL}" "${STAGE_DIR}" 2>/dev/null || \
+           git clone --depth 1 --branch "v3.2.0" "${REPO_URL}" "${STAGE_DIR}" 2>/dev/null || \
            git clone --depth 1 "${REPO_URL}" "${STAGE_DIR}"; then
             echo -e "${GREEN}[SUCCESS] Downloaded latest codebase into staging directory.${NC}"
             SOURCE_DIR="${STAGE_DIR}"
@@ -247,7 +287,8 @@ fi
 # 7. Synchronize Production Files to Target Directory
 echo -e "\n${BLUE}--- Step 5/7: Synchronizing Codebase & Enforcing Production Structure ---${NC}"
 if [[ ${DRY_RUN} -eq 0 ]]; then
-    mkdir -p "${INSTALL_DIR}"
+    mkdir -p "${INSTALL_DIR}" /run/netmon /var/log/netmon
+    chown -R netmon:netmon /run/netmon /var/log/netmon 2>/dev/null || true
     if [[ "${SOURCE_DIR}" != "${INSTALL_DIR}" ]]; then
         echo -e "${GREEN}[INFO] Syncing repository files from ${SOURCE_DIR} to ${INSTALL_DIR}...${NC}"
         rsync -a --delete \
@@ -259,6 +300,7 @@ if [[ ${DRY_RUN} -eq 0 ]]; then
             --exclude='tests' \
             --exclude='pytest.ini' \
             --exclude='scratch' \
+            --exclude='certs' \
             "${SOURCE_DIR}/" "${INSTALL_DIR}/"
         chown -R netmon:netmon "${INSTALL_DIR}"
     fi
@@ -323,10 +365,14 @@ if [[ ${DRY_RUN} -eq 0 ]]; then
                     PERFORM set_config('timescaledb.max_tuples_decompressed_per_dml_transaction', '0', false);
                 END IF;
                 UPDATE endpoint_events
-                SET end_time = start_time,
-                    duration_seconds = 0
+                SET end_time = start_time + INTERVAL '60 seconds',
+                    duration_seconds = 60
                 WHERE end_time IS NULL
                   AND start_time < NOW() - INTERVAL '7 days';
+
+                -- Drop legacy cycle count check constraints to allow continuous state monitoring
+                ALTER TABLE endpoint_events DROP CONSTRAINT IF EXISTS ck_events_success_count;
+                ALTER TABLE endpoint_events DROP CONSTRAINT IF EXISTS ck_events_failed_count;
             END \$\$;" 2>/dev/null || true
 
             PGPASSWORD="${DB_PASS}" psql -h "${DB_HOST}" -p "${DB_PORT}" -U "${DB_USER}" -d "${DB_NAME}" -c \
@@ -351,6 +397,23 @@ if [[ ${DRY_RUN} -eq 0 ]]; then
     elif [[ -f "${PROJECT_ROOT}/deploy/netmon-engine.service" ]]; then
         cp "${PROJECT_ROOT}/deploy/netmon-engine.service" /etc/systemd/system/
     fi
+    if [[ -f "${INSTALL_DIR}/deploy/netmon-flowd.service" ]]; then
+        cp "${INSTALL_DIR}/deploy/netmon-flowd.service" /etc/systemd/system/
+    elif [[ -f "${PROJECT_ROOT}/deploy/netmon-flowd.service" ]]; then
+        cp "${PROJECT_ROOT}/deploy/netmon-flowd.service" /etc/systemd/system/
+    fi
+
+    # Ensure runtime and log directories exist before daemon activation
+    mkdir -p /run/netmon /var/log/netmon
+    chown -R netmon:netmon /run/netmon /var/log/netmon 2>/dev/null || true
+
+    # Grant netmon user sudo privilege to start/stop netmon-flowd dynamically from web UI
+    if [[ -d "/etc/sudoers.d" ]]; then
+        cat << 'EOF' > /etc/sudoers.d/netmon
+netmon ALL=(ALL) NOPASSWD: /usr/bin/systemctl start netmon-flowd, /usr/bin/systemctl stop netmon-flowd, /usr/bin/systemctl restart netmon-flowd, /usr/bin/systemctl is-active netmon-flowd, /usr/bin/systemctl enable netmon-flowd, /usr/bin/systemctl disable netmon-flowd
+EOF
+        chmod 0440 /etc/sudoers.d/netmon
+    fi
 
     echo -e "${GREEN}[INFO] Reloading systemd daemons and enabling auto-start on boot...${NC}"
     systemctl daemon-reload
@@ -359,17 +422,44 @@ if [[ ${DRY_RUN} -eq 0 ]]; then
     systemctl restart netmon-api netmon-engine
     systemctl restart nginx || true
 
+    # Network Flow Telemetry Ingestion (v3.2.0)
+    FLOW_ENABLED=false
+    if [[ -n "${DB_PASS:-}" ]]; then
+        DB_FLOW_VAL=$(PGPASSWORD="${DB_PASS}" psql -h "${DB_HOST}" -p "${DB_PORT}" -U "${DB_USER}" -d "${DB_NAME}" -tAc "SELECT setting_value FROM app_settings WHERE setting_key = 'flow_ingestion_enabled';" 2>/dev/null || echo "")
+        if [[ "${DB_FLOW_VAL}" == "true" ]]; then
+            FLOW_ENABLED=true
+        fi
+    fi
+    if [[ "${FLOW_ENABLED}" == "false" ]] && grep -A 5 "\[flow\]" "${CONFIG_FILE}" 2>/dev/null | grep -q "enabled = true"; then
+        FLOW_ENABLED=true
+    fi
+
+    if [[ "${FLOW_ENABLED}" == "true" ]]; then
+        echo -e "${GREEN}[INFO] Flow telemetry ingestion is enabled. Starting netmon-flowd...${NC}"
+        systemctl enable netmon-flowd || true
+        systemctl restart netmon-flowd || true
+
+        # Manage firewall if ufw is active
+        if command -v ufw &>/dev/null && ufw status 2>/dev/null | grep -q "Status: active"; then
+            echo -e "${GREEN}[INFO] Configuring firewall rules for NetFlow (UDP 2055) and IPFIX (UDP 4739)...${NC}"
+            ufw allow 2055/udp comment 'LNMP NetFlow v5/v9 Telemetry' || true
+            ufw allow 4739/udp comment 'LNMP IPFIX Telemetry' || true
+        fi
+    else
+        echo -e "${YELLOW}[INFO] Flow telemetry is disabled in settings. netmon-flowd service installed and ready for UI activation.${NC}"
+    fi
+
     sleep 2
     if systemctl is-active --quiet netmon-api && systemctl is-active --quiet netmon-engine; then
-        echo -e "${GREEN}[SUCCESS] All systemd services (netmon-api, netmon-engine) are active, enabled on boot, and healthy.${NC}"
+        echo -e "${GREEN}[SUCCESS] Primary platform services (netmon-api, netmon-engine) are active, enabled on boot, and healthy.${NC}"
     else
         echo -e "${YELLOW}[WARN] Check service status via: systemctl status netmon-api netmon-engine${NC}"
     fi
 else
-    echo -e "[DRY-RUN] Would run: systemctl enable & restart redis-server netmon-api netmon-engine"
+    echo -e "[DRY-RUN] Would run: systemctl enable & restart redis-server netmon-api netmon-engine (and netmon-flowd if enabled)"
 fi
 
 echo -e "\n${GREEN}========================================================================${NC}"
-echo -e "${GREEN}   [UPGRADE COMPLETE] LNMP v3.1.1s Platform upgraded successfully!       ${NC}"
+echo -e "${GREEN}   [UPGRADE COMPLETE] LNMP v3.2.0 Platform upgraded successfully!        ${NC}"
 echo -e "${GREEN}   Pre-Upgrade Database Backup Saved At: ${BACKUP_FILE}${NC}"
 echo -e "${GREEN}========================================================================${NC}"

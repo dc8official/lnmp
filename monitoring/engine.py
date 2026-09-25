@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import random
 from datetime import datetime, timezone
 from uuid import UUID
@@ -58,16 +59,17 @@ async def trigger_incident_diagnostic_trace(endpoint_id: UUID, ip_address: str) 
     """Fires a background diagnostic traceroute upon detecting a failed ping sub-cycle."""
     try:
         trace_data = await run_throttled_traceroute(ip_address)
-        async with AsyncSessionLocal() as db:
-            await save_diagnostic_trace(
-                db, endpoint_id, "FAILED_PING_SUBCYCLE", trace_data
-            )
-            await db.commit()
-            logger.info(
-                "Incident diagnostic trace saved for endpoint %s (%s)",
-                endpoint_id,
-                ip_address,
-            )
+        async with db_write_semaphore:
+            async with AsyncSessionLocal() as db:
+                await save_diagnostic_trace(
+                    db, endpoint_id, "FAILED_PING_SUBCYCLE", trace_data
+                )
+                await db.commit()
+                logger.info(
+                    "Incident diagnostic trace saved for endpoint %s (%s)",
+                    endpoint_id,
+                    ip_address,
+                )
     except Exception as e:
         logger.error(
             "Failed to execute incident diagnostic trace for %s: %s",
@@ -76,14 +78,24 @@ async def trigger_incident_diagnostic_trace(endpoint_id: UUID, ip_address: str) 
         )
 
 
+def _stagger_offset_for_endpoint(endpoint_id: UUID) -> int:
+    """Computes deterministic second-slot offset (0-59s) based on endpoint UUID."""
+    return int.from_bytes(endpoint_id.bytes[:4], "big") % 60
+
+
 async def monitor_endpoint(
     endpoint_id: UUID,
     ip_address: str,
     state_machine: StateMachine,
 ) -> None:
-    # 0–2000ms randomized startup jitter to distribute probe start times
-    startup_jitter = random.uniform(0.0, 2.0)
-    await asyncio.sleep(startup_jitter)
+    # PER-01: Deterministic second-slot staggering based on endpoint UUID (0-59s)
+    slot_second = _stagger_offset_for_endpoint(endpoint_id)
+    now_utc = datetime.now().astimezone()
+    now_sec = now_utc.second + (now_utc.microsecond / 1_000_000.0)
+    initial_delay = (slot_second - now_sec) % 60.0
+    if initial_delay <= 0.05:
+        initial_delay += 60.0
+    await asyncio.sleep(initial_delay)
 
     async with AsyncSessionLocal() as db:
         state = await state_machine.initialize_endpoint(endpoint_id, db)
@@ -95,53 +107,47 @@ async def monitor_endpoint(
     # Fractional First-Minute Handling:
     # When a brand-new endpoint is registered and detected mid-minute (state is None),
     # immediately fire a single baseline validation ping, write it to database,
-    # and sleep until the next top-of-the-minute boundary.
+    # and sleep until the endpoint's deterministic slot boundary.
     if state is None:
+        logger.info(
+            "Endpoint %s is brand-new. Firing baseline validation ping.",
+            str(endpoint_id),
+        )
+        try:
+            result = await run_ping_cycle(
+                ip_address=ip_address,
+                count=1,
+                interval=8.0,
+                timeout=2.0,
+                privileged=True,
+            )
+
+            baseline = baseline_cache.get_baseline(endpoint_id)
+            async with AsyncSessionLocal() as db:
+                new_state = await state_machine.create_initial_event(
+                    endpoint_id, result, db, baseline=baseline
+                )
+                await db.commit()
+
+            async with states_lock:
+                endpoint_states[str(endpoint_id)] = new_state
+                state = new_state
+
+        except Exception as e:
+            logger.error(
+                "Error in baseline validation ping for %s: %s: %s",
+                ip_address,
+                type(e).__name__,
+                e,
+            )
+
+        # Sleep until the endpoint's deterministic slot boundary
         now_utc = datetime.now().astimezone()
-        if now_utc.second != 0 or now_utc.microsecond != 0:
-            logger.info(
-                "Endpoint %s is brand-new and detected mid-minute at %s. Firing baseline validation ping.",
-                str(endpoint_id),
-                now_utc,
-            )
-            try:
-                result = await run_ping_cycle(
-                    ip_address=ip_address,
-                    count=1,
-                    interval=8.0,
-                    timeout=2.0,
-                    privileged=True,
-                )
-
-                baseline = baseline_cache.get_baseline(endpoint_id)
-                async with AsyncSessionLocal() as db:
-                    new_state = await state_machine.create_initial_event(
-                        endpoint_id, result, db, baseline=baseline
-                    )
-                    await db.commit()
-
-                async with states_lock:
-                    endpoint_states[str(endpoint_id)] = new_state
-                    state = new_state
-
-            except Exception as e:
-                logger.error(
-                    "Error in baseline validation ping for %s: %s: %s",
-                    ip_address,
-                    type(e).__name__,
-                    e,
-                )
-
-            # Sleep until the next top-of-the-minute boundary
-            now_utc = datetime.now().astimezone()
-            remaining_seconds = (
-                60.0 - now_utc.second - (now_utc.microsecond / 1_000_000.0)
-            )
-            logger.info(
-                "Sleeping for %.4f seconds until the next top-of-the-minute boundary.",
-                remaining_seconds,
-            )
-            await asyncio.sleep(remaining_seconds)
+        now_sec = now_utc.second + (now_utc.microsecond / 1_000_000.0)
+        delay = (slot_second - now_sec) % 60.0
+        if delay <= 0.05:
+            delay += 60.0
+        await asyncio.sleep(delay)
 
     while True:
         try:
@@ -169,20 +175,29 @@ async def monitor_endpoint(
                             current_state, result, db, baseline=baseline
                         )
 
-                    # Check operational toggles directly from in-memory EndpointRegistry
-                    # to eliminate in-cycle database lock contention during packet drops
+                    # PER-02: Check operational toggles and bound diagnostic trace queue (max 10 in flight)
                     if result.failed_count > 0:
                         toggles = endpoint_registry.get_toggles(endpoint_id)
                         if toggles.get("allow_incident_trace", True):
-                            task = safe_create_task(
-                                trigger_incident_diagnostic_trace(
-                                    endpoint_id, ip_address
-                                ),
-                                "incident_diagnostic_trace",
+                            active_diag_count = sum(
+                                len(s) for s in endpoint_registry._diagnostic_tasks.values()
                             )
-                            endpoint_registry.register_diagnostic_task(
-                                endpoint_id, task
-                            )
+                            if active_diag_count < 10:
+                                task = safe_create_task(
+                                    trigger_incident_diagnostic_trace(
+                                        endpoint_id, ip_address
+                                    ),
+                                    "incident_diagnostic_trace",
+                                )
+                                endpoint_registry.register_diagnostic_task(
+                                    endpoint_id, task
+                                )
+                            else:
+                                logger.warning(
+                                    "Skipping incident diagnostic trace for %s: diagnostic queue full (%d active)",
+                                    ip_address,
+                                    active_diag_count,
+                                )
 
                     await db.commit()
 
@@ -200,16 +215,14 @@ async def monitor_endpoint(
                 e,
             )
 
-        # Absolute Minute Loop Alignment:
-        # Dynamically compute the exact remaining seconds required to hit the top of the next absolute minute.
+        # PER-01: Deterministic Slot Loop Alignment (eliminates thundering herds)
         now_utc = datetime.now().astimezone()
-        remaining_seconds = (
-            60.0 - now_utc.second - (now_utc.microsecond / 1_000_000.0)
-        )
-        if remaining_seconds <= 0:
-            remaining_seconds += 60.0
+        now_sec = now_utc.second + (now_utc.microsecond / 1_000_000.0)
+        delay = (slot_second - now_sec) % 60.0
+        if delay <= 0.05:
+            delay += 60.0
 
-        await asyncio.sleep(remaining_seconds)
+        await asyncio.sleep(delay)
 
 
 async def main() -> None:
@@ -234,10 +247,22 @@ async def main() -> None:
                 result = await db.execute(stmt)
                 active_endpoints = result.scalars().all()
 
-            db_active_map = {ep.id: ep for ep in active_endpoints}
+            # PERF-01 / STAB-07: Multi-process engine partitioning
+            worker_id = int(os.environ.get("NETMON_ENGINE_WORKER_ID", "0"))
+            num_workers = int(os.environ.get("NETMON_ENGINE_NUM_WORKERS", "1"))
+            if num_workers > 1:
+                assigned_endpoints = [
+                    ep
+                    for ep in active_endpoints
+                    if (int.from_bytes(ep.id.bytes[:4], "big") % num_workers) == worker_id
+                ]
+            else:
+                assigned_endpoints = list(active_endpoints)
+
+            db_active_map = {ep.id: ep for ep in assigned_endpoints}
 
             # Sync in-memory endpoint registry
-            for ep in active_endpoints:
+            for ep in assigned_endpoints:
                 def _spawn(target: MonitoredEndpoint):
                     return monitor_endpoint(
                         target.id,

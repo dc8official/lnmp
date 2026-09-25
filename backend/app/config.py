@@ -22,8 +22,10 @@ class DatabaseSettings(BaseModel):
     host: str = "localhost"
     port: int = Field(default=5432, ge=1, le=65535)
     name: str = "netmon"
-    user: str = "postgres"
+    user: str = "netmon_user"
     password: str = "postgres"
+    pool_size: int = Field(default=10, ge=1, le=100)
+    max_overflow: int = Field(default=10, ge=0, le=100)
 
     model_config = ConfigDict(extra="ignore")
 
@@ -41,7 +43,14 @@ class MonitoringSettings(BaseModel):
 class ApiSettings(BaseModel):
     host: str = "0.0.0.0"
     port: int = Field(default=8000, ge=1, le=65535)
-    allowed_origins: List[str] = ["*"]
+    allowed_origins: List[str] = Field(
+        default_factory=lambda: [
+            "http://localhost:5173",
+            "http://127.0.0.1:5173",
+            "http://localhost:8000",
+            "http://127.0.0.1:8000",
+        ]
+    )
 
     model_config = ConfigDict(extra="ignore")
 
@@ -51,6 +60,25 @@ class SecuritySettings(BaseModel):
     max_active_sessions_per_user: int = Field(default=2, ge=1, le=10)
     hsts_enabled: bool = False
     secret_key: str = Field(default="dev-secret-key-change-in-production-min-32-chars")
+    jwt_secret: Optional[str] = None
+    crypto_key: Optional[str] = None
+    fallback_crypto_keys: List[str] = Field(default_factory=list)
+
+    @property
+    def effective_jwt_secret(self) -> str:
+        return self.jwt_secret or self.secret_key
+
+    @effective_jwt_secret.setter
+    def effective_jwt_secret(self, val: str) -> None:
+        self.jwt_secret = val
+
+    @property
+    def effective_crypto_key(self) -> str:
+        return self.crypto_key or self.secret_key
+
+    @effective_crypto_key.setter
+    def effective_crypto_key(self, val: str) -> None:
+        self.crypto_key = val
 
     model_config = ConfigDict(extra="ignore")
 
@@ -69,6 +97,16 @@ class RedisSettings(BaseModel):
     password: Optional[str] = None
     enabled: bool = True
     performance_mode: bool = False
+
+    model_config = ConfigDict(extra="ignore")
+
+
+class FlowSettings(BaseModel):
+    enabled: bool = False
+    netflow_port: int = Field(default=2055, ge=1, le=65535)
+    ipfix_port: int = Field(default=4739, ge=1, le=65535)
+    sampling_multiplier: int = Field(default=1, ge=1)
+    buffer_memory_limit_mb: int = Field(default=512, ge=64)
 
     model_config = ConfigDict(extra="ignore")
 
@@ -105,12 +143,14 @@ def resolve_config_file() -> Optional[Path]:
 
 
 class Settings(BaseSettings):
+    environment: str = Field(default="development")
     database: DatabaseSettings = Field(default_factory=DatabaseSettings)
     monitoring: MonitoringSettings = Field(default_factory=MonitoringSettings)
     api: ApiSettings = Field(default_factory=ApiSettings)
     security: SecuritySettings = Field(default_factory=SecuritySettings)
     logging: LoggingSettings = Field(default_factory=LoggingSettings)
     redis: RedisSettings = Field(default_factory=RedisSettings)
+    flow: FlowSettings = Field(default_factory=FlowSettings)
 
     model_config = SettingsConfigDict(
         env_prefix="NETMON_",
@@ -202,9 +242,58 @@ def load_settings() -> Settings:
     if db_name:
         loaded.database.name = db_name
 
+    db_pool = os.environ.get("NETMON_DB_POOL_SIZE")
+    if db_pool:
+        try:
+            loaded.database.pool_size = int(db_pool)
+        except ValueError:
+            pass
+
+    db_overflow = os.environ.get("NETMON_DB_MAX_OVERFLOW")
+    if db_overflow:
+        try:
+            loaded.database.max_overflow = int(db_overflow)
+        except ValueError:
+            pass
+
     secret_key = os.environ.get("NETMON_SECRET_KEY")
     if secret_key:
         loaded.security.secret_key = secret_key
+
+    jwt_secret = os.environ.get("NETMON_JWT_SECRET")
+    if jwt_secret:
+        loaded.security.jwt_secret = jwt_secret
+
+    crypto_key = os.environ.get("NETMON_CRYPTO_KEY")
+    if crypto_key:
+        loaded.security.crypto_key = crypto_key
+
+    fallback_keys = os.environ.get("NETMON_FALLBACK_CRYPTO_KEYS")
+    if fallback_keys:
+        loaded.security.fallback_crypto_keys = [
+            k.strip() for k in fallback_keys.split(",") if k.strip()
+        ]
+
+    env_val = os.environ.get("NETMON_ENV") or os.environ.get("ENVIRONMENT")
+    if env_val:
+        loaded.environment = env_val.strip().lower()
+
+    # FIX-09 (SEC-02): Reject insecure default secret key in production / staging
+    if loaded.environment.lower() not in ("development", "test"):
+        if (
+            loaded.security.secret_key == "dev-secret-key-change-in-production-min-32-chars"
+            or loaded.security.effective_jwt_secret == "dev-secret-key-change-in-production-min-32-chars"
+            or loaded.security.effective_crypto_key == "dev-secret-key-change-in-production-min-32-chars"
+        ):
+            raise ValueError(
+                "Insecure configuration: Secret keys must be changed from the default development secret in non-development environments."
+            )
+
+    # FIX-10 (SEC-04): Validate that allowed_origins does not contain "*" when allow_credentials=True
+    if "*" in loaded.api.allowed_origins:
+        raise ValueError(
+            "CORS configuration error: allowed_origins cannot contain '*' when allow_credentials=True."
+        )
 
     return loaded
 

@@ -1,6 +1,6 @@
-# LNMP Architecture Overview — Version 3.1.1s
+# LNMP Architecture Overview — Version 3.2.0
 
-The Network Monitoring Platform (LNMP) v3.1.1s is architected with a decoupled, asynchronous design engineered for high-concurrency telemetry collection, real-time Server-Sent Events (SSE), dual-driver storage acceleration, enterprise multi-channel notifications, crossing-free topology visualization, and enterprise security governance.
+The Network Monitoring Platform (LNMP) v3.2.0 is architected with a decoupled, asynchronous design engineered for high-concurrency telemetry collection, passive network flow telemetry ingestion (NetFlow v5, NetFlow v9, and IPFIX), real-time Server-Sent Events (SSE), dual-driver storage acceleration, enterprise multi-channel notifications, crossing-free topology visualization, and enterprise security governance.
 
 ---
 
@@ -8,7 +8,7 @@ The Network Monitoring Platform (LNMP) v3.1.1s is architected with a decoupled, 
 
 ### 1. Data Access & Repository Layer
 * **SQLAlchemy 2.0 Async ORM:** All database interactions are mediated by strongly-typed declarative models inheriting from `DeclarativeBase` (`backend/app/models/`).
-* **Repository Pattern:** Business logic is decoupled from data persistence through dedicated repositories (`EndpointRepository`, `EventRepository`, `IncidentRepository`, `UserRepository`, `SettingRepository`).
+* **Repository Pattern:** Business logic is decoupled from data persistence through dedicated repositories (`EndpointRepository`, `EventRepository`, `IncidentRepository`, `UserRepository`, `SettingRepository`, `FlowRepository`).
 * **SQL-Level Pagination:** All listing endpoints enforce SQL `LIMIT` and `OFFSET` queries, preventing memory bloat on large fleets.
 * **Pydantic Settings:** System configuration is centrally validated through typed Pydantic models.
 
@@ -65,6 +65,22 @@ The platform supports pluggable, dual-driver storage via `StorageDriverManager`:
      - **Polyglot Formatters:** Adapts payload to Microsoft Teams (Adaptive Cards v1.4 & HTML fallback), Discord (Rich Embeds), Slack (Block Kit), or SMTP TLS 1.2+ MIME.
      - **Delivery Audit Logging:** Persists asynchronous results, HTTP response codes, and round-trip latencies into `alert_delivery_logs`.
 
+### 9. Network Flow Telemetry Ingestion Pipeline (`netmon-flowd`)
+* **Autonomous Ingestion Daemon:** `netmon-flowd` runs as an independent `systemd` daemon completely isolated from `netmon-engine` and `netmon-api`. Even under massive multi-gigabit traffic bursts, ICMP polling and REST API responsiveness remain completely unperturbed.
+* **Async Datagram Sockets & Buffer Allocation:** Listens on UDP port 2055 (NetFlow v5/v9) and UDP port 4739 (IPFIX) with a 4MB kernel receive buffer (`SO_RCVBUF = 4 * 1024 * 1024`), eliminating UDP packet drops under highpps microbursts.
+* **Zero-Allocation Binary Decoders:** High-throughput `struct.unpack_from` byte-slice parsers with dynamic template caching (1,800s TTL) for NetFlow v9 and IPFIX options/flow records. Orphan data records received before templates are buffered in an in-memory ring buffer (up to 2,000 records) and flushed once the template arrives.
+* **Dual-Role $\mathcal{O}(1)$ In-Memory Correlator:**
+  - Maintains pre-indexed hash maps for sub-microsecond matching without SQL queries.
+  - **Exporter Resolution:** Resolves exporter IP against endpoint primary IPs and `flow_exporter_ips` secondary aliases. Unknown exporter IPs are registered into a Redis sliding set (`netflow:unmatched_exporters`) with a 24-hour TTL, triggering the Unmatched Exporter Discovery Banner in the UI.
+  - **Traffic Participant Resolution:** Resolves source and destination IPs against monitored inventory endpoints to attribute traffic to internal infrastructure vs. external internet.
+* **Port Normalization & Cardinality Shield:** Normalizes ephemeral client ports (1024–65535) unless recognized as well-known server services (e.g. 8080, 8443, 3306, 5432, 6379, 9200) into a single aggregate representation. This prevents high-entropy ephemeral client ports from exploding TimescaleDB hypertable B-tree index sizes.
+* **Redis Stream Shock-Absorber (`stream:netflow:raw`):** Ingested flows are streamed to Redis Streams using `XADD` with sliding window trimming (`MAXLEN ~100000`). A memory circuit breaker monitors Redis memory usage (>85%) and applies exponential backoff or sampling adjustments to safeguard host stability.
+* **4-Tier Hierarchical Storage Lifecycle:**
+  1. *Tier 1 (Real-Time Raw Buffer):* Redis Stream (`stream:netflow:raw`), sliding 2-hour retention for real-time forensic inspection.
+  2. *Tier 2 (1-Minute Rollups):* TimescaleDB hypertable `flow_minute_rollups`, uncompressed for 24 hours, compressed via TimescaleDB columnar compression after 1 day (85%+ disk space reduction), dropped after 7 days via `drop_chunks`.
+  3. *Tier 3 (Hourly Aggregates):* TimescaleDB continuous aggregate `flow_hourly_rollups`, refreshed every hour, retained for 30 days.
+  4. *Tier 4 (Daily Aggregates):* TimescaleDB continuous aggregate `flow_daily_rollups`, refreshed daily, retained for 365 days for long-term capacity planning.
+
 ---
 
 ## Architectural Diagram
@@ -74,6 +90,7 @@ flowchart TD
     subgraph UI_Layer["Frontend & UI Layer (Vue 3 / Vite)"]
         A["Dashboard View (KPI Strip & Dual View)"]
         T["Topology Canvas (Frozen Physics)"]
+        BW["Bandwidth Dashboard (/bandwidth)"]
         S["Admin Settings Console (/settings)"]
     end
 
@@ -81,6 +98,7 @@ flowchart TD
         E_STREAM["SSE Stream (/api/v1/events/stream)"]
         A -.->|Subscribes| E_STREAM
         T -.->|Subscribes| E_STREAM
+        BW -.->|Subscribes| E_STREAM
     end
 
     subgraph API_Layer["FastAPI Service Layer"]
@@ -93,6 +111,7 @@ flowchart TD
         MGR["StorageDriverManager"]
         PS["PostgresSessionStore / PostgresEventBroker"]
         RS["RedisSessionStore / RedisEventBroker"]
+        R_STREAM["Redis Stream (stream:netflow:raw)"]
         MGR --> PS
         MGR --> RS
     end
@@ -105,10 +124,17 @@ flowchart TD
         RCA["RCA Topology & Inference Engine"]
     end
 
+    subgraph Flow_Ingestion["Flow Telemetry Ingestion (netmon-flowd)"]
+        FLOWD["Flow Collector Daemon (UDP 2055 / 4739)"]
+        CORR["Dual-Role O(1) Correlator"]
+        FLOWD --> CORR
+        CORR --> R_STREAM
+    end
+
     subgraph Database_Layer["PostgreSQL & TimescaleDB"]
         DB[("PostgreSQL 14+ with TimescaleDB")]
-        HT[("Hypertables (7-Day Compression)")]
-        CAG[("Continuous Aggregates (Hourly Refresh)")]
+        HT[("Hypertables (Metrics & Flow Rollups)")]
+        CAG[("Continuous Aggregates (Hourly & Daily)")]
         DB --> HT
         DB --> CAG
     end
@@ -118,6 +144,7 @@ flowchart TD
     B --> REPO
     REPO --> DB
     B --> MGR
+    B --> R_STREAM
 
     ENG --> REG
     ENG --> SYN
@@ -125,6 +152,9 @@ flowchart TD
     TR -.->|Informs| RCA
     ENG --> REPO
     ENG --> MGR
+
+    FLOWD --> REPO
+    R_STREAM --> DB
 ```
 
 ---
@@ -186,5 +216,73 @@ flowchart TD
         DISPATCH_CALL --> SLACK
         DISPATCH_CALL --> EMAIL
         DISPATCH_CALL --> WEBHOOK
+    end
+```
+
+---
+
+## Network Flow Telemetry Ingestion Pipeline Diagram
+
+```mermaid
+flowchart TD
+    subgraph Network_Exporters["Network Infrastructure (Routers, Switches & Firewalls)"]
+        R1["Cisco / Juniper / Mikrotik / pfSense / Linux"]
+        R1 -->|NetFlow v5/v9 (UDP 2055)| UDP_2055["UDP Port 2055"]
+        R1 -->|IPFIX (UDP 4739)| UDP_4739["UDP Port 4739"]
+    end
+
+    subgraph Ingestion_Daemon["Autonomous Daemon: netmon-flowd"]
+        SO_RCV["4MB Kernel Socket Buffer (SO_RCVBUF)"]
+        UDP_2055 --> SO_RCV
+        UDP_4739 --> SO_RCV
+
+        DECODER["Zero-Allocation Binary Parser (struct.unpack_from)"]
+        SO_RCV --> DECODER
+
+        subgraph Parser_Internals["Decoder & Template Engine"]
+            TMPL_CACHE["Template Cache (1,800s TTL)"]
+            RING_BUF["Orphan Data Set Ring Buffer (2,000 pkts)"]
+            NORM["Ephemeral Port Normalizer (>1024 to single bucket)"]
+            DECODER --> TMPL_CACHE
+            DECODER --> RING_BUF
+            DECODER --> NORM
+        end
+
+        subgraph Correlator["Dual-Role In-Memory Correlator (O(1))"]
+            EXP_MAP["Exporter Index (Primary IP + flow_exporter_ips)"]
+            PART_MAP["Traffic Participant Index (Monitored Endpoints)"]
+            UNMATCHED["Redis Set: netflow:unmatched_exporters (24h TTL)"]
+            
+            NORM --> EXP_MAP
+            NORM --> PART_MAP
+            EXP_MAP -.->|Unmapped IP| UNMATCHED
+        end
+
+        CIRCUIT["Memory Circuit Breaker (>85% Redis Mem)"]
+        NORM --> CIRCUIT
+    end
+
+    subgraph Storage_Tiers["4-Tier Hierarchical Storage Lifecycle"]
+        CIRCUIT -->|XADD (MAXLEN ~100k)| TIER1["Tier 1: Redis Stream (stream:netflow:raw, 2h TTL)"]
+        
+        TIER1 -->|Rollup Worker (60s Batch)| TIER2["Tier 2: TimescaleDB flow_minute_rollups (7d Retention)"]
+        TIER2 -.->|After 1 Day| TIER2_COMP["TimescaleDB Columnar Compression (85%+ Savings)"]
+        
+        TIER2 -->|Continuous Aggregate| TIER3["Tier 3: flow_hourly_rollups (30d Retention)"]
+        TIER3 -->|Continuous Aggregate| TIER4["Tier 4: flow_daily_rollups (365d Retention)"]
+    end
+
+    subgraph UI_API["Operator Presentation Layer"]
+        API["FastAPI Bandwidth Router (/api/v1/bandwidth/*)"]
+        TIER1 -.->|Forensic Top-Talkers| API
+        TIER2 -->|Traffic Series & App Mix| API
+        TIER3 -->|Multi-Day Trends| API
+        TIER4 -->|Annual Capacity Planning| API
+        UNMATCHED -.->|Discovery Banner| API
+
+        DASH["Bandwidth Dashboard (/bandwidth)"]
+        EP_TAB["Endpoint Detail (Flow Telemetry Tab)"]
+        API --> DASH
+        API --> EP_TAB
     end
 ```

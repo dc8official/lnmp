@@ -1,6 +1,6 @@
-# LNMP v3.1.1s — Disaster Recovery & Database Restoration Runbook
+# LNMP v3.2.0 — Disaster Recovery & Database Restoration Runbook
 
-This runbook describes the standard operating procedures for restoring the LNMP v3.1.1s database and application environment from timestamped backups.
+This runbook describes the standard operating procedures for restoring the LNMP v3.2.0 database and application environment from timestamped backups.
 
 ---
 
@@ -24,9 +24,9 @@ ls -lht /var/backups/netmon/
    ```bash
    sudo systemctl status postgresql
    ```
-2. Stop the monitoring engine and API daemons to prevent write contention during data restoration:
+2. Stop the monitoring engine, API daemons, and flow telemetry collector to prevent write contention during data restoration:
    ```bash
-   sudo systemctl stop netmon-engine netmon-api
+   sudo systemctl stop netmon-engine netmon-api netmon-flowd 2>/dev/null || true
    ```
 3. Load database credentials from the environment file:
    ```bash
@@ -76,6 +76,7 @@ redis-cli flushdb
 ```bash
 sudo systemctl restart redis-server || sudo systemctl restart redis || true
 sudo systemctl restart netmon-api netmon-engine nginx
+sudo systemctl is-enabled netmon-flowd &>/dev/null && sudo systemctl restart netmon-flowd || true
 ```
 
 ### Step 6: Verify Service Health
@@ -87,6 +88,6 @@ Expected response:
 ```json
 {
   "status": "ok",
-  "version": "3.1.1s"
+  "version": "3.2.0"
 }
 ```

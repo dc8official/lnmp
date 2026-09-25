@@ -227,3 +227,36 @@ export function getAlertHistory(page = 1, pageSize = 50) {
   })
 }
 
+export function getBandwidthOverview() {
+  return api.get('/bandwidth/overview')
+}
+
+export function getTrafficSeries(window = '1h', exporterId = null, endpointId = null) {
+  const params = { window }
+  if (exporterId) params.exporter_id = exporterId
+  if (endpointId) params.endpoint_id = endpointId
+  return api.get('/bandwidth/traffic-series', { params })
+}
+
+export function getTopTalkers(window = '1h', limit = 10, endpointId = null) {
+  const params = { window, limit }
+  if (endpointId) params.endpoint_id = endpointId
+  return api.get('/bandwidth/top-talkers', { params })
+}
+
+export function getApplicationDistribution(window = '1h') {
+  return api.get('/bandwidth/applications', { params: { window } })
+}
+
+export function getFlowExporters() {
+  return api.get('/bandwidth/exporters')
+}
+
+export function mapFlowExporter(ip, endpointId) {
+  return api.post(`/bandwidth/exporters/${encodeURIComponent(ip)}/map`, { endpoint_id: endpointId })
+}
+
+export function testFlowPreflight() {
+  return api.post('/settings/flow/preflight')
+}
+

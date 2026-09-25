@@ -5,14 +5,16 @@ Requires=postgresql.service
 Wants=redis-server.service
 
 [Service]
-Type=simple
+Type=notify
+NotifyAccess=all
+WatchdogSec=30
 User=netmon
 Group=netmon
 WorkingDirectory=/opt/netmon/noop/backend
 EnvironmentFile=/etc/netmon/netmon.env
 ExecStart=/opt/netmon/venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000 --workers 2
-Restart=on-failure
-RestartSec=10
+Restart=always
+RestartSec=5
 StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=netmon-api

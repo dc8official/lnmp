@@ -36,6 +36,7 @@ class TestFullAuthUserFlow(unittest.TestCase):
         mock_http_request = MagicMock()
         mock_http_request.url.scheme = "http"
         mock_db = AsyncSessionLocal = AsyncMock()
+        mock_db.add = MagicMock()
 
         # Mock SELECT user
         user_row = MagicMock()
@@ -66,6 +67,7 @@ class TestFullAuthUserFlow(unittest.TestCase):
         mock_response = MagicMock()
         mock_http_request = MagicMock()
         mock_db = AsyncMock()
+        mock_db.add = MagicMock()
 
         user_row = MagicMock()
         user_row.username = "admin"
@@ -89,6 +91,7 @@ class TestFullAuthUserFlow(unittest.TestCase):
         current_user = {"sub": str(user_id), "username": "admin", "role": "ADMIN"}
         mock_req = ChangePasswordRequest(new_password="NewSecurePassword123!")
         mock_db = AsyncMock()
+        mock_db.add = MagicMock()
 
         user_row = MagicMock()
         user_row.id = user_id
@@ -110,6 +113,7 @@ class TestFullAuthUserFlow(unittest.TestCase):
         mock_req = CreateUserRequest(username="operator1", password=None, role="VIEWER")
         current_user = {"sub": str(uuid4()), "role": "ADMIN"}
         mock_db = AsyncMock()
+        mock_db.add = MagicMock()
 
         # Mock no dup user
         dup_res = MagicMock()
@@ -143,6 +147,7 @@ class TestFullAuthUserFlow(unittest.TestCase):
         mock_req = ResetPasswordRequest(password="newpassword123")
         current_user = {"sub": str(admin_id), "role": "ADMIN"}
         mock_db = AsyncMock()
+        mock_db.add = MagicMock()
 
         with self.assertRaises(HTTPException) as cm:
             self.loop.run_until_complete(
@@ -156,6 +161,7 @@ class TestFullAuthUserFlow(unittest.TestCase):
         admin_id = uuid4()
         current_user = {"sub": str(admin_id), "role": "ADMIN"}
         mock_db = AsyncMock()
+        mock_db.add = MagicMock()
 
         with self.assertRaises(HTTPException) as cm:
             self.loop.run_until_complete(

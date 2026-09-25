@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from sqlalchemy import text
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.config import settings
@@ -13,6 +16,7 @@ from app.logging_config import setup_logging
 from app.routers import (
     alerts,
     auth,
+    bandwidth,
     endpoints,
     events,
     reports,
@@ -30,6 +34,7 @@ from app.services.diagnostics import (
     start_discovery_worker,
 )
 from app.services.driver_manager import driver_manager
+from app.services.systemd_watchdog import start_systemd_watchdog
 from app.services.telemetry_relay import telemetry_relay
 from app.services.topology import topology_manager
 
@@ -57,6 +62,13 @@ async def lifespan(app: FastAPI):
     # Start Enterprise Alert Dispatcher background worker
     await alert_dispatcher.start()
 
+    from app.services.settings_sync import start_settings_sync_listener
+
+    settings_sync_task = asyncio.create_task(
+        start_settings_sync_listener(AsyncSessionLocal),
+        name="settings_sync_listener",
+    )
+
     refresh_task = await start_baseline_refresh_task(
         AsyncSessionLocal, interval_seconds=3600
     )
@@ -65,22 +77,25 @@ async def lifespan(app: FastAPI):
     cleanup_task = await start_diagnostic_cleanup_task(
         AsyncSessionLocal, interval_seconds=86400
     )
+    watchdog_task = await start_systemd_watchdog(interval_seconds=10)
     logger.info(
-        "LNMP v3.1.1s started successfully with Enterprise Alerting, Dual-Storage & Zero-Trust SSRF Protection."
+        "LNMP v3.2.0 started successfully with Enterprise Alerting, Dual-Storage, Flow Telemetry, Cluster Settings Sync & Zero-Trust SSRF Protection."
     )
     yield
+    watchdog_task.cancel()
+    settings_sync_task.cancel()
     await alert_dispatcher.stop()
     await telemetry_relay.stop()
     refresh_task.cancel()
     discovery_task.cancel()
     midnight_task.cancel()
     cleanup_task.cancel()
-    logger.info("LNMP v3.1.1s platform shutting down cleanly.")
+    logger.info("LNMP v3.2.0 platform shutting down cleanly.")
 
 
 app = FastAPI(
     title="lnmp - Network Monitoring Platform",
-    version="3.1.1s",
+    version="3.2.0",
     docs_url="/api/docs",
     redoc_url="/api/redoc",
     openapi_url="/api/openapi.json",
@@ -179,6 +194,7 @@ app.add_middleware(HSTSMiddleware)
 
 app.include_router(alerts.router, prefix="/api/v1")
 app.include_router(auth.router, prefix="/api/v1")
+app.include_router(bandwidth.router, prefix="/api/v1")
 app.include_router(endpoints.router, prefix="/api/v1")
 app.include_router(events.router, prefix="/api/v1")
 app.include_router(reports.router, prefix="/api/v1")
@@ -191,10 +207,63 @@ app.include_router(telemetry_router)
 @app.get("/api/v1/version", tags=["system"])
 async def get_version():
     return APIResponse.success(
-        data={"version": "3.1.1s", "platform": "lnmp v3.1.1s"}
+        data={"version": "3.2.0", "platform": "lnmp v3.2.0"}
     )
 
 
 @app.get("/api/v1/health", tags=["system"])
 async def health_check():
-    return APIResponse.success(data={"status": "ok", "version": "3.1.1s"})
+    return APIResponse.success(data={"status": "ok", "version": "3.2.0"})
+
+
+@app.get("/health/liveness", tags=["system"])
+@app.get("/api/v1/health/liveness", tags=["system"])
+async def health_liveness():
+    return {"status": "ok", "process": "healthy", "version": "3.2.0"}
+
+
+@app.get("/health/readiness", tags=["system"])
+@app.get("/api/v1/health/readiness", tags=["system"])
+async def health_readiness():
+    db_ok = True
+    db_err = None
+    try:
+        async with AsyncSessionLocal() as session:
+            await session.execute(text("SELECT 1"))
+    except Exception as exc:
+        db_ok = False
+        db_err = str(exc)
+
+    redis_ok = True
+    redis_err = None
+    if settings.redis.enabled:
+        try:
+            client = driver_manager.get_redis_client()
+            if client is not None:
+                await client.ping()
+            else:
+                redis_ok = False
+                redis_err = "Redis client not initialized"
+        except Exception as exc:
+            redis_ok = False
+            redis_err = str(exc)
+
+    is_ready = db_ok and (not settings.redis.enabled or redis_ok)
+    status_code = (
+        status.HTTP_200_OK if is_ready else status.HTTP_503_SERVICE_UNAVAILABLE
+    )
+
+    return JSONResponse(
+        status_code=status_code,
+        content={
+            "status": "ready" if is_ready else "degraded",
+            "ready": is_ready,
+            "database": {"status": "ok" if db_ok else "error", "error": db_err},
+            "redis": {
+                "status": "ok" if (not settings.redis.enabled or redis_ok) else "error",
+                "enabled": settings.redis.enabled,
+                "error": redis_err,
+            },
+            "version": "3.2.0",
+        },
+    )

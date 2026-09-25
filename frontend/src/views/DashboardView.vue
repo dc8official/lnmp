@@ -37,6 +37,8 @@
           </button>
         </div>
 
+        <TelemetryExportPopover :endpoints="filteredEndpoints" />
+
         <button 
           class="btn-secondary" 
           @click="fetchEndpoints" 
@@ -187,7 +189,7 @@
                 <th @click="handleSort('last_seen')" class="sortable-th">
                   Last Seen {{ sortKey === 'last_seen' ? (sortAsc ? '▲' : '▼') : '' }}
                 </th>
-                <th class="text-right" v-if="isAdmin">Actions</th>
+                <th class="text-right">Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -203,17 +205,17 @@
                     type="checkbox" 
                     :checked="selectedIds.includes(ep.id)" 
                     @change="toggleEndpointSelect(ep.id)"
-                    aria-label="Select endpoint"
+                    aria-label="Select endpoint" 
                   />
                 </td>
                 <td class="font-bold">{{ ep.hostname }}</td>
                 <td class="font-mono tnum">{{ ep.ip_address }}</td>
                 <td><span class="device-tag">{{ ep.device_type }}</span></td>
                 <td>
-                  <span class="status-pill" :class="getStateClass(ep.current_detailed_state || ep.current_operational_state)">
-                    <span class="status-dot"></span>
-                    {{ ep.current_detailed_state || ep.current_operational_state || 'UNKNOWN' }}
-                  </span>
+                  <StatusBadge 
+                    :status="ep.current_detailed_state || ep.current_operational_state"
+                    size="sm"
+                  />
                 </td>
                 <td class="font-mono tnum text-right">
                   {{ ep.avg_rtt_ms != null ? ep.avg_rtt_ms.toFixed(1) + ' ms' : (ep.current_state?.avg_rtt_ms != null ? ep.current_state.avg_rtt_ms.toFixed(1) + ' ms' : '—') }}
@@ -227,10 +229,11 @@
                 <td class="font-mono tnum text-muted">
                   {{ formatTimeAgo(ep.last_seen) }}
                 </td>
-                <td class="text-right" @click.stop v-if="isAdmin">
+                <td class="text-right" @click.stop>
                   <div class="table-actions">
-                    <button class="btn-action" @click="openEditDialog(ep)" title="Edit">✎</button>
-                    <button class="btn-action text-down" @click="confirmDeleteEndpoint(ep.id)" title="Delete">✕</button>
+                    <button class="btn-action inspect" @click="openInspector(ep)" title="Quick Diagnostics">🔍</button>
+                    <button v-if="isAdmin" class="btn-action" @click="openEditDialog(ep)" title="Edit">✎</button>
+                    <button v-if="isAdmin" class="btn-action text-down" @click="confirmDeleteEndpoint(ep.id)" title="Delete">✕</button>
                   </div>
                 </td>
               </tr>
@@ -342,6 +345,12 @@
         </div>
       </div>
     </div>
+
+    <!-- Slide-Out Inspector Drawer -->
+    <EndpointInspectorDrawer 
+      v-model:visible="inspectorVisible" 
+      :endpoint="inspectedEndpoint" 
+    />
   </div>
 </template>
 
@@ -357,6 +366,9 @@ import {
 } from '../services/api.js'
 import { user, isAdmin, loadUserFromStorage, clearUserState } from '../services/auth.js'
 import EndpointCard from '../components/EndpointCard.vue'
+import StatusBadge from '../components/StatusBadge.vue'
+import EndpointInspectorDrawer from '../components/EndpointInspectorDrawer.vue'
+import TelemetryExportPopover from '../components/TelemetryExportPopover.vue'
 import { useSSE } from '../composables/useSSE.js'
 
 const router = useRouter()
@@ -365,8 +377,17 @@ const endpoints = ref([])
 const loading = ref(false)
 const error = ref(null)
 const lastRefreshed = ref(null)
-const { sseConnected, subscribe } = useSSE()
+const { sseConnected, subscribe, onReconnect } = useSSE()
 let unsubscribeSSE = null
+let unsubscribeReconnect = null
+
+const inspectorVisible = ref(false)
+const inspectedEndpoint = ref(null)
+
+function openInspector(ep) {
+  inspectedEndpoint.value = ep
+  inspectorVisible.value = true
+}
 
 // View Mode: 'grid' | 'table'
 const viewMode = ref('grid')
@@ -558,22 +579,39 @@ const exportSelectedCSV = async () => {
   }
 }
 
-const fetchEndpoints = async () => {
+let isFetching = false
+const fetchEndpoints = async (isRetry = false) => {
+  if (isFetching) return
+  isFetching = true
   loading.value = true
-  error.value = null
+  if (!isRetry) {
+    error.value = null
+  }
   try {
     const response = await getEndpoints()
     endpoints.value = response.data.data || []
     lastRefreshed.value = new Date()
+    error.value = null
   } catch (err) {
+    if (err?.name === 'CanceledError' || err?.code === 'ERR_CANCELED') {
+      return
+    }
+    if (!isRetry && (!err.response || err.response.status >= 500)) {
+      console.warn('[DashboardView] Initial endpoint fetch failed, retrying in 500ms...', err)
+      isFetching = false
+      await new Promise((resolve) => setTimeout(resolve, 500))
+      return fetchEndpoints(true)
+    }
+    console.error('[DashboardView] Failed to fetch endpoints:', err)
     if (err.response?.status === 401) {
       clearUserState()
       router.push('/login')
     } else {
-      error.value = err.response?.data?.detail || err.response?.data?.error?.message || 'Failed to connect to backend engine.'
+      error.value = err.response?.data?.detail || err.response?.data?.error?.message || err.message || 'Failed to connect to backend engine.'
     }
   } finally {
     loading.value = false
+    isFetching = false
   }
 }
 
@@ -679,6 +717,11 @@ function initSSE() {
       // Heartbeat or non-json comment
     }
   })
+
+  unsubscribeReconnect = onReconnect(() => {
+    // FE-02: Auto-refetch when SSE reconnects after connection loss
+    fetchEndpoints()
+  })
 }
 
 onMounted(async () => {
@@ -689,6 +732,7 @@ onMounted(async () => {
 
 onUnmounted(() => {
   if (unsubscribeSSE) unsubscribeSSE()
+  if (unsubscribeReconnect) unsubscribeReconnect()
 })
 </script>
 
@@ -1009,6 +1053,34 @@ onUnmounted(() => {
 }
 
 @keyframes spin { to { transform: rotate(360deg); } }
+
+.table-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.btn-action {
+  background: transparent;
+  border: 1px solid var(--border-color, #374151);
+  color: var(--text-secondary, #9ca3af);
+  padding: 4px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+  transition: all 0.15s;
+}
+
+.btn-action:hover {
+  background: var(--bg-surface-hover, #1f2937);
+  color: var(--text-primary, #ffffff);
+}
+
+.btn-action.inspect:hover {
+  border-color: #3b82f6;
+  color: #3b82f6;
+}
 
 .alert-error {
   background: rgba(239, 68, 68, 0.1);

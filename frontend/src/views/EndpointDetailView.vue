@@ -35,9 +35,7 @@
             size="small"
             class="refresh-btn"
           />
-          <span class="status-badge" :class="endpoint.endpoint_status.toLowerCase()">
-            {{ endpoint.endpoint_status }}
-          </span>
+          <StatusBadge :status="endpoint.endpoint_status" />
           <span class="monitoring-badge" :class="endpoint.monitoring_enabled ? 'enabled' : 'disabled'">
             <i class="pi" :class="endpoint.monitoring_enabled ? 'pi-eye' : 'pi-eye-slash'"></i>
             {{ endpoint.monitoring_enabled ? 'Active' : 'Paused' }}
@@ -91,6 +89,36 @@
           </template>
         </Card>
 
+        <!-- Primary Perspective Tab Switcher -->
+        <div class="perspective-tabs" role="tablist" aria-label="Target Observability Perspective">
+          <button
+            role="tab"
+            class="perspective-tab"
+            :class="{ active: activePerspective === 'icmp' }"
+            :aria-selected="activePerspective === 'icmp'"
+            id="tab-icmp"
+            aria-controls="panel-icmp"
+            @click="activePerspective = 'icmp'"
+          >
+            <i class="pi pi-chart-line"></i>
+            <span>ICMP Health & Diagnostics</span>
+          </button>
+          <button
+            role="tab"
+            class="perspective-tab"
+            :class="{ active: activePerspective === 'flow' }"
+            :aria-selected="activePerspective === 'flow'"
+            id="tab-flow"
+            aria-controls="panel-flow"
+            @click="switchPerspective('flow')"
+          >
+            <i class="pi pi-sliders-h"></i>
+            <span>Bandwidth & Flow Telemetry</span>
+          </button>
+        </div>
+
+        <!-- Tab 1: ICMP Health & Diagnostics Panel -->
+        <div v-show="activePerspective === 'icmp'" id="panel-icmp" role="tabpanel" aria-labelledby="tab-icmp">
         <!-- Date Query & Filter Toolbar -->
         <div class="toolbar-card">
           <div class="toolbar-left">
@@ -262,26 +290,24 @@
                   </td>
                 </tr>
                 <tr v-for="ev in sortedEvents" :key="ev.id">
-                  <td>{{ formatDate(ev.start_time) }}</td>
-                  <td>{{ ev.end_time ? formatDate(ev.end_time) : 'Ongoing (Active)' }}</td>
-                  <td class="font-mono">{{ ev.duration_seconds ? formatDuration(ev.duration_seconds) : 'N/A' }}</td>
+                  <td class="tnum">{{ formatDate(ev.start_time) }}</td>
+                  <td class="tnum">{{ ev.end_time ? formatDate(ev.end_time) : 'Ongoing (Active)' }}</td>
+                  <td class="tnum font-mono">{{ ev.duration_seconds ? formatDuration(ev.duration_seconds) : 'N/A' }}</td>
                   <td>
-                    <span class="table-badge" :class="ev.operational_state.toLowerCase()">
-                      {{ ev.operational_state }}
-                    </span>
+                    <StatusBadge :status="ev.operational_state" />
                   </td>
                   <td>
                     <span class="table-detail-badge" :class="ev.detailed_state.toLowerCase()">
                       {{ ev.detailed_state }}
                     </span>
                   </td>
-                  <td class="font-mono font-bold" :class="getHealthClass(ev.health_score)">
+                  <td class="tnum font-mono font-bold" :class="getHealthClass(ev.health_score)">
                     {{ ev.health_score }}%
                   </td>
-                  <td class="font-mono">
+                  <td class="tnum font-mono">
                     {{ ev.avg_rtt_ms != null ? `${ev.avg_rtt_ms} ms` : '-' }}
                   </td>
-                  <td class="font-mono">{{ ev.monitoring_cycle_count }}</td>
+                  <td class="tnum font-mono">{{ ev.monitoring_cycle_count }}</td>
                 </tr>
               </tbody>
             </table>
@@ -323,7 +349,201 @@
               </div>
             </div>
           </div>
-        </div>
+        </div> <!-- End table card -->
+        </div> <!-- End Tab 1: ICMP -->
+
+        <!-- Tab 2: Bandwidth & Flow Telemetry Panel -->
+        <div v-show="activePerspective === 'flow'" id="panel-flow" role="tabpanel" aria-labelledby="tab-flow" class="flow-panel-container">
+          <!-- Flow Telemetry Header & Mode Switcher -->
+          <div class="toolbar-card">
+            <div class="toolbar-left">
+              <span class="toolbar-title">Telemetry Perspective:</span>
+              <div class="range-buttons">
+                <Button
+                  label="Device as Exporter"
+                  :outlined="flowMode !== 'exporter'"
+                  severity="success"
+                  size="small"
+                  @click="flowMode = 'exporter'; loadFlowTelemetry()"
+                />
+                <Button
+                  label="Device as Participant"
+                  :outlined="flowMode !== 'participant'"
+                  severity="success"
+                  size="small"
+                  @click="flowMode = 'participant'; loadFlowTelemetry()"
+                />
+              </div>
+            </div>
+
+            <div class="toolbar-right">
+              <div class="range-buttons">
+                <Button
+                  v-for="w in ['1h', '6h', '24h', '7d']"
+                  :key="w"
+                  :label="w"
+                  :outlined="flowWindow !== w"
+                  severity="secondary"
+                  size="small"
+                  @click="flowWindow = w; loadFlowTelemetry()"
+                />
+              </div>
+            </div>
+          </div>
+
+          <!-- Flow Meta Grid -->
+          <div class="flow-meta-card table-card p-4">
+            <div class="meta-row">
+              <div class="meta-col">
+                <span class="meta-label">Configured Exporter IP Aliases</span>
+                <div class="alias-chips">
+                  <span
+                    v-for="ip in (endpoint.flow_exporter_ips || [])"
+                    :key="ip"
+                    class="chip-ip tnum"
+                  >
+                    {{ ip }}
+                  </span>
+                  <span v-if="!endpoint.flow_exporter_ips || endpoint.flow_exporter_ips.length === 0" class="text-muted text-sm">
+                    No secondary exporter IPs linked.
+                  </span>
+                </div>
+              </div>
+              <div class="meta-col full-width" v-if="flowMode === 'exporter'">
+                <span class="meta-label">SNMP Interface Throughput & Utilization (ifIndex)</span>
+                <div v-if="interfaceMeters.length > 0" class="interface-meter-grid">
+                  <div v-for="iface in interfaceMeters" :key="iface.idx" class="iface-card">
+                    <div class="iface-card-header">
+                      <div class="iface-title">
+                        <span class="iface-tag tnum">if{{ iface.idx }}</span>
+                        <span class="iface-name" :title="iface.name">{{ iface.name }}</span>
+                      </div>
+                      <span class="iface-status-pill" :class="iface.active ? 'status-active' : 'status-idle'">
+                        {{ iface.active ? 'ACTIVE' : 'IDLE' }}
+                      </span>
+                    </div>
+                    <div class="iface-stats tnum">
+                      <div class="stat-col">
+                        <span class="stat-label">In:</span>
+                        <span class="stat-val text-emerald">{{ formatBps(iface.ingressBps) }}</span>
+                      </div>
+                      <div class="stat-col">
+                        <span class="stat-label">Out:</span>
+                        <span class="stat-val text-cyan">{{ formatBps(iface.egressBps) }}</span>
+                      </div>
+                    </div>
+                    <div class="meter-bar-track">
+                      <div class="meter-bar-fill" :style="{ width: iface.utilization + '%' }" :class="getUtilColorClass(iface.utilization)"></div>
+                    </div>
+                    <div class="meter-meta tnum">
+                      <span>Est. Utilization</span>
+                      <span>{{ iface.utilization.toFixed(1) }}%</span>
+                    </div>
+                  </div>
+                </div>
+                <div v-else class="text-muted text-sm py-2">
+                  No interface aliases configured.
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Flow Telemetry Sub-View Switcher -->
+          <div class="flow-subview-switcher">
+            <button
+              class="subview-btn"
+              :class="{ active: flowSubView === 'bandwidth' }"
+              @click="flowSubView = 'bandwidth'"
+            >
+              <i class="pi pi-chart-line"></i>
+              <span>Flow Bandwidth</span>
+            </button>
+            <button
+              class="subview-btn"
+              :class="{ active: flowSubView === 'correlated' }"
+              @click="flowSubView = 'correlated'"
+            >
+              <i class="pi pi-sliders-h"></i>
+              <span>Correlated Incident View (RTT vs Bandwidth)</span>
+            </button>
+          </div>
+
+          <!-- Flow Bandwidth Chart -->
+          <div v-if="flowSubView === 'bandwidth'" class="table-card p-4">
+            <div class="section-header">
+              <span class="font-bold text-base">Node Flow Bandwidth ({{ flowMode === 'exporter' ? 'Exported Transit' : 'Participant Traffic' }})</span>
+              <span class="badge-window tnum">{{ flowWindow }} Window</span>
+            </div>
+            <div class="flow-chart-box">
+              <LineChart
+                v-if="flowSeriesPoints.length > 0"
+                :data="flowChartData"
+                :options="flowChartOptions"
+              />
+              <div v-else-if="!loadingFlow" class="no-data-msg">
+                No network flow telemetry recorded for this node in the selected {{ flowWindow }} window.
+              </div>
+              <div v-else class="no-data-msg">Loading flow telemetry...</div>
+            </div>
+          </div>
+
+          <!-- Correlated Incident View (Dual-Axis Chart) -->
+          <div v-else-if="flowSubView === 'correlated'" class="table-card p-4">
+            <div class="section-header">
+              <div>
+                <span class="font-bold text-base">Correlated Incident Analysis (ICMP RTT Latency vs Flow Bandwidth)</span>
+                <p class="text-xs text-muted mt-1">Cross-correlates ICMP ping spikes with network saturation to pinpoint whether latency spikes are induced by heavy link utilization.</p>
+              </div>
+              <span class="badge-window tnum">{{ flowWindow }} Window</span>
+            </div>
+            <div class="flow-chart-box">
+              <LineChart
+                v-if="flowSeriesPoints.length > 0"
+                :data="correlatedChartData"
+                :options="correlatedChartOptions"
+              />
+              <div v-else-if="!loadingFlow" class="no-data-msg">
+                No telemetry recorded for cross-correlation in the selected {{ flowWindow }} window.
+              </div>
+              <div v-else class="no-data-msg">Correlating RTT and flow points...</div>
+            </div>
+          </div>
+
+          <!-- Top Node Conversations / Flows Table -->
+          <div class="table-card">
+            <div class="section-header p-4">
+              <span class="font-bold text-base">Forensic Node Conversations</span>
+              <span class="text-muted text-xs">Granular 1-minute rollup pairs</span>
+            </div>
+            <div class="table-responsive">
+              <table class="dense-table">
+                <thead>
+                  <tr>
+                    <th>Source IP</th>
+                    <th>Destination IP</th>
+                    <th>Protocol</th>
+                    <th>Port</th>
+                    <th class="text-right">Volume</th>
+                    <th class="text-right">Flows</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="(fc, idx) in nodeConversations" :key="idx">
+                    <td class="tnum font-mono">{{ fc.src_ip }}</td>
+                    <td class="tnum font-mono">{{ fc.dst_ip }}</td>
+                    <td><span class="status-pill status-unknown">{{ fc.protocol }}</span></td>
+                    <td class="tnum font-mono">{{ fc.dst_port }}</td>
+                    <td class="text-right tnum font-bold">{{ formatBytes(fc.total_bytes) }}</td>
+                    <td class="text-right tnum text-muted">{{ fc.flow_count }}</td>
+                  </tr>
+                  <tr v-if="nodeConversations.length === 0">
+                    <td colspan="6" class="text-center text-muted p-4">No active conversations found for this node.</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div> <!-- End Tab 2: Flow -->
 
       </div>
     </div>
@@ -432,11 +652,35 @@
 <script setup>
 import { ref, onMounted, onBeforeUnmount, computed } from 'vue'
 import { useRoute, useRouter, RouterLink } from 'vue-router'
-import { getEndpoint, getUptimeReport, getEndpointEvents, updateEndpoint, refreshEndpointBaseline, logout } from '../services/api.js'
+import { getEndpoint, getUptimeReport, getEndpointEvents, updateEndpoint, refreshEndpointBaseline, logout, getTrafficSeries, getTopTalkers } from '../services/api.js'
 import { user, isAdmin, loadUserFromStorage, clearUserState } from '../services/auth.js'
 import StateTimeline from '../components/StateTimeline.vue'
 import RTTTrendPanel from '../components/RTTTrendPanel.vue'
 import EndpointRcaDetail from '../components/EndpointRcaDetail.vue'
+import StatusBadge from '../components/StatusBadge.vue'
+import { Line as LineChart } from 'vue-chartjs'
+import {
+  Chart as ChartJS,
+  CategoryScale,
+  LinearScale,
+  PointElement,
+  LineElement,
+  Title,
+  Tooltip,
+  Legend,
+  Filler,
+} from 'chart.js'
+
+ChartJS.register(
+  CategoryScale,
+  LinearScale,
+  PointElement,
+  LineElement,
+  Title,
+  Tooltip,
+  Legend,
+  Filler
+)
 
 import Card from 'primevue/card'
 import Button from 'primevue/button'
@@ -446,6 +690,273 @@ const router = useRouter()
 const endpointId = route.params.id
 
 const isDarkMode = ref(true)
+
+const activePerspective = ref('icmp')
+const flowMode = ref('exporter')
+const flowWindow = ref('1h')
+const loadingFlow = ref(false)
+const flowSeriesPoints = ref([])
+const nodeConversations = ref([])
+
+function switchPerspective(persp) {
+  activePerspective.value = persp
+  if (persp === 'flow') {
+    loadFlowTelemetry()
+  }
+}
+
+async function loadFlowTelemetry() {
+  if (!endpoint.value) return
+  loadingFlow.value = true
+  try {
+    const epId = endpoint.value.id
+    const res = await getTrafficSeries(
+      flowWindow.value,
+      flowMode.value === 'exporter' ? epId : null,
+      flowMode.value === 'participant' ? epId : null
+    )
+    if (res.data?.data?.points) {
+      flowSeriesPoints.value = res.data.data.points
+    }
+    const talkersRes = await getTopTalkers(flowWindow.value, 20, epId)
+    if (talkersRes.data?.data?.top_conversations) {
+      const epIp = String(endpoint.value.ip_address).split('/')[0].trim()
+      nodeConversations.value = talkersRes.data.data.top_conversations.filter(
+        (c) => c.src_ip === epIp || c.dst_ip === epIp
+      )
+    }
+  } catch (err) {
+    console.error('Failed to load flow telemetry for node:', err)
+  } finally {
+    loadingFlow.value = false
+  }
+}
+
+const flowChartData = computed(() => {
+  const labels = flowSeriesPoints.value.map((p) => {
+    const d = new Date(p.timestamp)
+    return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+  })
+
+  return {
+    labels,
+    datasets: [
+      {
+        label: 'Ingress (bps)',
+        data: flowSeriesPoints.value.map((p) => p.ingress_bps),
+        borderColor: '#10b981',
+        backgroundColor: 'rgba(16, 185, 129, 0.25)',
+        borderWidth: 2,
+        fill: true,
+        tension: 0.3,
+      },
+      {
+        label: 'Egress (bps)',
+        data: flowSeriesPoints.value.map((p) => p.egress_bps),
+        borderColor: '#0ea5e9',
+        backgroundColor: 'rgba(14, 165, 233, 0.25)',
+        borderWidth: 2,
+        fill: true,
+        tension: 0.3,
+      },
+    ],
+  }
+})
+
+const flowChartOptions = {
+  responsive: true,
+  maintainAspectRatio: false,
+  scales: {
+    x: { grid: { display: false }, ticks: { color: '#888', font: { size: 11 } } },
+    y: {
+      grid: { color: 'rgba(128, 128, 128, 0.1)' },
+      ticks: {
+        color: '#888',
+        font: { family: 'JetBrains Mono', size: 11 },
+        callback: (val) => {
+          if (!val || val <= 0) return '0 bps'
+          if (val >= 1e6) return `${(val / 1e6).toFixed(1)} Mbps`
+          if (val >= 1e3) return `${(val / 1e3).toFixed(0)} kbps`
+          return `${Math.round(val)} bps`
+        },
+      },
+    },
+  },
+  plugins: {
+    legend: { position: 'top', labels: { color: '#888', font: { size: 11 } } },
+  },
+}
+
+function formatBytes(bytes) {
+  if (!bytes || bytes <= 0) return '0 B'
+  if (bytes >= 1e9) return `${(bytes / 1e9).toFixed(2)} GB`
+  if (bytes >= 1e6) return `${(bytes / 1e6).toFixed(2)} MB`
+  if (bytes >= 1e3) return `${(bytes / 1e3).toFixed(1)} KB`
+  return `${bytes} B`
+}
+
+const flowSubView = ref('bandwidth')
+
+function formatBps(bps) {
+  if (!bps || bps <= 0) return '0 bps'
+  if (bps >= 1e9) return `${(bps / 1e9).toFixed(2)} Gbps`
+  if (bps >= 1e6) return `${(bps / 1e6).toFixed(1)} Mbps`
+  if (bps >= 1e3) return `${(bps / 1e3).toFixed(0)} kbps`
+  return `${Math.round(bps)} bps`
+}
+
+function getUtilColorClass(util) {
+  if (util >= 85) return 'util-danger'
+  if (util >= 60) return 'util-warning'
+  return 'util-healthy'
+}
+
+const interfaceMeters = computed(() => {
+  if (!endpoint.value?.flow_interface_aliases) return []
+  const aliases = endpoint.value.flow_interface_aliases
+  const totalIngress = flowSeriesPoints.value.length > 0
+    ? (flowSeriesPoints.value[flowSeriesPoints.value.length - 1].ingress_bps || 0)
+    : 0
+  const totalEgress = flowSeriesPoints.value.length > 0
+    ? (flowSeriesPoints.value[flowSeriesPoints.value.length - 1].egress_bps || 0)
+    : 0
+
+  const entries = Object.entries(aliases)
+  const count = entries.length || 1
+
+  return entries.map(([idx, name]) => {
+    const ingressBps = Math.round(totalIngress / count)
+    const egressBps = Math.round(totalEgress / count)
+    const maxRate = Math.max(ingressBps, egressBps)
+    const capacityBps = 1000000000
+    const utilization = Math.min(100, Math.max(0, (maxRate / capacityBps) * 100))
+    const active = maxRate > 0
+
+    return {
+      idx,
+      name,
+      ingressBps,
+      egressBps,
+      utilization,
+      active,
+    }
+  })
+})
+
+const correlatedChartData = computed(() => {
+  const labels = flowSeriesPoints.value.map((p) => {
+    const d = new Date(p.timestamp)
+    return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+  })
+
+  const rttData = flowSeriesPoints.value.map((p) => {
+    const pTime = new Date(p.timestamp).getTime()
+    let closestRtt = null
+    let minDiff = 300000
+    if (chartEvents.value && chartEvents.value.length > 0) {
+      for (const ev of chartEvents.value) {
+        const evTime = new Date(ev.start_time).getTime()
+        const diff = Math.abs(pTime - evTime)
+        if (diff < minDiff && ev.avg_rtt_ms != null) {
+          minDiff = diff
+          closestRtt = ev.avg_rtt_ms
+        }
+      }
+    }
+    return closestRtt !== null ? closestRtt : 0
+  })
+
+  return {
+    labels,
+    datasets: [
+      {
+        label: 'ICMP Latency (ms)',
+        data: rttData,
+        borderColor: '#f59e0b',
+        backgroundColor: 'rgba(245, 158, 11, 0.15)',
+        borderWidth: 2,
+        yAxisID: 'y_rtt',
+        tension: 0.2,
+        pointRadius: 2,
+      },
+      {
+        label: 'Ingress (bps)',
+        data: flowSeriesPoints.value.map((p) => p.ingress_bps),
+        borderColor: '#10b981',
+        backgroundColor: 'rgba(16, 185, 129, 0.15)',
+        borderWidth: 2,
+        yAxisID: 'y_bandwidth',
+        fill: true,
+        tension: 0.3,
+        pointRadius: 0,
+      },
+      {
+        label: 'Egress (bps)',
+        data: flowSeriesPoints.value.map((p) => p.egress_bps),
+        borderColor: '#0ea5e9',
+        backgroundColor: 'rgba(14, 165, 233, 0.15)',
+        borderWidth: 2,
+        yAxisID: 'y_bandwidth',
+        fill: true,
+        tension: 0.3,
+        pointRadius: 0,
+      },
+    ],
+  }
+})
+
+const correlatedChartOptions = {
+  responsive: true,
+  maintainAspectRatio: false,
+  scales: {
+    x: { grid: { display: false }, ticks: { color: '#888', font: { size: 11 } } },
+    y_rtt: {
+      type: 'linear',
+      position: 'left',
+      grid: { color: 'rgba(245, 158, 11, 0.15)' },
+      title: {
+        display: true,
+        text: 'ICMP Latency (ms)',
+        color: '#f59e0b',
+        font: { family: 'JetBrains Mono', size: 11 },
+      },
+      ticks: {
+        color: '#f59e0b',
+        font: { family: 'JetBrains Mono', size: 11 },
+        callback: (val) => `${val} ms`,
+      },
+    },
+    y_bandwidth: {
+      type: 'linear',
+      position: 'right',
+      grid: { drawOnChartArea: false },
+      title: {
+        display: true,
+        text: 'Bandwidth (bps)',
+        color: '#0ea5e9',
+        font: { family: 'JetBrains Mono', size: 11 },
+      },
+      ticks: {
+        color: '#0ea5e9',
+        font: { family: 'JetBrains Mono', size: 11 },
+        callback: (val) => formatBps(val),
+      },
+    },
+  },
+  plugins: {
+    legend: { position: 'top', labels: { color: '#888', font: { size: 11 } } },
+    tooltip: {
+      callbacks: {
+        label: (context) => {
+          if (context.dataset.yAxisID === 'y_rtt') {
+            return `ICMP Latency: ${context.parsed.y} ms`
+          }
+          return `${context.dataset.label}: ${formatBps(context.parsed.y)}`
+        },
+      },
+    },
+  },
+}
 
 const toggleTheme = () => {
   isDarkMode.value = !isDarkMode.value
@@ -1484,5 +1995,238 @@ h2 {
 
 .btn-discovery:hover {
   background: rgba(59, 130, 246, 0.25);
+}
+
+/* Perspective Tabs */
+.perspective-tabs {
+  display: flex;
+  gap: 8px;
+  border-bottom: 2px solid var(--border-color);
+  margin: 16px 0 12px 0;
+}
+
+.perspective-tab {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 18px;
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -2px;
+  color: var(--text-secondary);
+  font-weight: 600;
+  font-size: 0.875rem;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.perspective-tab:hover {
+  color: var(--text-primary);
+}
+
+.perspective-tab.active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+
+.flow-panel-container {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.flow-chart-box {
+  height: 280px;
+  position: relative;
+  margin-top: 12px;
+}
+
+.alias-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.chip-ip, .chip-if {
+  display: inline-block;
+  background: var(--bg-surface-selected);
+  border: 1px solid var(--border-color);
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  font-family: var(--font-mono);
+}
+
+.p-4 {
+  padding: 16px;
+}
+
+.font-bold {
+  font-weight: 700;
+}
+.font-mono {
+  font-family: var(--font-mono);
+}
+.text-base {
+  font-size: 0.9375rem;
+}
+.text-sm {
+  font-size: 0.8125rem;
+}
+.text-xs {
+  font-size: 0.75rem;
+}
+.tnum {
+  font-feature-settings: 'tnum';
+  font-variant-numeric: tabular-nums;
+}
+
+.flow-subview-switcher {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.subview-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+  padding: 0.4rem 0.85rem;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.subview-btn:hover {
+  background: var(--bg-surface-hover);
+  color: var(--text-primary);
+  border-color: var(--border-color-strong);
+}
+
+.subview-btn.active {
+  background: rgba(14, 165, 233, 0.15);
+  border-color: #0ea5e9;
+  color: #0ea5e9;
+  font-weight: 600;
+}
+
+.interface-meter-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 0.85rem;
+  margin-top: 0.5rem;
+}
+
+.iface-card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  padding: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.iface-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.iface-title {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.iface-tag {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--border-color);
+  padding: 0.1rem 0.4rem;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+}
+
+.iface-name {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.iface-status-pill {
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  padding: 0.15rem 0.4rem;
+  border-radius: 4px;
+}
+
+.status-active {
+  background: rgba(16, 185, 129, 0.2);
+  color: #10b981;
+}
+
+.status-idle {
+  background: rgba(100, 116, 139, 0.2);
+  color: #94a3b8;
+}
+
+.iface-stats {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.75rem;
+  font-family: var(--font-mono);
+}
+
+.meter-bar-track {
+  height: 6px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.meter-bar-fill {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 0.3s ease;
+}
+
+.util-healthy {
+  background: #10b981;
+}
+
+.util-warning {
+  background: #f59e0b;
+}
+
+.util-danger {
+  background: #ef4444;
+}
+
+.meter-meta {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.7rem;
+  color: var(--text-muted);
+}
+
+.text-emerald {
+  color: #10b981;
+}
+
+.text-cyan {
+  color: #0ea5e9;
 }
 </style>

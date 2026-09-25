@@ -8,7 +8,8 @@ from app.routers.reports import telemetry_router
 
 def test_readable_password_format():
     password = generate_readable_password()
-    assert re.match(r"^[A-Z][a-z]+-\d{3}$", password), f"Unexpected format: {password}"
+    assert len(password) >= 21, f"Expected high-entropy password of length >= 21, got: {len(password)}"
+    assert re.match(r"^[A-Za-z0-9_-]+$", password), f"Unexpected format: {password}"
 
 
 def test_telemetry_router_prefix():

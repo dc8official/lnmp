@@ -423,7 +423,7 @@ function toggleLayoutDirection() {
         }
       },
       physics: {
-        enabled: true,
+        enabled: (nodesDataSet ? nodesDataSet.length : 0) <= 250,
         hierarchicalRepulsion: {
           centralGravity: 0.0,
           springLength: 140,
@@ -432,13 +432,15 @@ function toggleLayoutDirection() {
           damping: 0.09
         },
         stabilization: {
-          enabled: true,
-          iterations: 200
+          enabled: (nodesDataSet ? nodesDataSet.length : 0) <= 250,
+          iterations: (nodesDataSet ? nodesDataSet.length : 0) <= 250 ? 200 : 0
         }
       }
     }
     network.setOptions(opts)
-    network.stabilize(200)
+    if ((nodesDataSet ? nodesDataSet.length : 0) <= 250) {
+      network.stabilize(200)
+    }
   }
 }
 
@@ -459,6 +461,7 @@ async function fetchTopology() {
 
       await nextTick()
 
+      const isLargeGraph = visNodes.length > 250
       const options = {
         nodes: { borderWidth: 2 },
         edges: { width: 2 },
@@ -467,15 +470,15 @@ async function fetchTopology() {
             enabled: true,
             direction: layoutDirection.value,
             sortMethod: 'directed',
-            edgeMinimization: true,
+            edgeMinimization: !isLargeGraph,
             blockShifting: true,
             parentCentralization: true,
-            nodeSpacing: 220,
-            levelSeparation: 180
+            nodeSpacing: isLargeGraph ? 180 : 220,
+            levelSeparation: isLargeGraph ? 150 : 180
           }
         },
         physics: {
-          enabled: true,
+          enabled: !isLargeGraph,
           hierarchicalRepulsion: {
             centralGravity: 0.0,
             springLength: 140,
@@ -484,8 +487,8 @@ async function fetchTopology() {
             damping: 0.09
           },
           stabilization: {
-            enabled: true,
-            iterations: 200
+            enabled: !isLargeGraph,
+            iterations: isLargeGraph ? 0 : 200
           }
         },
         interaction: {
@@ -497,10 +500,14 @@ async function fetchTopology() {
 
       network = new Network(container.value, { nodes: nodesDataSet, edges: edgesDataSet }, options)
 
-      network.on('stabilizationIterationsDone', () => {
-        network.setOptions({ physics: { enabled: false } })
+      if (isLargeGraph) {
         stabilized.value = true
-      })
+      } else {
+        network.on('stabilizationIterationsDone', () => {
+          network.setOptions({ physics: { enabled: false } })
+          stabilized.value = true
+        })
+      }
 
       network.on('click', (params) => {
         if (params.nodes && params.nodes.length > 0) {
@@ -537,6 +544,7 @@ function initSSE() {
   unsubscribeSSE = subscribe((event) => {
     if (!event.data) return
     try {
+      const payload = JSON.parse(event.data)
       const isNodeStateChange = payload.type === 'NODE_STATE_CHANGE'
       const isStateTransition = payload.type === 'STATE_TRANSITION'
       if ((isNodeStateChange || isStateTransition) && payload.endpoint_id && nodesDataSet) {

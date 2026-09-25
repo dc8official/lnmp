@@ -41,6 +41,20 @@ class SessionStore(ABC):
     async def invalidate_all_user_sessions(self, user_id: str) -> None:
         pass
 
+    @abstractmethod
+    async def record_failed_attempt(
+        self, client_ip: str, username: str, max_attempts: int = 5, lockout_seconds: int = 900
+    ) -> None:
+        pass
+
+    @abstractmethod
+    async def is_account_locked(self, client_ip: str, username: str) -> bool:
+        pass
+
+    @abstractmethod
+    async def clear_failed_attempts(self, client_ip: str, username: str) -> None:
+        pass
+
 
 class PostgresSessionStore(SessionStore):
     """
@@ -180,6 +194,20 @@ class PostgresSessionStore(SessionStore):
                 await db.rollback()
                 logger.error("PostgresSessionStore.invalidate_all_user_sessions error: %s", e)
 
+    async def record_failed_attempt(
+        self, client_ip: str, username: str, max_attempts: int = 5, lockout_seconds: int = 900
+    ) -> None:
+        from app.services.auth_service import record_failed_attempt as sync_record
+        sync_record(client_ip, username)
+
+    async def is_account_locked(self, client_ip: str, username: str) -> bool:
+        from app.services.auth_service import is_account_locked as sync_is_locked
+        return sync_is_locked(client_ip, username)
+
+    async def clear_failed_attempts(self, client_ip: str, username: str) -> None:
+        from app.services.auth_service import clear_failed_attempts as sync_clear
+        sync_clear(client_ip, username)
+
 
 class RedisSessionStore(SessionStore):
     """
@@ -250,3 +278,144 @@ class RedisSessionStore(SessionStore):
         except Exception as e:
             logger.error("RedisSessionStore.invalidate_all_user_sessions error: %s", e)
             raise
+
+    def _get_lockout_keys(self, client_ip: str, username: str) -> tuple[str, str]:
+        ip = client_ip.strip() if client_ip else "127.0.0.1"
+        user = username.strip().lower() if username else ""
+        return f"auth:failed:{ip}:{user}", f"auth:locked:{ip}:{user}"
+
+    async def record_failed_attempt(
+        self, client_ip: str, username: str, max_attempts: int = 5, lockout_seconds: int = 900
+    ) -> None:
+        failed_key, locked_key = self._get_lockout_keys(client_ip, username)
+        try:
+            count = await self.redis.incr(failed_key)
+            if count == 1:
+                await self.redis.expire(failed_key, 1800)
+            if count >= max_attempts:
+                await self.redis.set(locked_key, "1", ex=lockout_seconds)
+        except Exception as e:
+            logger.error("RedisSessionStore.record_failed_attempt error: %s", e)
+
+    async def is_account_locked(self, client_ip: str, username: str) -> bool:
+        _, locked_key = self._get_lockout_keys(client_ip, username)
+        try:
+            res = await self.redis.exists(locked_key)
+            return bool(res)
+        except Exception as e:
+            logger.error("RedisSessionStore.is_account_locked error: %s", e)
+            return False
+
+    async def clear_failed_attempts(self, client_ip: str, username: str) -> None:
+        failed_key, locked_key = self._get_lockout_keys(client_ip, username)
+        try:
+            await self.redis.delete(failed_key, locked_key)
+        except Exception as e:
+            logger.error("RedisSessionStore.clear_failed_attempts error: %s", e)
+
+
+async def migrate_sessions_pg_to_redis(session_factory, redis_client) -> int:
+    """
+    Warm-migrates active unexpired user sessions from PostgreSQL to Redis.
+    Preserves existing session lifetimes so active users remain authenticated across driver switches.
+    """
+    now = datetime.now(timezone.utc)
+    count = 0
+    try:
+        async with session_factory() as db:
+            stmt = (
+                select(UserSession)
+                .where(UserSession.expires_at > now)
+                .order_by(UserSession.created_at.asc())
+            )
+            res = await db.execute(stmt)
+            sessions = res.scalars().all()
+
+            user_map: dict[str, list[UserSession]] = {}
+            for s in sessions:
+                u_id = str(s.user_id)
+                user_map.setdefault(u_id, []).append(s)
+
+            for u_id, sess_list in user_map.items():
+                key = f"user_sessions:{u_id}"
+                jtis = [s.jti for s in sess_list if s.jti]
+                if not jtis:
+                    continue
+                max_exp = max(s.expires_at for s in sess_list)
+                ttl = int((max_exp - now).total_seconds())
+                if ttl > 0:
+                    await redis_client.set(key, json.dumps(jtis), ex=ttl)
+                    count += len(jtis)
+        logger.info(
+            "Warm session migration: Migrated %d active session(s) from PostgreSQL to Redis.",
+            count,
+        )
+    except Exception as exc:
+        logger.warning(
+            "Warm session migration (PostgreSQL -> Redis) encountered an error: %s",
+            exc,
+        )
+    return count
+
+
+async def migrate_sessions_redis_to_pg(redis_client, session_factory) -> int:
+    """
+    Warm-migrates active user sessions from Redis into PostgreSQL user_sessions.
+    Ensures active sessions remain valid during Redis-to-PostgreSQL fallback or driver switch.
+    """
+    now = datetime.now(timezone.utc)
+    count = 0
+    try:
+        async with session_factory() as db:
+            async for key in redis_client.scan_iter(match="user_sessions:*"):
+                key_str = key.decode("utf-8") if isinstance(key, bytes) else str(key)
+                parts = key_str.split(":", 1)
+                if len(parts) != 2:
+                    continue
+                user_id_str = parts[1]
+                try:
+                    u_uuid = UUID(user_id_str)
+                except (ValueError, TypeError):
+                    continue
+
+                raw = await redis_client.get(key)
+                if not raw:
+                    continue
+                jtis = json.loads(raw)
+                if not isinstance(jtis, list):
+                    continue
+
+                ttl = await redis_client.ttl(key)
+                ttl_sec = ttl if ttl > 0 else 86400
+                exp = now + timedelta(seconds=ttl_sec)
+
+                for jti in jtis:
+                    if not jti:
+                        continue
+                    stmt = select(UserSession.id).where(
+                        UserSession.user_id == u_uuid,
+                        UserSession.jti == jti,
+                        UserSession.expires_at > now,
+                    ).limit(1)
+                    res = await db.execute(stmt)
+                    if res.scalar_one_or_none() is None:
+                        new_sess = UserSession(
+                            user_id=u_uuid,
+                            jti=jti,
+                            created_at=now,
+                            expires_at=exp,
+                        )
+                        db.add(new_sess)
+                        count += 1
+            await db.commit()
+        logger.info(
+            "Warm session migration: Migrated %d active session(s) from Redis to PostgreSQL.",
+            count,
+        )
+    except Exception as exc:
+        logger.warning(
+            "Warm session migration (Redis -> PostgreSQL) encountered an error: %s",
+            exc,
+        )
+    return count
+

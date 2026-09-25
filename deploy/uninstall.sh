@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# LNMP Network Monitoring Platform v3.1.1s - Decommission / Uninstall Utility
+# LNMP Network Monitoring Platform v3.2.0 - Decommission / Uninstall Utility
 # ==============================================================================
 
 set -euo pipefail
@@ -19,7 +19,7 @@ if [[ ${EUID} -ne 0 ]]; then
 fi
 
 echo -e "${RED}========================================================================${NC}"
-echo -e "${RED}    LNMP Network Monitoring Platform v3.1.1s - Decommission / Uninstall  ${NC}"
+echo -e "${RED}    LNMP Network Monitoring Platform v3.2.0 - Decommission / Uninstall    ${NC}"
 echo -e "${RED}========================================================================${NC}"
 echo -e "${YELLOW}WARNING: This utility will stop and remove all LNMP system services,${NC}"
 echo -e "${YELLOW}disable background monitoring daemons, and remove web server routes.${NC}"
@@ -67,11 +67,12 @@ fi
 
 # 2. Stop and Disable Systemd Services
 echo -e "\n${BLUE}--- Step 2/4: Stopping & Removing Systemd Services ---${NC}"
-systemctl stop netmon-api netmon-engine 2>/dev/null || true
-systemctl disable netmon-api netmon-engine 2>/dev/null || true
+systemctl stop netmon-api netmon-engine netmon-flowd 2>/dev/null || true
+systemctl disable netmon-api netmon-engine netmon-flowd 2>/dev/null || true
 
 rm -f /etc/systemd/system/netmon-api.service
 rm -f /etc/systemd/system/netmon-engine.service
+rm -f /etc/systemd/system/netmon-flowd.service
 systemctl daemon-reload
 echo -e "${GREEN}[SUCCESS] LNMP background services disabled and removed from systemd.${NC}"
 
@@ -93,6 +94,6 @@ if [[ "${REMOVE_FILES,,}" == "y" || "${REMOVE_FILES,,}" == "yes" ]]; then
 fi
 
 echo -e "\n${GREEN}========================================================================${NC}"
-echo -e "${GREEN}   [UNINSTALL COMPLETE] LNMP v3.1.1s platform decommissioned.           ${NC}"
+echo -e "${GREEN}   [UNINSTALL COMPLETE] LNMP v3.2.0 platform decommissioned.             ${NC}"
 echo -e "${GREEN}   Safety Database Backup Retained At: ${FINAL_BACKUP}${NC}"
 echo -e "${GREEN}========================================================================${NC}"

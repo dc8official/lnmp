@@ -24,10 +24,10 @@
 
     <div class="card-body">
       <div class="status-row">
-        <span class="status-pill" :class="statusClass">
-          <span class="status-dot"></span>
-          {{ endpoint.current_detailed_state || endpoint.current_operational_state || 'UNKNOWN' }}
-        </span>
+        <StatusBadge 
+          :status="endpoint.current_detailed_state || endpoint.current_operational_state || 'UNKNOWN'"
+          size="sm"
+        />
         <span class="card-latency font-mono tnum" v-if="endpoint.avg_rtt_ms != null">
           {{ endpoint.avg_rtt_ms.toFixed(1) }} ms
         </span>
@@ -54,6 +54,7 @@
 
 <script setup>
 import { computed } from 'vue'
+import StatusBadge from './StatusBadge.vue'
 
 const props = defineProps({
   endpoint: { type: Object, required: true },

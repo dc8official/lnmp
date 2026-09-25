@@ -1,6 +1,6 @@
-# LNMP API Reference — Version 3.1.1s
+# LNMP API Reference — Version 3.2.0
 
-The LNMP (Network Monitoring Platform) v3.1.1s exposes a RESTful and Server-Sent Events (SSE) API built on FastAPI. The API is located under the `/api/v1` base path and requires JWT Bearer authentication or HttpOnly session cookies for protected endpoints.
+The LNMP (Network Monitoring Platform) v3.2.0 exposes a RESTful and Server-Sent Events (SSE) API built on FastAPI. The API is located under the `/api/v1` base path and requires JWT Bearer authentication or HttpOnly session cookies for protected endpoints.
 
 ## Base URL
 `http(s)://<server-ip>:<port>/api/v1`
@@ -15,12 +15,12 @@ Returns the current platform version metadata.
   ```json
   {
     "status": "ok",
-    "version": "3.1.1s"
+    "version": "3.2.0"
   }
   ```
 
 ### `GET /api/v1/health`
-Performs system health check (database connection, monitoring engine status). Returns `{"status": "ok", "version": "3.1.1s"}`.
+Performs system health check (database connection, monitoring engine status). Returns `{"status": "ok", "version": "3.2.0"}`.
 
 ### `GET /api/v1/events/stream`
 Connects to the real-time Server-Sent Events (SSE) telemetry stream.
@@ -92,10 +92,17 @@ Onboards a new endpoint for monitoring with optional synthetic probe configurati
   ```
 
 ### `GET /endpoints/{id}`
-Retrieves detailed information, status, and baseline metrics for a specific endpoint.
+Retrieves detailed information, status, baseline metrics, secondary exporter IP addresses (`flow_exporter_ips`), and interface aliases (`flow_interface_aliases`) for a specific endpoint.
 
 ### `PATCH /endpoints/{id}`
-Updates configuration flags or properties for an endpoint. Synchronizes changes directly with the in-memory `EndpointRegistry`.
+Updates configuration flags or properties for an endpoint. Synchronizes changes directly with the in-memory `EndpointRegistry` and flow correlator routing table.
+- **Request Body:** Accepts optional fields:
+  - `hostname` (string)
+  - `ip_address` (string)
+  - `device_type` (string: `ENDPOINT`, `TRANSIT_ROUTER`, `L2_SEGMENT`, `FIREWALL`, `SWITCH`)
+  - `location` (string)
+  - `flow_exporter_ips` (array of strings, e.g. `["192.168.100.1", "10.0.0.254"]`): Secondary exporter IP addresses aliased to this endpoint.
+  - `flow_interface_aliases` (object, e.g. `{"1": "WAN-Fiber", "2": "LAN-Trunk"}`): Mapping SNMP `ifIndex` to human-readable labels.
 
 ### `DELETE /endpoints/{id}`
 Removes an endpoint from monitoring and deregisters it from the polling engine.
@@ -237,7 +244,15 @@ Retrieves the active system configuration from the database.
     "lockout_threshold": 5,
     "lockoutThreshold": 5,
     "alerting_enabled": true,
-    "alertingEnabled": true
+    "alertingEnabled": true,
+    "flow_ingestion_enabled": true,
+    "flowIngestionEnabled": true,
+    "flow_netflow_port": 2055,
+    "flowNetflowPort": 2055,
+    "flow_ipfix_port": 4739,
+    "flowIpfixPort": 4739,
+    "flow_sampling_multiplier": 1,
+    "flowSamplingMultiplier": 1
   }
   ```
 
@@ -249,6 +264,28 @@ Updates runtime parameters (requires `Admin` role).
   - `l2_auto_bypass` (bool, optional): Controls Layer-2 direct ICMP diagnostic bypass.
   - `session_timeout` (int, 1–1440 min): Idle session expiration duration.
   - `lockout_threshold` (int, 1–100): Maximum failed attempts before IP lockout.
+  - `flow_ingestion_enabled` (bool, optional): Master toggle for passive NetFlow/IPFIX collection.
+  - `flow_netflow_port` (int, 1–65535, optional): NetFlow UDP listening port (default: 2055).
+  - `flow_ipfix_port` (int, 1–65535, optional): IPFIX UDP listening port (default: 4739).
+  - `flow_sampling_multiplier` (int, >= 1, optional): Hardware packet sampling multiplier (e.g. 1000 for 1-in-1000 sampling).
+
+### `GET /settings/flow/preflight`
+Performs live pre-flight verification of Redis connectivity and Stream capabilities prior to enabling passive flow ingestion.
+- **Response:** `200 OK`
+  ```json
+  {
+    "success": true,
+    "data": {
+      "redis_connected": true,
+      "redis_version": "7.0.15",
+      "redis_version_supported": true,
+      "stream_write_success": true,
+      "ready": true,
+      "message": "Redis v7.0.15 ready with Stream support."
+    },
+    "message": "Request processed successfully."
+  }
+  ```
 
 ---
 
@@ -270,3 +307,164 @@ Updates a user account role (`ADMIN` / `VIEWER`) or active status.
 
 ### `DELETE /users/{id}`
 Deactivates or deletes a user account.
+
+---
+
+## 9. Network Flow & Bandwidth Telemetry (`/bandwidth`)
+
+High-precision passive telemetry endpoints for fleet-wide bandwidth analysis, top talkers, application protocol distribution, exporter health, and conversation drilling.
+
+### `GET /bandwidth/overview`
+Retrieves fleet-wide real-time Ingress/Egress bandwidth in bits per second (bps), active exporter count, total flow count, and detected unmatched candidates over the last 5 minutes.
+- **Response:** `200 OK`
+  ```json
+  {
+    "success": true,
+    "data": {
+      "total_ingress_bps": 45210340.50,
+      "total_egress_bps": 41732622.00,
+      "active_exporters_count": 4,
+      "unmatched_exporters_count": 1,
+      "total_flows_count": 128450
+    },
+    "message": "Request processed successfully."
+  }
+  ```
+
+### `GET /bandwidth/traffic-series`
+Returns time-series data points formatted for Chart.js stacked area charts (Ingress vs. Egress).
+- **Query Parameters:**
+  - `window` (string, default `"1h"`): Time window (`"1h"`, `"6h"`, `"24h"`, `"7d"`, `"30d"`).
+  - `exporter_id` (UUID, optional): Filter by exporter endpoint UUID.
+  - `endpoint_id` (UUID, optional): Filter by source or destination endpoint UUID.
+- **Response:** `200 OK`
+  ```json
+  {
+    "success": true,
+    "data": {
+      "window": "1h",
+      "points": [
+        {
+          "timestamp": "2026-09-15T20:00:00Z",
+          "ingress_bps": 12450800.00,
+          "egress_bps": 11493046.15
+        }
+      ]
+    },
+    "message": "Request processed successfully."
+  }
+  ```
+
+### `GET /bandwidth/top-talkers`
+Retrieves the highest-volume communicating endpoints and discrete IP conversations within the specified window.
+- **Query Parameters:**
+  - `window` (string, default `"1h"`): Time window (`"1h"`, `"6h"`, `"24h"`, `"7d"`, `"30d"`).
+  - `limit` (int, default `10`, range `1`–`50`): Maximum records to return.
+- **Response:** `200 OK`
+  ```json
+  {
+    "success": true,
+    "data": {
+      "top_endpoints": [
+        {
+          "endpoint_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+          "ip_address": "192.168.1.10",
+          "hostname": "db-prod-01",
+          "total_bytes": 1048576000,
+          "ingress_bytes": 503316480,
+          "egress_bytes": 545259520,
+          "flow_count": 4520
+        }
+      ],
+      "top_conversations": [
+        {
+          "src_ip": "192.168.1.10",
+          "dst_ip": "192.168.1.20",
+          "protocol": "TCP",
+          "dst_port": 5432,
+          "total_bytes": 845200000,
+          "flow_count": 1240
+        }
+      ]
+    },
+    "message": "Request processed successfully."
+  }
+  ```
+
+### `GET /bandwidth/applications`
+Returns protocol and service port volume distribution for donut/pie charts.
+- **Query Parameters:**
+  - `window` (string, default `"1h"`): Time window (`"1h"`, `"6h"`, `"24h"`, `"7d"`, `"30d"`).
+- **Response:** `200 OK`
+  ```json
+  {
+    "success": true,
+    "data": {
+      "applications": [
+        {
+          "protocol_name": "TCP",
+          "port": 443,
+          "service_label": "HTTPS",
+          "total_bytes": 524288000,
+          "percentage": 50.0
+        },
+        {
+          "protocol_name": "TCP",
+          "port": 5432,
+          "service_label": "PostgreSQL",
+          "total_bytes": 314572800,
+          "percentage": 30.0
+        }
+      ]
+    },
+    "message": "Request processed successfully."
+  }
+  ```
+
+### `GET /bandwidth/exporters`
+Lists all configured flow exporters with interface aliases, along with detected unmatched exporter candidates from the Redis sliding discovery set.
+- **Response:** `200 OK`
+  ```json
+  {
+    "success": true,
+    "data": {
+      "exporters": [
+        {
+          "id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+          "hostname": "core-gw-01",
+          "primary_ip": "10.0.0.1",
+          "flow_exporter_ips": ["192.168.100.1"],
+          "interface_aliases": { "1": "WAN-Fiber", "2": "LAN-Trunk" },
+          "last_flow_time": null
+        }
+      ],
+      "unmatched": [
+        {
+          "ip_address": "172.16.50.1",
+          "last_seen": "2026-09-15T21:00:00Z"
+        }
+      ]
+    },
+    "message": "Request processed successfully."
+  }
+  ```
+
+### `POST /bandwidth/exporters/{ip}/map`
+One-click binds an unmatched exporter IP to an existing endpoint's `flow_exporter_ips` array (requires `Admin` role). Immediately removes the IP from the Redis unmatched set and broadcasts a `channel:registry_sync` event to refresh the in-memory correlator table with zero downtime.
+- **Path Parameter:** `ip` (string): The exporter IP to map.
+- **Request Body:**
+  ```json
+  {
+    "endpoint_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+  }
+  ```
+- **Response:** `200 OK`
+  ```json
+  {
+    "success": true,
+    "data": {
+      "message": "Successfully mapped exporter IP 172.16.50.1 to core-gw-01."
+    },
+    "message": "Request processed successfully."
+  }
+  ```

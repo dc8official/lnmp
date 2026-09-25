@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # ============================================================
-# lnmp Network Monitoring Platform v3.1.1s - Production Installer
+# lnmp Network Monitoring Platform v3.2.0 - Production Installer
 # Supports: Debian 12+, Ubuntu 22.04+
 # Usage: sudo bash deploy/install.sh [--dry-run]
 # ============================================================
@@ -167,7 +167,7 @@ fi
 print_header "Step 5: Detecting Python version"
 
 PYTHON_BIN=""
-for ver in 3.13 3.12 3.11; do
+for ver in 3.13 3.12 3.11 3.10; do
     if command -v "python$ver" &>/dev/null; then
         PYTHON_BIN="python$ver"
         break
@@ -175,8 +175,8 @@ for ver in 3.13 3.12 3.11; do
 done
 
 if [ -z "$PYTHON_BIN" ]; then
-    echo "Error: Python 3.11 or higher not found."
-    echo "Install python3.11 or python3.12 before running this script."
+    echo "Error: Python 3.10 or higher not found."
+    echo "Install python3.10, python3.11, or python3.12 before running this script."
     exit 1
 fi
 
@@ -192,7 +192,7 @@ else
         useradd -r -s /usr/sbin/nologin netmon
 fi
 
-for dir in /opt/netmon "$CONFIG_DIR" "$LOG_DIR" "$BACKUP_DIR"; do
+for dir in /opt/netmon "$CONFIG_DIR" "$LOG_DIR" "$BACKUP_DIR" /run/netmon; do
     if [ ! -d "$dir" ]; then
         run "Creating directory $dir" mkdir -p "$dir"
         run "Setting ownership: $dir" chown netmon:netmon "$dir"
@@ -215,6 +215,9 @@ if [ ! -d "$INSTALL_DIR" ]; then
         --exclude='tests' \
         --exclude='pytest.ini' \
         --exclude='scratch' \
+        --exclude='.env' \
+        --exclude='backend/.env' \
+        --exclude='certs' \
         "$PROJECT_ROOT/" "$INSTALL_DIR/"
     run "Setting project ownership" \
         chown -R netmon:netmon "$INSTALL_DIR"
@@ -229,6 +232,9 @@ else
         --exclude='tests' \
         --exclude='pytest.ini' \
         --exclude='scratch' \
+        --exclude='.env' \
+        --exclude='backend/.env' \
+        --exclude='certs' \
         "$PROJECT_ROOT/" "$INSTALL_DIR/"
     run "Setting project ownership" \
         chown -R netmon:netmon "$INSTALL_DIR"
@@ -261,13 +267,26 @@ run "Installing Python dependencies" \
 # ============================================================
 print_header "Step 9: Building Vue frontend"
 
-if [ ! -d "$INSTALL_DIR/frontend/node_modules" ]; then
-    run "Installing frontend npm dependencies" \
-        bash -c "cd $INSTALL_DIR/frontend && npm install --silent"
+# Ensure vite executable exists; reinstall if missing or corrupt
+if [ ! -x "$INSTALL_DIR/frontend/node_modules/.bin/vite" ]; then
+    run "Installing frontend npm dependencies (including devDependencies)" \
+        bash -c "cd $INSTALL_DIR/frontend && npm install --include=dev"
 fi
 
-run "Building Vue frontend for production" \
-    bash -c "cd $INSTALL_DIR/frontend && npm run build"
+# Build frontend production bundle
+if [ "$DRY_RUN" = false ]; then
+    echo "--> Building Vue frontend for production"
+    if ! (cd "$INSTALL_DIR/frontend" && npm run build); then
+        if [ -f "$INSTALL_DIR/frontend/dist/index.html" ]; then
+            echo "--> [WARN] npm run build failed, but pre-built dist/index.html is present. Proceeding with existing bundle."
+        else
+            echo "Error: Failed to build Vue frontend and no pre-built assets found in $INSTALL_DIR/frontend/dist." >&2
+            exit 1
+        fi
+    fi
+else
+    echo "[DRY RUN] Would build Vue frontend for production (npm run build)"
+fi
 
 run "Setting frontend ownership" \
     chown -R netmon:netmon "$INSTALL_DIR/frontend/dist"
@@ -436,7 +455,7 @@ fi
 # ============================================================
 print_header "Step 15: Installing systemd services"
 
-for service in netmon-engine netmon-api; do
+for service in netmon-engine netmon-api netmon-flowd; do
     src="$INSTALL_DIR/deploy/${service}.service"
     dst="/etc/systemd/system/${service}.service"
     if [ ! -f "$dst" ] || ! diff -q "$src" "$dst" > /dev/null 2>&1; then
@@ -450,6 +469,15 @@ run "Reloading systemd daemon" systemctl daemon-reload
 run "Enabling Redis service" bash -c "systemctl enable redis-server 2>/dev/null || systemctl enable redis 2>/dev/null || true"
 run "Enabling netmon-engine" systemctl enable netmon-engine
 run "Enabling netmon-api" systemctl enable netmon-api
+run "Enabling netmon-flowd" systemctl enable netmon-flowd
+
+# Grant netmon user sudo privilege to start/stop netmon-flowd dynamically from web UI
+if [ "$DRY_RUN" = false ] && [ -d "/etc/sudoers.d" ]; then
+    cat << 'EOF' > /etc/sudoers.d/netmon
+netmon ALL=(ALL) NOPASSWD: /usr/bin/systemctl start netmon-flowd, /usr/bin/systemctl stop netmon-flowd, /usr/bin/systemctl restart netmon-flowd, /usr/bin/systemctl is-active netmon-flowd, /usr/bin/systemctl enable netmon-flowd, /usr/bin/systemctl disable netmon-flowd
+EOF
+    chmod 0440 /etc/sudoers.d/netmon
+fi
 
 # ============================================================
 print_header "Step 16: Configuring Nginx"
@@ -508,6 +536,7 @@ print_header "Step 18: Starting services"
 run "Starting Redis service" bash -c "systemctl start redis-server 2>/dev/null || systemctl start redis 2>/dev/null || true"
 run "Starting netmon-api" systemctl start netmon-api
 run "Starting netmon-engine" systemctl start netmon-engine
+run "Starting netmon-flowd" systemctl start netmon-flowd
 
 # ============================================================
 print_header "Installation Complete"
@@ -516,7 +545,7 @@ if [ "$DRY_RUN" = true ]; then
     echo "DRY RUN complete. No changes were made."
 else
     echo ""
-    echo "lnmp v3.1.1s is now running."
+    echo "lnmp v3.2.0 is now running."
     echo ""
     echo "  Dashboard:  https://$DOMAIN_NAME"
     echo "  API docs:   https://$DOMAIN_NAME/api/docs"
@@ -538,10 +567,12 @@ else
     echo "  Service status:"
     echo "  systemctl status netmon-api"
     echo "  systemctl status netmon-engine"
+    echo "  systemctl status netmon-flowd"
     echo ""
     echo "  Logs:"
     echo "  journalctl -u netmon-api -f"
     echo "  journalctl -u netmon-engine -f"
+    echo "  journalctl -u netmon-flowd -f"
     echo ""
 fi
 echo "========================================================"

@@ -1,0 +1,219 @@
+<template>
+  <div class="settings-security-pane">
+    <div class="settings-grid">
+      <!-- Network Discovery & Diagnostics -->
+      <div class="settings-card">
+        <div class="card-header">
+          <h2 class="card-title">🌐 Network Discovery & Diagnostics</h2>
+        </div>
+        <p class="card-desc">Control automated traceroute behavior and subnet traversal optimization.</p>
+
+        <div class="setting-row">
+          <div>
+            <label class="setting-label">Layer-2 Subnet Auto-Bypass</label>
+            <p class="setting-hint">Automatically bypass ICMP/UDP traceroute subprocesses for hosts on the local /24 broadcast segment.</p>
+          </div>
+          <label class="switch">
+            <input type="checkbox" v-model="settings.l2AutoBypass" @change="emitChange" />
+            <span class="slider round"></span>
+          </label>
+        </div>
+
+        <div class="setting-row">
+          <div>
+            <label class="setting-label">Max Concurrent Traces</label>
+            <p class="setting-hint">Global concurrency semaphore bound for simultaneous diagnostic traceroutes.</p>
+          </div>
+          <span class="font-mono tnum font-bold">3 Traces (500ms pacing)</span>
+        </div>
+      </div>
+
+      <!-- Security & Access Policies -->
+      <div class="settings-card">
+        <div class="card-header">
+          <h2 class="card-title">🔒 Security & Access Policies</h2>
+        </div>
+        <p class="card-desc">Enforce session lifetime limits, brute-force throttling, and token revocation controls.</p>
+
+        <div class="setting-row">
+          <div>
+            <label class="setting-label">User Session Inactivity Timeout</label>
+            <p class="setting-hint">Automatic session revocation period for idle user accounts.</p>
+          </div>
+          <select v-model="settings.sessionTimeout" class="form-select font-mono tnum" @change="emitChange">
+            <option value="15">15 Minutes</option>
+            <option value="30">30 Minutes</option>
+            <option value="60">1 Hour</option>
+            <option value="120">2 Hours (Default)</option>
+            <option value="240">4 Hours</option>
+          </select>
+        </div>
+
+        <div class="setting-row">
+          <div>
+            <label class="setting-label">Brute-Force Lockout Threshold</label>
+            <p class="setting-hint">Consecutive failed login attempts before IP and account cooldown is applied.</p>
+          </div>
+          <select v-model="settings.lockoutThreshold" class="form-select font-mono tnum" @change="emitChange">
+            <option value="3">3 Failed Attempts</option>
+            <option value="5">5 Failed Attempts (Default)</option>
+            <option value="10">10 Failed Attempts</option>
+          </select>
+        </div>
+      </div>
+    </div>
+  </div>
+</template>
+
+<script setup>
+const props = defineProps({
+  settings: {
+    type: Object,
+    required: true,
+  },
+})
+
+const emit = defineEmits(['change'])
+
+function emitChange() {
+  emit('change')
+}
+</script>
+
+<style scoped>
+.settings-security-pane {
+  display: flex;
+  flex-direction: column;
+}
+
+.settings-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(420px, 1fr));
+  gap: 20px;
+}
+
+.settings-card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 20px;
+}
+
+.card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 4px;
+}
+
+.card-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.card-desc {
+  font-size: 13px;
+  color: var(--text-muted);
+  line-height: 1.5;
+  margin: 0 0 16px 0;
+}
+
+.setting-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px 0;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.setting-row:last-child {
+  border-bottom: none;
+}
+
+.setting-label {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0 0 4px 0;
+}
+
+.setting-hint {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin: 0;
+}
+
+.form-select {
+  background: var(--bg-surface-selected);
+  border: 1px solid var(--border-color);
+  color: var(--text-primary);
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-size: 13px;
+}
+
+.form-select:focus {
+  border-color: #0ea5e9;
+  outline: none;
+}
+
+.switch {
+  position: relative;
+  display: inline-block;
+  width: 44px;
+  height: 24px;
+}
+
+.switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.slider {
+  position: absolute;
+  cursor: pointer;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(255, 255, 255, 0.15);
+  transition: 0.2s;
+  border-radius: 24px;
+}
+
+.slider:before {
+  position: absolute;
+  content: "";
+  height: 18px;
+  width: 18px;
+  left: 3px;
+  bottom: 3px;
+  background-color: white;
+  transition: 0.2s;
+  border-radius: 50%;
+}
+
+input:checked + .slider {
+  background-color: #10b981;
+}
+
+input:checked + .slider:before {
+  transform: translateX(20px);
+}
+
+.font-mono {
+  font-family: var(--font-mono);
+}
+
+.font-bold {
+  font-weight: 700;
+}
+
+.tnum {
+  font-feature-settings: 'tnum';
+  font-variant-numeric: tabular-nums;
+}
+</style>

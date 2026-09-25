@@ -35,17 +35,9 @@ _failed_attempts: dict[str, dict] = {}
 # Key format: "<user_id>" -> [jti_1, jti_2] (ordered list of active session JWT IDs, FIFO rotated)
 _active_user_sessions: dict[str, list[str]] = {}
 
-READABLE_WORDS = [
-    "Atlas", "Beacon", "Cedar", "Drift", "Ember", "Falcon", "Gravel", "Haven",
-    "Iris", "Jasper", "Kestrel", "Lunar", "Matrix", "Nexus", "Opal", "Pulse",
-    "Quartz", "Ridge", "Solar", "Titan", "Vortex", "Zenith", "Anchor", "Breeze",
-]
-
-
 def generate_readable_password() -> str:
-    word = secrets.choice(READABLE_WORDS)
-    number = secrets.randbelow(900) + 100  # 100 to 999
-    return f"{word}-{number}"
+    """Generate high-entropy password (96 bits of entropy via secrets.token_urlsafe(16))."""
+    return secrets.token_urlsafe(16)
 
 
 def hash_password(password: str) -> str:
@@ -144,6 +136,8 @@ def register_session(user_id: str, jti: str, max_sessions: int = 2) -> None:
     """
     u_id = str(user_id)
     active_list = _active_user_sessions.get(u_id, [])
+    if jti in active_list:
+        return
     active_list.append(jti)
     if len(active_list) > max_sessions:
         # Evict oldest session(s)
@@ -177,7 +171,7 @@ class AwaitableBool:
     def __eq__(self, other: object) -> bool:
         if isinstance(other, AwaitableBool):
             return self._val == other._val
-        return self._val == other
+        return self._val == bool(other)
 
     def __repr__(self) -> str:
         return repr(self._val)
@@ -245,8 +239,6 @@ def create_access_token(
     jti: Optional[str] = None,
 ) -> str:
     session_id = jti or str(secrets.token_hex(16))
-    max_sess = getattr(settings.security, "max_active_sessions_per_user", 2)
-    register_session(user_id, session_id, max_sessions=max_sess)
 
     payload = {
         "sub": user_id,
@@ -258,7 +250,7 @@ def create_access_token(
     }
     return jwt.encode(
         payload,
-        settings.security.secret_key,
+        settings.security.effective_jwt_secret,
         algorithm=ALGORITHM,
     )
 
@@ -267,7 +259,7 @@ def decode_access_token(token: str) -> Optional[dict]:
     try:
         return jwt.decode(
             token,
-            settings.security.secret_key,
+            settings.security.effective_jwt_secret,
             algorithms=[ALGORITHM],
         )
     except JWTError:

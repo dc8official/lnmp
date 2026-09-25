@@ -55,6 +55,8 @@ class CreateEndpointRequest(BaseModel):
     enable_rca: bool = True
     enable_scheduled_discovery: bool = True
     is_l2_segment: bool = False
+    flow_exporter_ips: Optional[list[str]] = None
+    flow_interface_aliases: Optional[dict[str, str]] = None
     manual_parent_id: Optional[UUID] = None
 
     model_config = ConfigDict(from_attributes=True)
@@ -83,6 +85,8 @@ class UpdateEndpointRequest(BaseModel):
     enable_rca: Optional[bool] = None
     enable_scheduled_discovery: Optional[bool] = None
     is_l2_segment: Optional[bool] = None
+    flow_exporter_ips: Optional[list[str]] = None
+    flow_interface_aliases: Optional[dict[str, str]] = None
     manual_parent_id: Optional[UUID] = None
     endpoint_status: Optional[Literal["ACTIVE", "DISABLED"]] = None
 
@@ -149,6 +153,8 @@ async def get_endpoint_rca(
 @router.get("/", response_model=APIResponse)
 async def list_endpoints(
     status: Optional[str] = Query(default=None),
+    page: Optional[int] = Query(default=None, ge=1),
+    page_size: Optional[int] = Query(default=None, ge=1, le=500),
     current_user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -165,11 +171,20 @@ async def list_endpoints(
                 detail=f"Invalid status filter '{status}'. Must be one of: {', '.join(sorted(ALLOWED_STATUSES))}",
             )
 
+    calc_page = page if isinstance(page, int) else None
+    calc_page_size = page_size if isinstance(page_size, int) else None
+    if calc_page is not None and calc_page_size is None:
+        calc_page_size = 50
+    elif calc_page_size is not None and calc_page is None:
+        calc_page = 1
+
     repo = EndpointRepository(db)
     rows = await repo.list_with_stats(
         status=clean_status,
         since_utc=since_utc,
         now_utc=now_utc,
+        page=calc_page,
+        page_size=calc_page_size,
     )
     gap_intervals = await get_service_gap_intervals(db, since_utc, now_utc)
 
@@ -183,6 +198,7 @@ async def list_endpoints(
             now_utc=now_utc,
             up_events_count=row["up_events_count"],
             gap_intervals=gap_intervals,
+            uptime_seconds=row.get("uptime_seconds"),
         )
         data.append({
             "id": str(row["id"]),
@@ -247,6 +263,7 @@ async def get_endpoint(
         now_utc=now_utc,
         up_events_count=row["up_events_count"],
         gap_intervals=gap_intervals,
+        uptime_seconds=row.get("uptime_seconds"),
     )
 
     data = {
@@ -321,6 +338,8 @@ async def create_endpoint(
             enable_scheduled_discovery=request.enable_scheduled_discovery,
             is_l2_segment=request.is_l2_segment,
             manual_parent_id=request.manual_parent_id,
+            flow_exporter_ips=request.flow_exporter_ips,
+            flow_interface_aliases=request.flow_interface_aliases,
         )
         await auth_repo.create_audit_log(
             user_id=admin_uuid,
@@ -357,6 +376,8 @@ async def create_endpoint(
         enable_scheduled_discovery=request.enable_scheduled_discovery,
         is_l2_segment=request.is_l2_segment,
         manual_parent_id=request.manual_parent_id,
+        flow_exporter_ips=request.flow_exporter_ips,
+        flow_interface_aliases=request.flow_interface_aliases,
         endpoint_status="ACTIVE",
         created_by=admin_uuid,
     )
@@ -435,6 +456,12 @@ async def update_endpoint(
     if request.is_l2_segment is not None:
         updates["is_l2_segment"] = request.is_l2_segment
         audit_details["is_l2_segment"] = request.is_l2_segment
+    if request.flow_exporter_ips is not None:
+        updates["flow_exporter_ips"] = request.flow_exporter_ips
+        audit_details["flow_exporter_ips"] = request.flow_exporter_ips
+    if request.flow_interface_aliases is not None:
+        updates["flow_interface_aliases"] = request.flow_interface_aliases
+        audit_details["flow_interface_aliases"] = request.flow_interface_aliases
     if request.endpoint_status is not None:
         updates["endpoint_status"] = request.endpoint_status
         audit_details["endpoint_status"] = request.endpoint_status
