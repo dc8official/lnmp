@@ -270,6 +270,7 @@ button { cursor: pointer; border: none; background: none; }
 
 /* ── CSS Variables Design System ── */
 :root {
+  --font-display: 'Exo 2', var(--font-sans);
   --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
   --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
 
@@ -364,6 +365,13 @@ body {
   transition: background-color 0.2s, color 0.2s;
 }
 
+/* ── Typography & Headings ── */
+h1, h2, h3, h4, h5, h6,
+.page-title,
+.section-title {
+  font-family: var(--font-display);
+}
+
 .tnum, table, th, td, .metric-value, .kpi-value, .sla-badge {
   font-variant-numeric: tabular-nums;
 }
@@ -399,7 +407,10 @@ body {
 }
 
 .brand-name {
-  letter-spacing: 0.05em;
+  font-family: var(--font-display);
+  font-size: 1.2rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
 }
 
 .brand-version {
