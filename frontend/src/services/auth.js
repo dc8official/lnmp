@@ -1,4 +1,5 @@
 import { ref } from 'vue'
+import { closeConnection, resetConnection } from '../composables/useSSE.js'
 
 export const user = ref(null)
 export const currentUser = ref(null)
@@ -86,6 +87,10 @@ export function setUserState(userData) {
   currentUser.value = userData.username || null
   isAdmin.value = userData.role === 'ADMIN'
   mustChangePassword.value = !!userData.must_change_password
+
+  try {
+    resetConnection()
+  } catch (e) {}
 }
 
 export function clearUserState() {
@@ -102,4 +107,8 @@ export function clearUserState() {
   currentUser.value = null
   isAdmin.value = false
   mustChangePassword.value = false
+
+  try {
+    closeConnection()
+  } catch (e) {}
 }

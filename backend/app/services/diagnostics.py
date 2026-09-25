@@ -345,7 +345,7 @@ async def cleanup_old_diagnostic_traces(
         # 2. Purge audit logs
         cutoff_audit = now - __import__("datetime").timedelta(days=audit_retention_days)
         stmt_audit = delete(AuditLog).where(
-            AuditLog.timestamp < cutoff_audit
+            AuditLog.created_at < cutoff_audit
         )
         res_audit = await db.execute(stmt_audit)
         audit_count = res_audit.rowcount or 0

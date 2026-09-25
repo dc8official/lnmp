@@ -350,10 +350,14 @@ if [[ ${DRY_RUN} -eq 0 ]]; then
                     PERFORM set_config('timescaledb.max_tuples_decompressed_per_dml_transaction', '0', false);
                 END IF;
                 UPDATE endpoint_events
-                SET end_time = start_time,
-                    duration_seconds = 0
+                SET end_time = start_time + INTERVAL '60 seconds',
+                    duration_seconds = 60
                 WHERE end_time IS NULL
                   AND start_time < NOW() - INTERVAL '7 days';
+
+                -- Drop legacy cycle count check constraints to allow continuous state monitoring
+                ALTER TABLE endpoint_events DROP CONSTRAINT IF EXISTS ck_events_success_count;
+                ALTER TABLE endpoint_events DROP CONSTRAINT IF EXISTS ck_events_failed_count;
             END \$\$;" 2>/dev/null || true
 
             PGPASSWORD="${DB_PASS}" psql -h "${DB_HOST}" -p "${DB_PORT}" -U "${DB_USER}" -d "${DB_NAME}" -c \
