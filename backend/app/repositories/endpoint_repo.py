@@ -84,13 +84,10 @@ class EndpointRepository(BaseRepository[Endpoint]):
         up_counts_sub = (
             select(
                 EndpointEvent.endpoint_id,
-                func.coalesce(func.sum(duration_expr), 0).label("uptime_seconds"),
                 func.count().label("up_events_count"),
                 func.coalesce(func.sum(duration_expr), 0).label("uptime_seconds"),
             )
             .where(
-                EndpointEvent.start_time < now_utc,
-                or_(EndpointEvent.end_time.is_(None), EndpointEvent.end_time > since_utc),
                 EndpointEvent.operational_state == "UP",
                 EndpointEvent.start_time < now_utc,
                 or_(EndpointEvent.end_time.is_(None), EndpointEvent.end_time > since_utc),
@@ -113,9 +110,6 @@ class EndpointRepository(BaseRepository[Endpoint]):
                 ).label("current_health_score"),
                 latest_event_sub.c.avg_rtt_ms,
                 latest_event_sub.c.last_seen,
-                func.coalesce(up_counts_sub.c.uptime_seconds, 0).label(
-                    "uptime_seconds"
-                ),
                 func.coalesce(up_counts_sub.c.up_events_count, 0).label(
                     "up_events_count"
                 ),
