@@ -224,6 +224,14 @@ async def get_fleet_summary(
         )
         uptime_seconds = up_sec
         downtime_seconds = down_sec
+        role = getattr(ep, "device_role", "ACTIVE_HOST")
+        if role == "FLOW_EXPORTER":
+            op_state = "PASSIVE"
+            det_state = "PASSIVE"
+            uptime_percentage = 100.0
+            incident_count = 0
+            downtime_seconds = 0
+            uptime_seconds = total_seconds
 
         endpoint_summaries.append(
             FleetEndpointSummary(
@@ -239,20 +247,30 @@ async def get_fleet_summary(
                 uptime_seconds=uptime_seconds,
                 downtime_seconds=downtime_seconds,
                 total_seconds=total_seconds,
+                device_role=role,
             )
         )
 
-    active_endpoints_count = sum(1 for ep in endpoints if ep.monitoring_enabled)
+    active_endpoints_count = sum(
+        1 for ep in endpoints
+        if ep.monitoring_enabled and getattr(ep, "device_role", "ACTIVE_HOST") != "FLOW_EXPORTER"
+    )
     total_endpoints_count = len(endpoints)
     total_incident_count = sum(e.incident_count for e in endpoint_summaries)
     total_downtime_seconds = sum(e.downtime_seconds for e in endpoint_summaries)
+
+    monitored_for_sla = [
+        e for e in endpoint_summaries
+        if getattr(e, "device_role", "ACTIVE_HOST") != "FLOW_EXPORTER"
+        and getattr(e, "monitoring_enabled", True) is not False
+    ]
     fleet_sla = (
         round(
-            sum(e.uptime_percentage for e in endpoint_summaries)
-            / len(endpoint_summaries),
+            sum(e.uptime_percentage for e in monitored_for_sla)
+            / len(monitored_for_sla),
             2,
         )
-        if endpoint_summaries
+        if monitored_for_sla
         else 100.0
     )
 

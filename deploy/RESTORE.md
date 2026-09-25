@@ -1,6 +1,6 @@
-# LNMP v3.2.0 — Disaster Recovery & Database Restoration Runbook
+# LNMP v3.3.0 — Disaster Recovery & Database Restoration Runbook
 
-This runbook describes the standard operating procedures for restoring the LNMP v3.2.0 database and application environment from timestamped backups.
+This runbook describes the standard operating procedures for restoring the LNMP v3.3.0 database and application environment from timestamped backups.
 
 ---
 
@@ -88,6 +88,6 @@ Expected response:
 ```json
 {
   "status": "ok",
-  "version": "3.2.0"
+  "version": "3.3.0"
 }
 ```

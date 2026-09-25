@@ -39,3 +39,6 @@ Thumbs.db
 
 # Alembic
 migrations/versions/*.pyc
+
+# Agents & Teamwork
+.agents/

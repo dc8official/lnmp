@@ -238,9 +238,10 @@ export function getTrafficSeries(window = '1h', exporterId = null, endpointId = 
   return api.get('/bandwidth/traffic-series', { params })
 }
 
-export function getTopTalkers(window = '1h', limit = 10, endpointId = null) {
+export function getTopTalkers(window = '1h', limit = 10, endpointId = null, exporterId = null) {
   const params = { window, limit }
   if (endpointId) params.endpoint_id = endpointId
+  if (exporterId) params.exporter_id = exporterId
   return api.get('/bandwidth/top-talkers', { params })
 }
 
@@ -252,8 +253,20 @@ export function getFlowExporters() {
   return api.get('/bandwidth/exporters')
 }
 
+export function enrollFlowExporter(data) {
+  return api.post('/bandwidth/exporters/enroll', data)
+}
+
 export function mapFlowExporter(ip, endpointId) {
   return api.post(`/bandwidth/exporters/${encodeURIComponent(ip)}/map`, { endpoint_id: endpointId })
+}
+
+export function getInterfaceTelemetry(exporterId, window = '1h') {
+  return api.get('/bandwidth/interfaces', { params: { exporter_id: exporterId, window } })
+}
+
+export function updateEndpointInterfaces(endpointId, data) {
+  return api.put(`/bandwidth/endpoints/${endpointId}/interfaces`, data)
 }
 
 export function testFlowPreflight() {

@@ -6,7 +6,7 @@
         <h1 class="page-title">Fleet-wide Bandwidth & Flow Telemetry</h1>
         <div class="toolbar-sub-row">
           <span class="page-sub">
-            v3.2.0 Flow Engine
+            v3.3.0 Flow Engine
             <span class="separator">·</span>
             NetFlow v5, NetFlow v9 & IPFIX
           </span>
@@ -14,6 +14,17 @@
       </div>
 
       <div class="toolbar-right">
+        <!-- Scope Switcher (Fleet Aggregate vs Individual Exporter) -->
+        <div class="scope-selector">
+          <label class="scope-label">Scope:</label>
+          <select v-model="selectedExporterId" @change="handleScopeChange" class="scope-select">
+            <option value="">🌐 Fleet Aggregate</option>
+            <option v-for="exp in flowExporters" :key="exp.id" :value="exp.id">
+              🟢 {{ exp.hostname }} ({{ exp.primary_ip }})
+            </option>
+          </select>
+        </div>
+
         <!-- Auto-Refresh Interval Selector (UI-07) -->
         <div class="auto-refresh-selector">
           <label class="refresh-label">Refresh:</label>
@@ -75,13 +86,22 @@
               {{ formatNumber(u.flow_count) }} flows
             </span>
           </div>
-          <button
-            class="btn-primary btn-small"
-            @click="openMappingModal(u.ip_address)"
-            :title="`Link ${u.ip_address} as endpoint alias`"
-          >
-            Link Exporter Alias →
-          </button>
+          <div class="unmatched-card-actions">
+            <button
+              class="btn-primary btn-small"
+              @click="openEnrollModal(u.ip_address)"
+              :title="`Enroll ${u.ip_address} as dedicated flow exporter`"
+            >
+              + Enroll Exporter
+            </button>
+            <button
+              class="btn-secondary btn-small"
+              @click="openMappingModal(u.ip_address)"
+              :title="`Link ${u.ip_address} as endpoint alias`"
+            >
+              Link Alias →
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -148,6 +168,73 @@
           No flow records accumulated for the selected {{ selectedWindow }} window.
         </div>
         <div v-else class="loading-spinner">Loading telemetry series...</div>
+      </div>
+    </div>
+
+    <!-- Interface Telemetry Grid (ManageEngine NetFlow Analyzer Snapshot Benchmark) -->
+    <div v-if="selectedExporterId && interfaceList.length > 0" class="table-card interfaces-panel">
+      <div class="section-header section-header-split">
+        <div>
+          <div class="section-title">Active Router Interfaces & Telemetry</div>
+          <span class="section-hint">{{ interfaceList.length }} Interfaces Detected · Click row to isolate throughput</span>
+        </div>
+        <div v-if="selectedInterfaceIdx !== null" class="isolated-badge-row">
+          <span class="status-pill status-isolated">
+            Isolating Interface #{{ selectedInterfaceIdx }}
+          </span>
+          <button class="btn-text btn-small" @click="clearInterfaceIsolation">Clear Isolation ✕</button>
+        </div>
+      </div>
+      <div class="table-responsive">
+        <table class="dense-table interactive-table" aria-label="Interface Telemetry Table">
+          <thead>
+            <tr>
+              <th style="width: 80px;">Index</th>
+              <th>Interface Name / Alias</th>
+              <th class="text-right">Link Speed</th>
+              <th class="text-right">Ingress Rate</th>
+              <th class="text-right">Egress Rate</th>
+              <th style="width: 200px;">Utilization</th>
+              <th class="text-center" style="width: 90px;">Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr
+              v-for="item in interfaceList"
+              :key="item.interface_idx"
+              :class="{ 'row-selected': selectedInterfaceIdx === item.interface_idx }"
+              @click="toggleInterfaceIsolation(item.interface_idx)"
+              class="cursor-pointer"
+            >
+              <td class="font-mono tnum">#{{ item.interface_idx }}</td>
+              <td>
+                <span class="font-bold">{{ item.name }}</span>
+              </td>
+              <td class="text-right tnum text-muted">{{ formatSpeed(item.speed_mbps) }}</td>
+              <td class="text-right tnum ingress-text">{{ formatBps(item.in_bps) }}</td>
+              <td class="text-right tnum egress-text">{{ formatBps(item.out_bps) }}</td>
+              <td>
+                <div class="util-cell">
+                  <div class="util-bar-bg">
+                    <div
+                      class="util-bar-fill"
+                      :class="getUtilClass(item.utilization_percentage)"
+                      :style="{ width: `${Math.min(100, item.utilization_percentage)}%` }"
+                    ></div>
+                  </div>
+                  <span class="util-text tnum" :class="getUtilClass(item.utilization_percentage)">
+                    {{ item.utilization_percentage.toFixed(1) }}%
+                  </span>
+                </div>
+              </td>
+              <td class="text-center">
+                <span :class="item.is_active ? 'badge-active' : 'badge-idle'">
+                  {{ item.is_active ? 'Active' : 'Idle' }}
+                </span>
+              </td>
+            </tr>
+          </tbody>
+        </table>
       </div>
     </div>
 
@@ -315,11 +402,63 @@
         </div>
       </div>
     </div>
+
+    <!-- Enrollment Modal for Unmatched Exporter -->
+    <div v-if="showEnrollModal" class="modal-overlay" @click.self="showEnrollModal = false">
+      <div class="modal-card">
+        <div class="modal-header">
+          <h3>Enroll Flow Exporter</h3>
+          <button class="btn-close" @click="showEnrollModal = false">✕</button>
+        </div>
+        <div class="modal-form">
+          <p class="text-sm text-secondary">
+            Enroll streaming device <strong class="tnum">{{ enrollForm.ip_address }}</strong> as a dedicated Flow Exporter node.
+          </p>
+
+          <div class="form-group">
+            <label for="enroll-hostname">Exporter Hostname *</label>
+            <input
+              id="enroll-hostname"
+              v-model="enrollForm.hostname"
+              class="form-input"
+              placeholder="e.g. Cisco-Core-01"
+              required
+            />
+          </div>
+
+          <div class="form-group">
+            <label for="enroll-desc">Description</label>
+            <input
+              id="enroll-desc"
+              v-model="enrollForm.description"
+              class="form-input"
+              placeholder="e.g. Edge router sending NetFlow v9"
+            />
+          </div>
+
+          <div v-if="enrollError" class="alert-error" role="alert">
+            {{ enrollError }}
+          </div>
+
+          <div class="modal-actions">
+            <button class="btn-secondary" @click="showEnrollModal = false">Cancel</button>
+            <button
+              class="btn-primary"
+              @click="submitExporterEnrollment"
+              :disabled="!enrollForm.hostname || enrollLoading"
+            >
+              {{ enrollLoading ? 'Enrolling...' : 'Enroll Exporter' }}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted, computed } from 'vue'
+import { ref, onMounted, onUnmounted, computed, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { Line as LineChart, Doughnut as DoughnutChart } from 'vue-chartjs'
 import {
   Chart as ChartJS,
@@ -339,7 +478,9 @@ import {
   getTopTalkers,
   getApplicationDistribution,
   getFlowExporters,
+  enrollFlowExporter,
   mapFlowExporter,
+  getInterfaceTelemetry,
   getEndpoints,
 } from '../services/api.js'
 
@@ -377,6 +518,24 @@ function handleAutoRefreshChange() {
     }, secs * 1000)
   }
 }
+
+const route = useRoute()
+const router = useRouter()
+const selectedExporterId = ref(route.query.exporter_id || '')
+const flowExporters = ref([])
+const interfaceList = ref([])
+const selectedInterfaceIdx = ref(null)
+
+// Enrollment modal state
+const showEnrollModal = ref(false)
+const enrollForm = ref({
+  ip_address: '',
+  hostname: '',
+  description: '',
+  device_role: 'FLOW_EXPORTER',
+})
+const enrollLoading = ref(false)
+const enrollError = ref(null)
 
 const overview = ref({
   total_ingress_bps: 0,
@@ -435,6 +594,77 @@ function getPortBadgeClass(port) {
   return 'port-generic'
 }
 
+function formatSpeed(speedMbps) {
+  if (!speedMbps) return '1 Gbps'
+  if (speedMbps >= 1000000) return `${(speedMbps / 1000000).toFixed(0)} Tbps`
+  if (speedMbps >= 1000) return `${(speedMbps / 1000).toFixed(0)} Gbps`
+  return `${speedMbps} Mbps`
+}
+
+function getUtilClass(util) {
+  if (util >= 80) return 'util-danger'
+  if (util >= 60) return 'util-warning'
+  return 'util-healthy'
+}
+
+function handleScopeChange() {
+  selectedInterfaceIdx.value = null
+  router.push({
+    query: {
+      ...route.query,
+      exporter_id: selectedExporterId.value || undefined,
+    },
+  })
+  refreshData()
+}
+
+function toggleInterfaceIsolation(ifIdx) {
+  if (selectedInterfaceIdx.value === ifIdx) {
+    selectedInterfaceIdx.value = null
+  } else {
+    selectedInterfaceIdx.value = ifIdx
+  }
+}
+
+function clearInterfaceIsolation() {
+  selectedInterfaceIdx.value = null
+}
+
+function openEnrollModal(ip) {
+  enrollForm.value = {
+    ip_address: ip,
+    hostname: `router-${ip.replace(/\./g, '-')}`,
+    description: `Flow Exporter streaming from ${ip}`,
+    device_role: 'FLOW_EXPORTER',
+  }
+  enrollError.value = null
+  showEnrollModal.value = true
+}
+
+async function submitExporterEnrollment() {
+  if (!enrollForm.value.hostname || !enrollForm.value.ip_address) return
+  enrollLoading.value = true
+  enrollError.value = null
+  try {
+    const res = await enrollFlowExporter(enrollForm.value)
+    showEnrollModal.value = false
+    if (res.data?.data?.id) {
+      selectedExporterId.value = res.data.data.id
+      router.push({
+        query: {
+          ...route.query,
+          exporter_id: res.data.data.id,
+        },
+      })
+    }
+    await refreshData()
+  } catch (err) {
+    enrollError.value = err.response?.data?.detail || 'Failed to enroll flow exporter.'
+  } finally {
+    enrollLoading.value = false
+  }
+}
+
 // Mapping Modal
 const showMappingModal = ref(false)
 const selectedUnmatchedIp = ref('')
@@ -451,12 +681,34 @@ const chartData = computed(() => {
     return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
   })
 
+  let inData = seriesPoints.value.map((p) => p.ingress_bps)
+  let outData = seriesPoints.value.map((p) => p.egress_bps)
+
+  if (selectedInterfaceIdx.value !== null && interfaceList.value.length > 0) {
+    const matched = interfaceList.value.find(i => i.interface_idx === selectedInterfaceIdx.value)
+    if (matched) {
+      const totalIn = interfaceList.value.reduce((acc, i) => acc + i.in_bps, 0) || 1
+      const totalOut = interfaceList.value.reduce((acc, i) => acc + i.out_bps, 0) || 1
+      const inRatio = Math.min(1.0, matched.in_bps / totalIn)
+      const outRatio = Math.min(1.0, matched.out_bps / totalOut)
+      inData = inData.map(v => Math.round(v * inRatio))
+      outData = outData.map(v => Math.round(v * outRatio))
+    }
+  }
+
+  const inLabel = selectedInterfaceIdx.value !== null
+    ? `Interface #${selectedInterfaceIdx.value} Ingress (bps)`
+    : 'Ingress (bps)'
+  const outLabel = selectedInterfaceIdx.value !== null
+    ? `Interface #${selectedInterfaceIdx.value} Egress (bps)`
+    : 'Egress (bps)'
+
   return {
     labels,
     datasets: [
       {
-        label: 'Ingress (bps)',
-        data: seriesPoints.value.map((p) => p.ingress_bps),
+        label: inLabel,
+        data: inData,
         borderColor: '#10b981',
         backgroundColor: 'rgba(16, 185, 129, 0.25)',
         borderWidth: 2,
@@ -464,8 +716,8 @@ const chartData = computed(() => {
         tension: 0.3,
       },
       {
-        label: 'Egress (bps)',
-        data: seriesPoints.value.map((p) => p.egress_bps),
+        label: outLabel,
+        data: outData,
         borderColor: '#0ea5e9',
         backgroundColor: 'rgba(14, 165, 233, 0.25)',
         borderWidth: 2,
@@ -558,7 +810,7 @@ function setWindow(w) {
 function formatBps(bps) {
   if (!bps || bps <= 0) return '0 bps'
   if (bps >= 1e9) return `${(bps / 1e9).toFixed(2)} Gbps`
-  if (bps >= 1e6) return `${(bps / 1e6).toFixed(2)} Mbps`
+  if (bps >= 1e6) return `${(bps / 1e6).toFixed(1)} Mbps`
   if (bps >= 1e3) return `${(bps / 1e3).toFixed(1)} kbps`
   return `${Math.round(bps)} bps`
 }
@@ -602,13 +854,15 @@ async function submitExporterMapping() {
 async function refreshData() {
   loading.value = true
   try {
-    const [ovRes, seriesRes, talkersRes, appRes, expRes, epListRes] = await Promise.all([
+    const expId = selectedExporterId.value || null
+    const [ovRes, seriesRes, talkersRes, appRes, expRes, epListRes, ifRes] = await Promise.all([
       getBandwidthOverview(),
-      getTrafficSeries(selectedWindow.value),
-      getTopTalkers(selectedWindow.value, 10),
+      getTrafficSeries(selectedWindow.value, expId),
+      getTopTalkers(selectedWindow.value, 10, null, expId),
       getApplicationDistribution(selectedWindow.value),
       getFlowExporters(),
       getEndpoints(),
+      expId ? getInterfaceTelemetry(expId, selectedWindow.value) : Promise.resolve({ data: { data: { interfaces: [] } } }),
     ])
 
     if (ovRes.data?.data) {
@@ -626,10 +880,16 @@ async function refreshData() {
     }
     if (expRes.data?.data) {
       unmatchedExporters.value = expRes.data.data.unmatched || []
+      flowExporters.value = expRes.data.data.exporters || []
     }
     if (epListRes.data?.data) {
       availableEndpoints.value = epListRes.data.data
       totalEndpointsCount.value = epListRes.data.data.length
+    }
+    if (ifRes?.data?.data?.interfaces) {
+      interfaceList.value = ifRes.data.data.interfaces
+    } else {
+      interfaceList.value = []
     }
   } catch (err) {
     console.error('Failed to load bandwidth telemetry data:', err)
@@ -637,6 +897,17 @@ async function refreshData() {
     loading.value = false
   }
 }
+
+watch(
+  () => route.query.exporter_id,
+  (newId) => {
+    if (newId !== selectedExporterId.value) {
+      selectedExporterId.value = newId || ''
+      selectedInterfaceIdx.value = null
+      refreshData()
+    }
+  }
+)
 
 onMounted(() => {
   refreshData()
@@ -1044,5 +1315,141 @@ html.dark .unmatched-banner {
   background: rgba(107, 114, 128, 0.12);
   color: var(--text-secondary);
   border: 1px solid var(--border-color);
+}
+
+/* Scope Selector */
+.scope-selector {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.scope-label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.scope-select {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  color: var(--text-primary);
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  outline: none;
+  cursor: pointer;
+  max-width: 220px;
+}
+
+.unmatched-card-actions {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+/* Interface Telemetry Panel */
+.interfaces-panel {
+  margin-top: 1.5rem;
+}
+
+.interactive-table tr.cursor-pointer {
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+
+.interactive-table tr.row-selected {
+  background: rgba(99, 102, 241, 0.15) !important;
+  border-left: 3px solid #6366f1;
+}
+
+.isolated-badge-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.status-isolated {
+  background: rgba(99, 102, 241, 0.15);
+  color: #818cf8;
+  border: 1px solid rgba(99, 102, 241, 0.3);
+  font-size: 0.75rem;
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-weight: 600;
+}
+
+.util-cell {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.util-bar-bg {
+  flex: 1;
+  height: 6px;
+  background: var(--border-color, rgba(255, 255, 255, 0.1));
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.util-bar-fill {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 0.3s ease;
+}
+
+.util-bar-fill.util-healthy {
+  background: #10b981;
+}
+
+.util-bar-fill.util-warning {
+  background: #f59e0b;
+}
+
+.util-bar-fill.util-danger {
+  background: #ef4444;
+}
+
+.util-text {
+  font-size: 0.75rem;
+  font-weight: 700;
+  width: 45px;
+  text-align: right;
+}
+
+.util-text.util-healthy {
+  color: #10b981;
+}
+
+.util-text.util-warning {
+  color: #f59e0b;
+}
+
+.util-text.util-danger {
+  color: #ef4444;
+}
+
+.badge-active {
+  display: inline-block;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  background: rgba(16, 185, 129, 0.15);
+  color: #10b981;
+  border: 1px solid rgba(16, 185, 129, 0.3);
+}
+
+.badge-idle {
+  display: inline-block;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  background: rgba(156, 163, 175, 0.15);
+  color: #9ca3af;
+  border: 1px solid rgba(156, 163, 175, 0.3);
 }
 </style>

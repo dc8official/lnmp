@@ -22,6 +22,12 @@
         <rect x="3" y="3" width="10" height="10" rx="1" fill="currentColor" />
       </svg>
 
+      <!-- PASSIVE: Concentric Double Ring / Target -->
+      <svg v-else-if="normalizedStatus === 'PASSIVE'" viewBox="0 0 16 16" class="shape-icon">
+        <circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" stroke-width="2" />
+        <circle cx="8" cy="8" r="2.5" fill="currentColor" />
+      </svg>
+
       <!-- MAINTENANCE / PAUSED / OTHER: Diamond -->
       <svg v-else viewBox="0 0 16 16" class="shape-icon">
         <polygon points="8,2 14,8 8,14 2,8" fill="currentColor" />
@@ -72,6 +78,7 @@ const normalizedStatus = computed(() => {
   if (s === 'UP') return 'UP'
   if (s.includes('UNSTABLE')) return 'UNSTABLE'
   if (s === 'DOWN') return 'DOWN'
+  if (s === 'PASSIVE') return 'PASSIVE'
   if (s === 'PAUSED' || s === 'MAINTENANCE') return 'PAUSED'
   return 'UNKNOWN'
 })
@@ -88,6 +95,8 @@ const badgeClass = computed(() => {
       return 'badge-unstable'
     case 'DOWN':
       return 'badge-down'
+    case 'PASSIVE':
+      return 'badge-passive'
     case 'PAUSED':
       return 'badge-paused'
     default:
@@ -174,6 +183,12 @@ const ariaLabel = computed(() => {
   background-color: rgba(239, 68, 68, 0.14);
   color: #ef4444;
   border-color: rgba(239, 68, 68, 0.4);
+}
+
+.badge-passive {
+  background-color: rgba(99, 102, 241, 0.15);
+  color: #818cf8;
+  border-color: rgba(99, 102, 241, 0.4);
 }
 
 .badge-paused {

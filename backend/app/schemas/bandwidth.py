@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 from uuid import UUID
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class BandwidthOverview(BaseModel):
@@ -82,11 +82,32 @@ class FlowExporterItem(BaseModel):
     id: UUID
     hostname: str
     primary_ip: str
-    flow_exporter_ips: List[str]
-    interface_aliases: Dict[str, str]
+    flow_exporter_ips: List[str] = Field(default_factory=list)
+    interface_aliases: Dict[str, Any] = Field(default_factory=dict)
+    device_role: Optional[str] = "FLOW_EXPORTER"
     last_flow_time: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
+
+    @field_validator("interface_aliases", mode="before")
+    @classmethod
+    def normalize_aliases(cls, v):
+        if not isinstance(v, dict):
+            return {}
+        normalized = {}
+        for k, val in v.items():
+            if isinstance(val, str):
+                normalized[str(k)] = {"name": val, "speed_mbps": 1000}
+            elif isinstance(val, dict):
+                normalized[str(k)] = {
+                    "name": str(val.get("name", f"Interface {k}")),
+                    "speed_mbps": int(val.get("speed_mbps", 1000)),
+                }
+            elif hasattr(val, "model_dump"):
+                normalized[str(k)] = val.model_dump()
+            else:
+                normalized[str(k)] = val
+        return normalized
 
 
 class UnmatchedExporterItem(BaseModel):
@@ -101,6 +122,38 @@ class ExportersResponse(BaseModel):
     unmatched: List[UnmatchedExporterItem]
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class InterfaceTelemetryItem(BaseModel):
+    interface_idx: int
+    name: str
+    speed_mbps: int
+    in_bytes: int
+    out_bytes: int
+    in_bps: float
+    out_bps: float
+    in_packets: int
+    out_packets: int
+    flow_count: int
+    utilization_percentage: float
+    is_active: bool
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class InterfaceTelemetryResponse(BaseModel):
+    exporter_id: UUID
+    window: str
+    interfaces: List[InterfaceTelemetryItem]
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class EnrollExporterRequest(BaseModel):
+    ip_address: str
+    hostname: str
+    description: Optional[str] = None
+    device_role: str = "FLOW_EXPORTER"
 
 
 class MapExporterRequest(BaseModel):

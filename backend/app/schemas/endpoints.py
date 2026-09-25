@@ -3,7 +3,14 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Literal, Optional
 from uuid import UUID
-from pydantic import BaseModel, ConfigDict, field_serializer
+from pydantic import BaseModel, ConfigDict, Field, field_serializer, field_validator
+
+
+class InterfaceConfig(BaseModel):
+    name: str = Field(..., max_length=64, pattern=r"^[a-zA-Z0-9_\-\./ :]{1,64}$")
+    speed_mbps: int = Field(default=1000, gt=0, le=10000000)
+
+    model_config = ConfigDict(from_attributes=True)
 
 
 class EndpointSummary(BaseModel):
@@ -13,12 +20,13 @@ class EndpointSummary(BaseModel):
     device_type: str
     location: Optional[str] = None
     endpoint_status: Literal["ACTIVE", "DISABLED", "DELETED"]
-    current_operational_state: Literal["UP", "DOWN"]
+    current_operational_state: Literal["UP", "DOWN", "PASSIVE", "UNMONITORED"]
     current_detailed_state: Literal[
-        "UP", "UP-UNSTABLE", "DOWN-UNSTABLE", "DOWN"
+        "UP", "UP-UNSTABLE", "DOWN-UNSTABLE", "DOWN", "PASSIVE", "UNMONITORED"
     ]
     current_health_score: float
     uptime_percentage_24h: float
+    device_role: Optional[str] = "ACTIVE_HOST"
     last_seen: Optional[datetime] = None
 
     model_config = ConfigDict(from_attributes=True)
@@ -43,13 +51,33 @@ class EndpointDetail(EndpointSummary):
     enable_scheduled_discovery: bool = True
     is_l2_segment: bool = False
     flow_exporter_ips: list[str] = []
-    flow_interface_aliases: dict[str, str] = {}
+    flow_interface_aliases: dict[str, InterfaceConfig] = Field(default_factory=dict)
     manual_parent_id: Optional[UUID] = None
     created_by: Optional[UUID] = None
     created_at: datetime
     updated_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
+
+    @field_validator("flow_interface_aliases", mode="before")
+    @classmethod
+    def normalize_aliases(cls, v):
+        if not isinstance(v, dict):
+            return {}
+        normalized = {}
+        for k, val in v.items():
+            if isinstance(val, str):
+                normalized[str(k)] = {"name": val, "speed_mbps": 1000}
+            elif isinstance(val, dict):
+                normalized[str(k)] = {
+                    "name": str(val.get("name", f"Interface {k}")),
+                    "speed_mbps": int(val.get("speed_mbps", 1000)),
+                }
+            elif hasattr(val, "model_dump"):
+                normalized[str(k)] = val.model_dump()
+            elif isinstance(val, InterfaceConfig):
+                normalized[str(k)] = val
+        return normalized
 
     @field_serializer("created_at", "updated_at")
     def serialize_created_updated(self, v: datetime) -> str:

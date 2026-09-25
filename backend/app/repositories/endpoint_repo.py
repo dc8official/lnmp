@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import Any, Optional, Sequence
 from uuid import UUID
 
-from sqlalchemy import func, or_, select, update as sa_update
+from sqlalchemy import case, func, or_, select, update as sa_update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.diagnostic_trace import EndpointDiagnosticTrace
@@ -99,14 +99,20 @@ class EndpointRepository(BaseRepository[Endpoint]):
         stmt = (
             select(
                 Endpoint,
-                func.coalesce(
-                    latest_event_sub.c.current_operational_state, "DOWN"
+                case(
+                    (Endpoint.device_role == "FLOW_EXPORTER", "PASSIVE"),
+                    (Endpoint.monitoring_enabled.is_(False), "PASSIVE"),
+                    else_=func.coalesce(latest_event_sub.c.current_operational_state, "DOWN"),
                 ).label("current_operational_state"),
-                func.coalesce(
-                    latest_event_sub.c.current_detailed_state, "DOWN"
+                case(
+                    (Endpoint.device_role == "FLOW_EXPORTER", "PASSIVE"),
+                    (Endpoint.monitoring_enabled.is_(False), "PASSIVE"),
+                    else_=func.coalesce(latest_event_sub.c.current_detailed_state, "DOWN"),
                 ).label("current_detailed_state"),
-                func.coalesce(
-                    latest_event_sub.c.current_health_score, 0.0
+                case(
+                    (Endpoint.device_role == "FLOW_EXPORTER", 100.0),
+                    (Endpoint.monitoring_enabled.is_(False), 100.0),
+                    else_=func.coalesce(latest_event_sub.c.current_health_score, 0.0),
                 ).label("current_health_score"),
                 latest_event_sub.c.avg_rtt_ms,
                 latest_event_sub.c.last_seen,
@@ -149,11 +155,14 @@ class EndpointRepository(BaseRepository[Endpoint]):
                 "description": ep.description,
                 "endpoint_status": ep.endpoint_status,
                 "monitoring_enabled": ep.monitoring_enabled,
+                "device_role": getattr(ep, "device_role", "ACTIVE_HOST"),
                 "allow_incident_trace": ep.allow_incident_trace,
                 "allow_topology_discovery": ep.allow_topology_discovery,
                 "enable_rca": ep.enable_rca,
                 "enable_scheduled_discovery": ep.enable_scheduled_discovery,
                 "is_l2_segment": ep.is_l2_segment,
+                "flow_exporter_ips": [str(ip) for ip in (ep.flow_exporter_ips or [])],
+                "flow_interface_aliases": getattr(ep, "flow_interface_aliases", {}) or {},
                 "manual_parent_id": ep.manual_parent_id,
                 "created_by": ep.created_by,
                 "created_at": ep.created_at,
@@ -219,14 +228,20 @@ class EndpointRepository(BaseRepository[Endpoint]):
         stmt = (
             select(
                 Endpoint,
-                func.coalesce(
-                    latest_event_sub.c.current_operational_state, "DOWN"
+                case(
+                    (Endpoint.device_role == "FLOW_EXPORTER", "PASSIVE"),
+                    (Endpoint.monitoring_enabled.is_(False), "PASSIVE"),
+                    else_=func.coalesce(latest_event_sub.c.current_operational_state, "DOWN"),
                 ).label("current_operational_state"),
-                func.coalesce(
-                    latest_event_sub.c.current_detailed_state, "DOWN"
+                case(
+                    (Endpoint.device_role == "FLOW_EXPORTER", "PASSIVE"),
+                    (Endpoint.monitoring_enabled.is_(False), "PASSIVE"),
+                    else_=func.coalesce(latest_event_sub.c.current_detailed_state, "DOWN"),
                 ).label("current_detailed_state"),
-                func.coalesce(
-                    latest_event_sub.c.current_health_score, 0.0
+                case(
+                    (Endpoint.device_role == "FLOW_EXPORTER", 100.0),
+                    (Endpoint.monitoring_enabled.is_(False), 100.0),
+                    else_=func.coalesce(latest_event_sub.c.current_health_score, 0.0),
                 ).label("current_health_score"),
                 latest_event_sub.c.avg_rtt_ms,
                 latest_event_sub.c.last_seen,
@@ -258,11 +273,14 @@ class EndpointRepository(BaseRepository[Endpoint]):
             "description": ep.description,
             "endpoint_status": ep.endpoint_status,
             "monitoring_enabled": ep.monitoring_enabled,
+            "device_role": getattr(ep, "device_role", "ACTIVE_HOST"),
             "allow_incident_trace": ep.allow_incident_trace,
             "allow_topology_discovery": ep.allow_topology_discovery,
             "enable_rca": ep.enable_rca,
             "enable_scheduled_discovery": ep.enable_scheduled_discovery,
             "is_l2_segment": ep.is_l2_segment,
+            "flow_exporter_ips": [str(ip) for ip in (ep.flow_exporter_ips or [])],
+            "flow_interface_aliases": getattr(ep, "flow_interface_aliases", {}) or {},
             "manual_parent_id": ep.manual_parent_id,
             "created_by": ep.created_by,
             "created_at": ep.created_at,

@@ -119,6 +119,23 @@
 
         <!-- Tab 1: ICMP Health & Diagnostics Panel -->
         <div v-show="activePerspective === 'icmp'" id="panel-icmp" role="tabpanel" aria-labelledby="tab-icmp">
+          <!-- Flow Exporter Passive Telemetry Banner -->
+          <div v-if="endpoint.device_role === 'FLOW_EXPORTER'" class="passive-exporter-banner">
+            <div class="banner-content">
+              <i class="pi pi-info-circle banner-icon"></i>
+              <div class="banner-body">
+                <span class="banner-title">Dedicated Flow Exporter (Passive Mode)</span>
+                <p>This router is enrolled as a dedicated NetFlow/IPFIX exporter. Active ICMP pinging is not monitored.</p>
+              </div>
+            </div>
+            <button
+              class="btn-primary btn-small"
+              @click="switchPerspective('flow')"
+            >
+              Switch to Bandwidth / Flows →
+            </button>
+          </div>
+
         <!-- Date Query & Filter Toolbar -->
         <div class="toolbar-card">
           <div class="toolbar-left">
@@ -410,13 +427,25 @@
                 </div>
               </div>
               <div class="meta-col full-width" v-if="flowMode === 'exporter'">
-                <span class="meta-label">SNMP Interface Throughput & Utilization (ifIndex)</span>
+                <div class="iface-header-row">
+                  <span class="meta-label">Router Interface Telemetry & Utilization (ifIndex)</span>
+                  <button
+                    v-if="isAdmin"
+                    type="button"
+                    class="btn-text btn-small iface-cfg-btn"
+                    @click="openInterfaceModal"
+                    title="Configure interface aliases and link speeds"
+                  >
+                    ⚙ Configure Interfaces
+                  </button>
+                </div>
                 <div v-if="interfaceMeters.length > 0" class="interface-meter-grid">
                   <div v-for="iface in interfaceMeters" :key="iface.idx" class="iface-card">
                     <div class="iface-card-header">
                       <div class="iface-title">
                         <span class="iface-tag tnum">if{{ iface.idx }}</span>
                         <span class="iface-name" :title="iface.name">{{ iface.name }}</span>
+                        <span v-if="iface.speed_mbps" class="iface-speed tnum text-muted text-xs">({{ formatSpeedLabel(iface.speed_mbps) }})</span>
                       </div>
                       <span class="iface-status-pill" :class="iface.active ? 'status-active' : 'status-idle'">
                         {{ iface.active ? 'ACTIVE' : 'IDLE' }}
@@ -433,11 +462,11 @@
                       </div>
                     </div>
                     <div class="meter-bar-track">
-                      <div class="meter-bar-fill" :style="{ width: iface.utilization + '%' }" :class="getUtilColorClass(iface.utilization)"></div>
+                      <div class="meter-bar-fill" :style="{ width: Math.min(100, iface.utilization) + '%' }" :class="getUtilColorClass(iface.utilization)"></div>
                     </div>
                     <div class="meter-meta tnum">
                       <span>Est. Utilization</span>
-                      <span>{{ iface.utilization.toFixed(1) }}%</span>
+                      <span>{{ (iface.utilization || 0).toFixed(1) }}%</span>
                     </div>
                   </div>
                 </div>
@@ -646,13 +675,112 @@
         </form>
       </div>
     </div>
+
+    <!-- Interface Configuration Modal -->
+    <div class="modal-overlay" v-if="showInterfaceModal" @click.self="showInterfaceModal = false">
+      <div class="modal-card wide">
+        <div class="modal-header">
+          <h3>⚙️ Configure Router Interface Aliases & Speeds</h3>
+          <button class="btn-close" @click="showInterfaceModal = false">✕</button>
+        </div>
+
+        <form @submit.prevent="saveInterfaces" class="modal-form">
+          <p class="modal-subtitle">
+            Assign human-readable SNMP interface names and provisioned line speeds for accurate utilization calculation.
+          </p>
+
+          <div class="interface-config-list">
+            <div
+              v-for="(iface, i) in editingInterfaces"
+              :key="i"
+              class="interface-config-row"
+            >
+              <div class="form-group idx-col">
+                <label v-if="i === 0">ifIndex *</label>
+                <input
+                  type="number"
+                  v-model.number="iface.index"
+                  min="1"
+                  max="2147483647"
+                  required
+                  placeholder="e.g. 1"
+                  class="form-input"
+                />
+              </div>
+
+              <div class="form-group name-col">
+                <label v-if="i === 0">Interface Name / Alias *</label>
+                <input
+                  type="text"
+                  v-model="iface.name"
+                  required
+                  placeholder="e.g. GigabitEthernet0/1 or WAN-Uplink"
+                  class="form-input"
+                />
+              </div>
+
+              <div class="form-group preset-col">
+                <label v-if="i === 0">Speed Preset</label>
+                <select v-model="iface.preset" @change="onPresetChange(iface)" class="form-select">
+                  <option :value="10">10 Mbps (Ethernet)</option>
+                  <option :value="100">100 Mbps (FastEth)</option>
+                  <option :value="1000">1 Gbps (GigEth)</option>
+                  <option :value="10000">10 Gbps (10GE)</option>
+                  <option :value="40000">40 Gbps (40GE)</option>
+                  <option :value="100000">100 Gbps (100GE)</option>
+                  <option value="custom">Custom</option>
+                </select>
+              </div>
+
+              <div class="form-group speed-col" v-if="iface.preset === 'custom'">
+                <label v-if="i === 0">Mbps</label>
+                <input
+                  type="number"
+                  v-model.number="iface.speed_mbps"
+                  min="1"
+                  required
+                  class="form-input"
+                />
+              </div>
+
+              <div class="remove-col">
+                <label v-if="i === 0">&nbsp;</label>
+                <button
+                  type="button"
+                  class="btn-icon-danger"
+                  @click="removeInterfaceRow(i)"
+                  title="Remove interface"
+                >
+                  ✕
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div class="add-row-action">
+            <button type="button" class="btn-secondary btn-small" @click="addInterfaceRow">
+              + Add Interface
+            </button>
+          </div>
+
+          <div class="modal-footer-bar">
+            <div class="footer-buttons" style="margin-left: auto;">
+              <button type="button" class="btn-secondary" @click="showInterfaceModal = false">Cancel</button>
+              <button type="submit" class="btn-primary" :disabled="savingInterfaces">
+                {{ savingInterfaces ? 'Saving...' : 'Save Interfaces' }}
+              </button>
+            </div>
+          </div>
+        </form>
+      </div>
+    </div>
   </div>
 </template>
 
 <script setup>
 import { ref, onMounted, onBeforeUnmount, computed } from 'vue'
 import { useRoute, useRouter, RouterLink } from 'vue-router'
-import { getEndpoint, getUptimeReport, getEndpointEvents, updateEndpoint, refreshEndpointBaseline, logout, getTrafficSeries, getTopTalkers } from '../services/api.js'
+import { getEndpoint, getUptimeReport, getEndpointEvents, updateEndpoint, refreshEndpointBaseline, logout, getTrafficSeries, getTopTalkers, getInterfaceTelemetry, updateEndpointInterfaces } from '../services/api.js'
 import { user, isAdmin, loadUserFromStorage, clearUserState } from '../services/auth.js'
 import StateTimeline from '../components/StateTimeline.vue'
 import RTTTrendPanel from '../components/RTTTrendPanel.vue'
@@ -698,6 +826,11 @@ const loadingFlow = ref(false)
 const flowSeriesPoints = ref([])
 const nodeConversations = ref([])
 
+const interfaceTelemetry = ref([])
+const showInterfaceModal = ref(false)
+const savingInterfaces = ref(false)
+const editingInterfaces = ref([])
+
 function switchPerspective(persp) {
   activePerspective.value = persp
   if (persp === 'flow') {
@@ -724,6 +857,16 @@ async function loadFlowTelemetry() {
       nodeConversations.value = talkersRes.data.data.top_conversations.filter(
         (c) => c.src_ip === epIp || c.dst_ip === epIp
       )
+    }
+    if (flowMode.value === 'exporter' || endpoint.value.device_role === 'FLOW_EXPORTER') {
+      try {
+        const ifRes = await getInterfaceTelemetry(epId, flowWindow.value)
+        if (ifRes.data?.data?.interfaces) {
+          interfaceTelemetry.value = ifRes.data.data.interfaces
+        }
+      } catch (ifErr) {
+        console.warn('Failed to load interface telemetry:', ifErr)
+      }
     }
   } catch (err) {
     console.error('Failed to load flow telemetry for node:', err)
@@ -811,37 +954,113 @@ function getUtilColorClass(util) {
   return 'util-healthy'
 }
 
+function formatSpeedLabel(mbps) {
+  if (!mbps) return ''
+  if (mbps >= 1000) return `${mbps / 1000} Gbps`
+  return `${mbps} Mbps`
+}
+
 const interfaceMeters = computed(() => {
+  if (interfaceTelemetry.value && interfaceTelemetry.value.length > 0) {
+    return interfaceTelemetry.value.map((item) => ({
+      idx: item.interface_idx,
+      name: item.name,
+      speed_mbps: item.speed_mbps,
+      ingressBps: item.in_bps,
+      egressBps: item.out_bps,
+      utilization: item.utilization_percentage,
+      active: item.is_active,
+    }))
+  }
+
   if (!endpoint.value?.flow_interface_aliases) return []
   const aliases = endpoint.value.flow_interface_aliases
-  const totalIngress = flowSeriesPoints.value.length > 0
-    ? (flowSeriesPoints.value[flowSeriesPoints.value.length - 1].ingress_bps || 0)
-    : 0
-  const totalEgress = flowSeriesPoints.value.length > 0
-    ? (flowSeriesPoints.value[flowSeriesPoints.value.length - 1].egress_bps || 0)
-    : 0
-
-  const entries = Object.entries(aliases)
-  const count = entries.length || 1
-
-  return entries.map(([idx, name]) => {
-    const ingressBps = Math.round(totalIngress / count)
-    const egressBps = Math.round(totalEgress / count)
-    const maxRate = Math.max(ingressBps, egressBps)
-    const capacityBps = 1000000000
-    const utilization = Math.min(100, Math.max(0, (maxRate / capacityBps) * 100))
-    const active = maxRate > 0
-
+  return Object.entries(aliases).map(([idx, val]) => {
+    let name = `if${idx}`
+    let speed = 1000
+    if (typeof val === 'string') {
+      name = val
+    } else if (val && typeof val === 'object') {
+      name = val.name || `if${idx}`
+      speed = val.speed_mbps || 1000
+    }
     return {
       idx,
       name,
-      ingressBps,
-      egressBps,
-      utilization,
-      active,
+      speed_mbps: speed,
+      ingressBps: 0,
+      egressBps: 0,
+      utilization: 0,
+      active: false,
     }
   })
 })
+
+function openInterfaceModal() {
+  const current = endpoint.value?.flow_interface_aliases || {}
+  const rows = Object.entries(current).map(([idx, val]) => {
+    let name = `if${idx}`
+    let speed = 1000
+    if (typeof val === 'string') {
+      name = val
+    } else if (val && typeof val === 'object') {
+      name = val.name || `if${idx}`
+      speed = val.speed_mbps || 1000
+    }
+    return {
+      index: Number(idx) || idx,
+      name,
+      speed_mbps: speed,
+      preset: [10, 100, 1000, 10000, 40000, 100000].includes(speed) ? speed : 'custom'
+    }
+  })
+  if (rows.length === 0) {
+    rows.push({ index: 1, name: 'GigabitEthernet0/1', speed_mbps: 1000, preset: 1000 })
+  }
+  editingInterfaces.value = rows
+  showInterfaceModal.value = true
+}
+
+function addInterfaceRow() {
+  const nextIdx = (editingInterfaces.value.length + 1)
+  editingInterfaces.value.push({ index: nextIdx, name: `GigabitEthernet0/${nextIdx}`, speed_mbps: 1000, preset: 1000 })
+}
+
+function removeInterfaceRow(index) {
+  editingInterfaces.value.splice(index, 1)
+}
+
+function onPresetChange(row) {
+  if (row.preset !== 'custom') {
+    row.speed_mbps = Number(row.preset)
+  }
+}
+
+async function saveInterfaces() {
+  if (!endpoint.value) return
+  savingInterfaces.value = true
+  try {
+    const payload = {}
+    for (const row of editingInterfaces.value) {
+      const idxStr = String(row.index).trim()
+      if (idxStr) {
+        payload[idxStr] = {
+          name: row.name.trim() || `if${idxStr}`,
+          speed_mbps: Number(row.speed_mbps) || 1000
+        }
+      }
+    }
+    await updateEndpointInterfaces(endpoint.value.id, payload)
+    endpoint.value.flow_interface_aliases = payload
+    showInterfaceModal.value = false
+    await loadFlowTelemetry()
+  } catch (err) {
+    console.error('Failed to update interfaces:', err)
+    alert(err.response?.data?.detail || 'Failed to update interfaces.')
+  } finally {
+    savingInterfaces.value = false
+  }
+}
 
 const correlatedChartData = computed(() => {
   const labels = flowSeriesPoints.value.map((p) => {
@@ -1160,6 +1379,13 @@ const loadData = async () => {
     
     totalEvents.value = tableEventsRes.data.meta?.total || 0
     totalPages.value = tableEventsRes.data.meta?.total_pages || 1
+
+    if (endpoint.value.device_role === 'FLOW_EXPORTER') {
+      activePerspective.value = 'flow'
+    }
+    if (activePerspective.value === 'flow') {
+      await loadFlowTelemetry()
+    }
   } catch (err) {
     console.error('Failed to query endpoint telemetry:', err)
     error.value = err.response?.data?.detail || 'Failed to assemble endpoint timeline. Verify server backend is responsive.'
@@ -2228,5 +2454,143 @@ h2 {
 
 .text-cyan {
   color: #0ea5e9;
+}
+
+/* Flow Exporter Passive Telemetry Banner */
+.passive-exporter-banner {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: rgba(99, 102, 241, 0.1);
+  border: 1px solid rgba(99, 102, 241, 0.3);
+  padding: 12px 16px;
+  border-radius: 8px;
+  margin-bottom: 1.5rem;
+  gap: 16px;
+}
+
+.banner-content {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.banner-icon {
+  font-size: 1.5rem;
+  color: #818cf8;
+}
+
+.banner-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.banner-title {
+  font-weight: 700;
+  color: #818cf8;
+  font-size: 0.95rem;
+}
+
+.banner-body p {
+  margin: 0;
+  font-size: 0.825rem;
+  color: var(--text-secondary);
+}
+
+.iface-header-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.5rem;
+}
+
+.iface-cfg-btn {
+  background: none;
+  border: 1px solid var(--border-color);
+  color: var(--text-secondary);
+  padding: 4px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.75rem;
+  font-weight: 600;
+  transition: all 0.2s ease;
+}
+
+.iface-cfg-btn:hover {
+  border-color: #6366f1;
+  color: #818cf8;
+}
+
+.iface-speed {
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+/* Interface Configuration Modal */
+.modal-subtitle {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  margin-bottom: 1rem;
+}
+
+.interface-config-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 380px;
+  overflow-y: auto;
+  margin-bottom: 12px;
+  padding-right: 4px;
+}
+
+.interface-config-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.idx-col {
+  width: 90px;
+}
+
+.name-col {
+  flex: 1;
+}
+
+.preset-col {
+  width: 170px;
+}
+
+.speed-col {
+  width: 100px;
+}
+
+.remove-col {
+  display: flex;
+  align-items: flex-end;
+  padding-bottom: 2px;
+}
+
+.btn-icon-danger {
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  color: #ef4444;
+  border-radius: 4px;
+  width: 34px;
+  height: 34px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: bold;
+}
+
+.btn-icon-danger:hover {
+  background: rgba(239, 68, 68, 0.25);
+}
+
+.add-row-action {
+  margin-bottom: 1.5rem;
 }
 </style>
