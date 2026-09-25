@@ -3,7 +3,7 @@
     <!-- Header Toolbar -->
     <div class="bandwidth-toolbar">
       <div class="toolbar-left">
-        <h1 class="page-title">Fleet-wide Bandwidth & Flow Telemetry</h1>
+        <h1 class="page-title">Network Bandwidth & Flow Telemetry</h1>
         <div class="toolbar-sub-row">
           <span class="page-sub">
             v3.3.0 Flow Engine
@@ -14,15 +14,54 @@
       </div>
 
       <div class="toolbar-right">
-        <!-- Scope Switcher (Fleet Aggregate vs Individual Exporter) -->
+        <!-- Scope Switcher (Network Aggregate vs Individual Exporter) -->
         <div class="scope-selector">
-          <label class="scope-label">Scope:</label>
-          <select v-model="selectedExporterId" @change="handleScopeChange" class="scope-select">
-            <option value="">🌐 Fleet Aggregate</option>
-            <option v-for="exp in flowExporters" :key="exp.id" :value="exp.id">
-              🟢 {{ exp.hostname }} ({{ exp.primary_ip }})
-            </option>
-          </select>
+          <label class="scope-label" for="scope-select">Scope:</label>
+          <div class="scope-input-wrapper">
+            <input
+              v-if="flowExporters.length > 5 || unmatchedExporters.length > 0"
+              v-model="exporterSearchText"
+              type="text"
+              class="scope-search-input"
+              placeholder="Filter devices..."
+              aria-label="Filter flow exporters"
+            />
+            <select
+              id="scope-select"
+              v-model="selectedExporterId"
+              @change="handleScopeChange"
+              class="scope-select"
+            >
+              <option value="">🌐 All Network Traffic (Global Overview)</option>
+              <optgroup
+                v-if="filteredFlowExporters.length > 0"
+                :label="`Configured Flow Exporters (${filteredFlowExporters.length})`"
+              >
+                <option v-for="exp in filteredFlowExporters" :key="exp.id" :value="exp.id">
+                  🟢 {{ exp.hostname }} ({{ exp.primary_ip }})
+                </option>
+              </optgroup>
+              <optgroup
+                v-if="filteredUnmatchedExporters.length > 0"
+                :label="`Discovered Sources (Unregistered - ${filteredUnmatchedExporters.length})`"
+              >
+                <option
+                  v-for="u in filteredUnmatchedExporters"
+                  :key="u.ip_address"
+                  :value="`unmatched:${u.ip_address}`"
+                >
+                  ⚠ {{ u.ip_address }} (Unregistered - {{ formatNumber(u.flow_count || 0) }} flows)
+                </option>
+              </optgroup>
+              <option
+                v-if="filteredFlowExporters.length === 0 && filteredUnmatchedExporters.length === 0 && exporterSearchText"
+                disabled
+                value=""
+              >
+                No matching flow exporters found
+              </option>
+            </select>
+          </div>
         </div>
 
         <!-- Auto-Refresh Interval Selector (UI-07) -->
@@ -61,9 +100,50 @@
       </div>
     </div>
 
+    <!-- Unregistered Exporter Focus Callout -->
+    <div
+      v-if="isUnmatchedScope"
+      class="unmatched-scope-card table-card"
+      role="alert"
+      aria-live="polite"
+    >
+      <div class="unmatched-scope-header">
+        <span class="unmatched-scope-icon">⚠</span>
+        <div class="unmatched-scope-info">
+          <div class="unmatched-scope-badge">DISCOVERED FLOW SOURCE (UNREGISTERED)</div>
+          <h2 class="unmatched-scope-title">
+            Unregistered Device Streaming Flows: <span class="font-mono text-accent">{{ activeUnmatchedIp }}</span>
+          </h2>
+          <p class="unmatched-scope-desc">
+            LNMP is actively receiving NetFlow/IPFIX UDP packets from <strong>{{ activeUnmatchedIp }}</strong>, but this device is not yet registered in NetMon's endpoint inventory. Flow packets are currently staged in discovery. To enable per-interface metrics, line-speed utilization, and historical conversation tracking, enroll this source as an endpoint or link it as an alias to an existing router.
+          </p>
+        </div>
+      </div>
+      <div class="unmatched-scope-actions">
+        <button
+          class="btn-primary"
+          @click="openEnrollModal(activeUnmatchedIp)"
+        >
+          + Enroll {{ activeUnmatchedIp }} as Flow Exporter
+        </button>
+        <button
+          class="btn-secondary"
+          @click="openMappingModal(activeUnmatchedIp)"
+        >
+          Link to Existing Endpoint Alias →
+        </button>
+        <button
+          class="btn-text"
+          @click="selectedExporterId = ''; handleScopeChange()"
+        >
+          Return to All Traffic
+        </button>
+      </div>
+    </div>
+
     <!-- Unmatched Exporter Discovery Banner (BUG-05 Multi-IP Grid) -->
     <div
-      v-if="unmatchedExporters.length > 0"
+      v-if="unmatchedExporters.length > 0 && !isUnmatchedScope"
       class="unmatched-banner"
       role="alert"
       aria-live="polite"
@@ -109,23 +189,23 @@
     <!-- Top KPI Metric Strip -->
     <div class="kpi-grid">
       <div class="kpi-card">
-        <div class="kpi-label">Fleet Ingress Rate</div>
+        <div class="kpi-label">Total Ingress Rate</div>
         <div class="kpi-value-row">
           <span class="kpi-value tnum ingress-text">
             {{ formatBps(overview.total_ingress_bps) }}
           </span>
         </div>
-        <div class="kpi-subtext">5-min moving average</div>
+        <div class="kpi-subtext">5-min network moving average</div>
       </div>
 
       <div class="kpi-card">
-        <div class="kpi-label">Fleet Egress Rate</div>
+        <div class="kpi-label">Total Egress Rate</div>
         <div class="kpi-value-row">
           <span class="kpi-value tnum egress-text">
             {{ formatBps(overview.total_egress_bps) }}
           </span>
         </div>
-        <div class="kpi-subtext">5-min moving average</div>
+        <div class="kpi-subtext">5-min network moving average</div>
       </div>
 
       <div class="kpi-card">
@@ -526,6 +606,43 @@ const flowExporters = ref([])
 const interfaceList = ref([])
 const selectedInterfaceIdx = ref(null)
 
+// Exporter Scope Filtering & Unmatched Detection State
+const exporterSearchText = ref('')
+
+const isUnmatchedScope = computed(() => {
+  return typeof selectedExporterId.value === 'string' && selectedExporterId.value.startsWith('unmatched:')
+})
+
+const activeUnmatchedIp = computed(() => {
+  if (isUnmatchedScope.value) {
+    return selectedExporterId.value.replace('unmatched:', '')
+  }
+  return ''
+})
+
+const filteredFlowExporters = computed(() => {
+  const all = flowExporters.value
+  if (!exporterSearchText.value.trim()) return all
+  const q = exporterSearchText.value.toLowerCase().trim()
+  return all.filter((exp) => {
+    if (exp.id === selectedExporterId.value) return true
+    return (
+      (exp.hostname && exp.hostname.toLowerCase().includes(q)) ||
+      (exp.primary_ip && exp.primary_ip.toLowerCase().includes(q))
+    )
+  })
+})
+
+const filteredUnmatchedExporters = computed(() => {
+  const all = unmatchedExporters.value
+  if (!exporterSearchText.value.trim()) return all
+  const q = exporterSearchText.value.toLowerCase().trim()
+  return all.filter((u) => {
+    if (`unmatched:${u.ip_address}` === selectedExporterId.value) return true
+    return u.ip_address && u.ip_address.toLowerCase().includes(q)
+  })
+})
+
 // Enrollment modal state
 const showEnrollModal = ref(false)
 const enrollForm = ref({
@@ -841,8 +958,16 @@ async function submitExporterMapping() {
   mappingLoading.value = true
   mappingError.value = null
   try {
-    await mapFlowExporter(selectedUnmatchedIp.value, targetEndpointId.value)
+    const targetId = targetEndpointId.value
+    await mapFlowExporter(selectedUnmatchedIp.value, targetId)
     showMappingModal.value = false
+    selectedExporterId.value = targetId
+    router.push({
+      query: {
+        ...route.query,
+        exporter_id: targetId,
+      },
+    })
     await refreshData()
   } catch (err) {
     mappingError.value = err.response?.data?.detail || 'Failed to map exporter IP.'
@@ -854,7 +979,7 @@ async function submitExporterMapping() {
 async function refreshData() {
   loading.value = true
   try {
-    const expId = selectedExporterId.value || null
+    const expId = (!isUnmatchedScope.value && selectedExporterId.value) ? selectedExporterId.value : null
     const [ovRes, seriesRes, talkersRes, appRes, expRes, epListRes, ifRes] = await Promise.all([
       getBandwidthOverview(),
       getTrafficSeries(selectedWindow.value, expId),
@@ -1324,6 +1449,29 @@ html.dark .unmatched-banner {
   gap: 6px;
 }
 
+.scope-input-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.scope-search-input {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  color: var(--text-primary);
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  width: 110px;
+  outline: none;
+  transition: border-color 0.15s ease, width 0.15s ease;
+}
+
+.scope-search-input:focus {
+  border-color: var(--accent, #3b82f6);
+  width: 150px;
+}
+
 .scope-label {
   font-size: 0.75rem;
   font-weight: 600;
@@ -1340,7 +1488,75 @@ html.dark .unmatched-banner {
   font-weight: 600;
   outline: none;
   cursor: pointer;
-  max-width: 220px;
+  max-width: 280px;
+}
+
+/* Unmatched Scope Focused Callout */
+.unmatched-scope-card {
+  padding: 18px 22px;
+  background: rgba(245, 158, 11, 0.08);
+  border: 1px solid rgba(245, 158, 11, 0.35);
+  border-radius: var(--radius, 8px);
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+html.dark .unmatched-scope-card {
+  background: rgba(245, 158, 11, 0.12);
+  border-color: rgba(245, 158, 11, 0.45);
+}
+
+.unmatched-scope-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+}
+
+.unmatched-scope-icon {
+  font-size: 2rem;
+  line-height: 1;
+  color: #f59e0b;
+}
+
+.unmatched-scope-info {
+  flex: 1;
+}
+
+.unmatched-scope-badge {
+  display: inline-block;
+  font-size: 0.6875rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: rgba(245, 158, 11, 0.2);
+  color: #d97706;
+  margin-bottom: 6px;
+}
+html.dark .unmatched-scope-badge {
+  color: #fbbf24;
+}
+
+.unmatched-scope-title {
+  margin: 0 0 6px 0;
+  font-size: 1.125rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.unmatched-scope-desc {
+  margin: 0;
+  font-size: 0.875rem;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+
+.unmatched-scope-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding-left: 48px;
+  flex-wrap: wrap;
 }
 
 .unmatched-card-actions {

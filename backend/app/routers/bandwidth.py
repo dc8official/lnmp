@@ -541,10 +541,31 @@ async def list_flow_exporters(
     """
     Lists configured flow exporters and detected unmatched exporter candidates.
     """
+    now_utc = datetime.datetime.now(datetime.timezone.utc)
+    since_24h = now_utc - datetime.timedelta(hours=24)
+
+    recent_exporters_sub = (
+        select(FlowMinuteRollup.exporter_id)
+        .where(FlowMinuteRollup.bucket >= since_24h)
+        .distinct()
+    )
+
+    recent_if_exporters_sub = (
+        select(FlowInterfaceMinuteRollup.exporter_id)
+        .where(FlowInterfaceMinuteRollup.bucket >= since_24h)
+        .distinct()
+    )
+
     stmt = select(Endpoint).where(
         Endpoint.deleted_at.is_(None),
         Endpoint.endpoint_status != "DELETED",
-    )
+        or_(
+            Endpoint.device_role.in_(["FLOW_EXPORTER", "HYBRID_GATEWAY"]),
+            func.cardinality(Endpoint.flow_exporter_ips) > 0,
+            Endpoint.id.in_(recent_exporters_sub),
+            Endpoint.id.in_(recent_if_exporters_sub),
+        ),
+    ).order_by(Endpoint.hostname.asc())
     res = await db.execute(stmt)
     endpoints = res.scalars().all()
 

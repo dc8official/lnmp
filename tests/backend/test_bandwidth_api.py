@@ -182,3 +182,45 @@ def test_flow_preflight_success(mock_redis_cls, client):
     assert res["redis_version_supported"] is True
     assert res["stream_write_success"] is True
     assert res["ready"] is True
+
+
+@patch("app.routers.bandwidth.get_flow_redis")
+def test_list_flow_exporters_and_unmatched(mock_get_flow_redis, client):
+    test_client, mock_session = client
+
+    mock_redis = AsyncMock()
+    mock_redis.zremrangebyscore = AsyncMock()
+    mock_redis.zrevrangebyscore = AsyncMock(return_value=[("10.10.10.0", 1700000000.0)])
+    mock_redis.smembers = AsyncMock(return_value=[])
+    mock_redis.close = AsyncMock()
+    mock_get_flow_redis.return_value = mock_redis
+
+    ep_id = uuid4()
+    mock_endpoint = MagicMock()
+    mock_endpoint.id = ep_id
+    mock_endpoint.hostname = "core-router-01"
+    mock_endpoint.ip_address = "172.16.1.1"
+    mock_endpoint.flow_exporter_ips = ["172.16.1.254"]
+    mock_endpoint.flow_interface_aliases = {1: "GigabitEthernet0/0/0"}
+    mock_endpoint.device_role = "FLOW_EXPORTER"
+
+    mock_scalar = MagicMock()
+    mock_scalar.scalars.return_value.all.return_value = [mock_endpoint]
+    mock_session.execute.return_value = mock_scalar
+
+    resp = test_client.get("/api/v1/bandwidth/exporters")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["status"] == "success"
+    exporters = data["data"]["exporters"]
+    unmatched = data["data"]["unmatched"]
+
+    assert len(exporters) == 1
+    assert exporters[0]["id"] == str(ep_id)
+    assert exporters[0]["hostname"] == "core-router-01"
+    assert exporters[0]["primary_ip"] == "172.16.1.1"
+    assert exporters[0]["device_role"] == "FLOW_EXPORTER"
+
+    assert len(unmatched) == 1
+    assert unmatched[0]["ip_address"] == "10.10.10.0"
+
