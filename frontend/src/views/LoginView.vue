@@ -176,15 +176,17 @@ const handleLogin = async () => {
 }
 
 .brand-title {
+  font-family: var(--font-display);
   font-size: 1.75rem;
   font-weight: 800;
   color: var(--text-primary);
-  letter-spacing: -0.04em;
+  letter-spacing: 0.02em;
   margin: 0;
   text-transform: lowercase;
 }
 
 .brand-subtitle {
+  font-family: var(--font-display);
   font-size: 0.8125rem;
   color: var(--text-secondary);
   margin-top: 0.35rem;
