@@ -95,9 +95,9 @@ Microsoft Teams supports two integration patterns:
 3. Select provider `Slack`. Alerts render structured Block Kit sections with device status and telemetry.
 
 ### Direct Hardened SMTP Email Setup
-LNMP connects directly to external mail servers without requiring a local postfix/sendmail agent:
-- **Host & Port:** e.g., `smtp.office365.com` or `smtp.gmail.com` on Port `587`.
-- **Security:** Requires STARTTLS or SSL/TLS 1.2+.
+LNMP connects directly to external mail servers or internal relays without requiring a local postfix/sendmail agent:
+- **Host & Port:** Cloud relays (`smtp.office365.com`, `smtp.gmail.com` on Port `587`) or on-premise internal relays (`localhost`, `127.0.0.1`, RFC 1918 subnets on Port `25`/`587`).
+- **Security:** Requires STARTTLS or SSL/TLS 1.2+ for remote servers.
 - **Credentials:** Username and Application-Specific Password (encrypted at rest via AES-256-GCM).
 - **Recipients:** Comma-separated list of operational email addresses.
 

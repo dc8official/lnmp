@@ -59,7 +59,7 @@ To perform an in-place upgrade to v3.2.0:
 
 ```bash
 cd ~/lnmp
-git pull origin main
+git pull origin v3.1.28s
 sudo ./deploy/upgrade.sh
 ```
 

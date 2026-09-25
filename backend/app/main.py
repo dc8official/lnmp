@@ -102,6 +102,11 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+if "*" in settings.api.allowed_origins:
+    raise ValueError(
+        "CORS configuration error: allowed_origins cannot contain '*' when allow_credentials=True."
+    )
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.api.allowed_origins,

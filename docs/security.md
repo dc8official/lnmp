@@ -73,20 +73,20 @@ The **Lightweight Network Monitoring Platform (LNMP)** is engineered for mission
 
 ## 4. Outbound Egress & Zero-Trust SSRF Protection (CWE-918)
 
-Version 3.1.1s introduces **Zero-Trust Socket-Level SSRF Protection** (`SSRFSafeBackend`), replacing traditional pre-flight hostname checks with kernel-boundary connection verification.
+LNMP v3.1.28s incorporates **Zero-Trust Socket-Level SSRF Protection** (`SSRFSafeBackend`) and **Pre-Resolved Socket DNS Pinning** (`synthetic.py`), replacing traditional pre-flight hostname checks with kernel-boundary connection verification.
 
 ### A. The Threat: Time-of-Check to Time-of-Use (TOCTOU) DNS Rebinding
 In standard application architectures, validating a URL before making an HTTP request leaves an exploitable window: an attacker configures a domain with a 0-second TTL that returns a public IP during pre-flight validation, but rebinds to `169.254.169.254` (cloud metadata) or `127.0.0.1` when the HTTP client establishes its TCP connection.
 
-### B. The Defense: Millisecond-Level Socket Interception
-LNMP’s `SSRFSafeBackend` wraps the low-level `httpcore.AsyncNetworkBackend` engine. It intercepts the physical `connect_tcp()` call at the exact millisecond of the TCP handshake:
+### B. The Defense: Millisecond-Level Socket Interception & Socket DNS Pinning
+LNMP’s `SSRFSafeBackend` wraps the low-level `httpcore.AsyncNetworkBackend` engine, while `monitoring/synthetic.py` implements direct socket DNS pinning:
 
-1. **Connection-Time Resolution:** Performs an asynchronous DNS resolution immediately prior to opening the TCP socket.
+1. **Connection-Time Resolution & Pinning:** Performs an asynchronous DNS resolution immediately prior to opening sockets, and pins physical connections directly to the resolved IP.
 2. **Strict IP Enforcement:** Evaluates all returned addresses against the global routable IP specification:
-   - **RFC 1918 Private Subnets:** `10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16` are rejected.
+   - **RFC 1918 Private Subnets:** `10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16` are rejected for generic webhooks. *(Note: Permitted specifically for `EMAIL_SMTP` channels to support internal corporate relays, and synthetic probes targeting internal corporate appliances).*
    - **RFC 6598 Carrier-Grade NAT (CGNAT):** `100.64.0.0/10` is explicitly blocked to protect internal Kubernetes pod networks, AWS VPC CNI overlays, and Tailscale/WireGuard meshes.
-   - **Loopback & Localhost:** `127.0.0.0/8` and `::1/128` are rejected.
-   - **Cloud Metadata Services:** `169.254.169.254` (AWS/GCP/Azure link-local metadata) and `fd00:ec2::254` (AWS IPv6 metadata) are rejected.
+   - **Loopback & Localhost:** `127.0.0.0/8` and `::1/128` are rejected for outbound webhooks.
+   - **Cloud Metadata Services:** `169.254.169.254` (AWS/GCP/Azure link-local metadata) and `fd00:ec2::254` (AWS IPv6 metadata) are **strictly and unconditionally rejected across all channels, including SMTP**.
    - **IPv4-Mapped IPv6:** Encodings such as `::ffff:127.0.0.1` or `::ffff:100.64.0.1` are unmapped and strictly evaluated.
    - **Unix Sockets:** Direct Unix domain socket connections (`connect_unix_socket`) are completely disabled.
 3. **Immediate Kernel Abort:** If an address resolves to a forbidden or private range, the TCP connection is aborted before sending a single HTTP byte, rendering DNS rebinding attacks physically impossible.

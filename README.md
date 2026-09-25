@@ -24,6 +24,7 @@ The platform is decoupled into independent, modular layers to guarantee continuo
 * **Interactive Crossing-Free Topology Map:** Vue 3 Vis-Network visualizer implementing **BFS DAG Longest-Path Layering** (`Level(v) = max(Level(u) + 1)`), **Sugiyama (1981)** barycenter crossing reduction, **Gansner (1993)** coordinate alignment, **frozen-physics real-time recoloring**, and **Horizontal (LR) ⇄ Vertical (UD)** layout switching.
 * **Enterprise Frontend & Accessibility Overhaul:** High-contrast monochrome design system, top summary KPI ribbon with instant filter pills, **Dual View Switcher** (Visual Card Grid vs. Dense Sortable Table), tabular monospace numbers, and WCAG 2.1 AA keyboard focus indicators.
 * **TimescaleDB Compression & Retention:** 7-day chunk compression (90%+ disk savings), automated continuous aggregates, and daily automated 90-day retention cleanup.
+* **Enterprise Logging Architecture:** Python `RotatingFileHandler` with bounded disk quotas (~150MB total footprint) and strict permission isolation (`0640 netmon:netmon`), preventing log exhaustion on high-volume production deployments.
 * **Security & Session Governance:** Sliding 2-hour inactivity timeouts, token-based concurrent session quotas (max 2 active sessions with FIFO rotation), and IP-scoped failed login lockouts (`<Client_IP>:<Username>`).
 
 ---
@@ -107,7 +108,7 @@ To upgrade an existing installation to Version 3.2.0:
 
 ```bash
 cd ~/lnmp
-git pull origin main
+git pull origin v3.1.35s
 sudo ./deploy/upgrade.sh
 ```
 

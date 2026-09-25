@@ -26,6 +26,10 @@ The platform supports pluggable, dual-driver storage via `StorageDriverManager`:
 * **Redis Acceleration Driver:**
   - `RedisSessionStore`: Caches active sessions in Redis key-value storage with automatic TTL expiry.
   - `RedisEventBroker`: Uses Redis Pub/Sub channels for high-throughput, low-latency inter-process messaging.
+* **Multi-Worker Settings & Driver Cluster Synchronization (`SYSTEM_SETTINGS_SYNC`):**
+  When running under multiple Uvicorn workers, modifying active storage settings via the Admin UI triggers a PostgreSQL `NOTIFY system_settings_sync` signal. All listening worker processes dynamically reload driver configurations and synchronize active session stores without service downtime or cluster restarts.
+* **Bidirectional Warm Session State Migration:**
+  When switching active drivers between PostgreSQL and Redis, active sessions are dynamically read and migrated to the destination backend in real time, guaranteeing zero operator session termination or abrupt logouts.
 
 ### 4. Real-Time Telemetry & Server-Sent Events (SSE)
 * **SSE Endpoint (`GET /api/v1/events/stream`):** Delivers continuous telemetry directly to web browsers using `text/event-stream`.
