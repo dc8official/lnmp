@@ -5,9 +5,7 @@ Requires=postgresql.service
 Wants=redis-server.service
 
 [Service]
-Type=notify
-NotifyAccess=all
-WatchdogSec=30
+Type=simple
 User=netmon
 Group=netmon
 WorkingDirectory=/opt/netmon/noop/backend
