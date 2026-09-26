@@ -117,10 +117,10 @@ async def get_organization_branding(db: AsyncSession) -> Dict[str, str]:
     kv = {s.setting_key: s.setting_value for s in res.scalars().all()}
 
     return {
-        "company_name": kv.get("org:company_name", "Apex Global Telecom Ltd."),
-        "department": kv.get("org:department", "Network Operations Center (NOC)"),
+        "company_name": kv.get("org:company_name", ""),
+        "department": kv.get("org:department", ""),
         "logo_data": kv.get("org:logo_data", ""),
-        "report_footer": kv.get("org:report_footer", "Confidential — Apex Global Telecom Internal Audit"),
+        "report_footer": kv.get("org:report_footer", ""),
     }
 
 

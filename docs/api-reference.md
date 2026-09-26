@@ -322,10 +322,10 @@ Retrieves corporate organization profile and report branding settings. Available
   {
     "success": true,
     "data": {
-      "company_name": "Apex Global Telecom Ltd.",
+      "company_name": "Acme Corporation",
       "department": "Network Operations Center (NOC)",
       "logo_data": "data:image/png;base64,...",
-      "report_footer": "Confidential — Apex Global Telecom Internal Audit"
+      "report_footer": "Confidential — Internal Network Infrastructure Audit"
     }
   }
   ```
@@ -335,7 +335,7 @@ Updates corporate organization branding and PDF report headers/footers (requires
 - **Request Body:**
   ```json
   {
-    "company_name": "Apex Global Telecom Ltd.",
+    "company_name": "Acme Corporation",
     "department": "NOC & Core Engineering",
     "logo_data": "data:image/png;base64,...",
     "report_footer": "Proprietary & Confidential — Tier-1 Operational Telemetry"

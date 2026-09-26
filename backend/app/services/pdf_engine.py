@@ -57,6 +57,10 @@ def secure_url_fetcher(url: str, timeout: int = 10, ssl_context: Any = None) -> 
     return _base_fetcher(f"file://{abs_path}")
 
 
+# WeasyPrint requires _fail_on_errors attribute on URL fetcher to handle blocked resources gracefully
+secure_url_fetcher._fail_on_errors = False
+
+
 def _render_pdf_sync(html_content: str, title: str) -> bytes:
     """
     Synchronous WeasyPrint + pypdf pipeline:
@@ -112,13 +116,13 @@ async def render_pdf_async(html_content: str, title: str = "LNMP Network Telemet
     """
     Asynchronously executes PDF rendering offloaded to a worker thread.
     Guarantees that CPU-bound rasterization never starves the FastAPI event loop.
-    Enforces a strict 20-second timeout.
+    Enforces a strict 60-second timeout.
     """
     try:
         return await asyncio.wait_for(
             asyncio.to_thread(_render_pdf_sync, html_content, title),
-            timeout=20.0,
+            timeout=60.0,
         )
     except asyncio.TimeoutError:
-        logger.error("PDF generation timed out after 20 seconds")
-        raise TimeoutError("PDF report rendering exceeded maximum execution threshold (20s).")
+        logger.error("PDF generation timed out after 60 seconds")
+        raise TimeoutError("PDF report rendering exceeded maximum execution threshold (60s).")

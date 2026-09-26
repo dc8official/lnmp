@@ -123,10 +123,10 @@ class SettingsPayload(BaseModel):
 
 
 class OrganizationBranding(BaseModel):
-    company_name: str = Field(default="Apex Global Telecom Ltd.", max_length=150)
-    department: str = Field(default="Network Operations Center (NOC)", max_length=150)
+    company_name: str = Field(default="", max_length=150)
+    department: str = Field(default="", max_length=150)
     logo_data: str = Field(default="", description="Base64 data URL for company logo")
-    report_footer: str = Field(default="Confidential — Apex Global Telecom Internal Audit", max_length=255)
+    report_footer: str = Field(default="", max_length=255)
 
     model_config = ConfigDict(
         alias_generator=to_camel,
@@ -393,10 +393,10 @@ async def get_organization_settings(
     res = await db.execute(stmt)
     kv = {s.setting_key: s.setting_value for s in res.scalars().all()}
     branding = OrganizationBranding(
-        company_name=kv.get("org:company_name", "Apex Global Telecom Ltd."),
-        department=kv.get("org:department", "Network Operations Center (NOC)"),
+        company_name=kv.get("org:company_name", ""),
+        department=kv.get("org:department", ""),
         logo_data=kv.get("org:logo_data", ""),
-        report_footer=kv.get("org:report_footer", "Confidential — Apex Global Telecom Internal Audit"),
+        report_footer=kv.get("org:report_footer", ""),
     )
     return APIResponse.success(data=branding)
 
@@ -441,10 +441,10 @@ async def update_organization_settings(
     res = await db.execute(stmt)
     kv = {s.setting_key: s.setting_value for s in res.scalars().all()}
     branding = OrganizationBranding(
-        company_name=kv.get("org:company_name", "Apex Global Telecom Ltd."),
-        department=kv.get("org:department", "Network Operations Center (NOC)"),
+        company_name=kv.get("org:company_name", ""),
+        department=kv.get("org:department", ""),
         logo_data=kv.get("org:logo_data", ""),
-        report_footer=kv.get("org:report_footer", "Confidential — Apex Global Telecom Internal Audit"),
+        report_footer=kv.get("org:report_footer", ""),
     )
     return APIResponse.success(data=branding)
 
