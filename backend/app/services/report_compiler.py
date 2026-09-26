@@ -146,7 +146,7 @@ async def compile_availability_report_data(
     res = await db.execute(stmt)
     endpoints = res.scalars().all()
 
-    gap_intervals = await get_service_gap_intervals()
+    gap_intervals = await get_service_gap_intervals(db, start_dt, end_dt)
 
     # Query all events overlapping the window for the targeted endpoints
     events_stmt = (
