@@ -28,12 +28,12 @@
           <!-- Left Column: Text Inputs -->
           <div class="form-fields">
             <div class="form-group">
-              <label class="setting-label">Company / Organization Name *</label>
+              <label class="setting-label">Company / Organization Name</label>
               <p class="setting-hint">Appears in document headers and official audit title lines.</p>
               <input 
                 type="text" 
                 v-model="form.companyName" 
-                placeholder="e.g. Apex Global Telecom Ltd." 
+                placeholder="Company name here" 
                 class="form-input"
                 maxlength="150"
                 @input="markDirty"
@@ -46,7 +46,7 @@
               <input 
                 type="text" 
                 v-model="form.department" 
-                placeholder="e.g. Network Operations Center (NOC)" 
+                placeholder="Department here (e.g. NOC)" 
                 class="form-input"
                 maxlength="150"
                 @input="markDirty"
@@ -59,7 +59,7 @@
               <input 
                 type="text" 
                 v-model="form.reportFooter" 
-                placeholder="e.g. Confidential — Internal Network Infrastructure Audit" 
+                placeholder="Report footer disclaimer here (e.g. Confidential — Internal Audit)" 
                 class="form-input"
                 maxlength="255"
                 @input="markDirty"
@@ -120,10 +120,10 @@ import { ref, onMounted } from 'vue'
 import { getOrganizationSettings, updateOrganizationSettings } from '../../services/api.js'
 
 const form = ref({
-  companyName: 'Apex Global Telecom Ltd.',
-  department: 'Network Operations Center (NOC)',
+  companyName: '',
+  department: '',
   logoData: '',
-  reportFooter: 'Confidential — Apex Global Telecom Internal Audit',
+  reportFooter: '',
 })
 
 const fileInputRef = ref(null)
@@ -179,10 +179,10 @@ async function loadBranding() {
     if (res.data?.data) {
       const d = res.data.data
       form.value = {
-        companyName: d.companyName || d.company_name || 'Apex Global Telecom Ltd.',
-        department: d.department || 'Network Operations Center (NOC)',
+        companyName: d.companyName || d.company_name || '',
+        department: d.department || '',
         logoData: d.logoData || d.logo_data || '',
-        reportFooter: d.reportFooter || d.report_footer || 'Confidential — Apex Global Telecom Internal Audit',
+        reportFooter: d.reportFooter || d.report_footer || '',
       }
       isDirty.value = false
     }

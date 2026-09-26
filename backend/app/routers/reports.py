@@ -716,12 +716,20 @@ async def generate_pdf_report(
     Asynchronously compiles network telemetry and renders an immutable, print-ready PDF audit report.
     Permission: Strictly Operators and Admins (VIEWER accounts are rejected with 403 Forbidden).
     """
-    valid_types = ("availability", "bandwidth", "master")
-    ttype = request.template_type.lower().strip()
-    if ttype not in valid_types:
+    valid_map = {
+        "a": "availability",
+        "availability": "availability",
+        "b": "bandwidth",
+        "bandwidth": "bandwidth",
+        "c": "master",
+        "master": "master",
+    }
+    raw_type = request.template_type.lower().strip()
+    ttype = valid_map.get(raw_type)
+    if not ttype:
         raise HTTPException(
             status_code=400,
-            detail=f"Invalid template_type '{request.template_type}'. Must be one of {valid_types}.",
+            detail=f"Invalid template_type '{request.template_type}'. Must be one of ('availability'/'a', 'bandwidth'/'b', 'master'/'c').",
         )
 
     start_dt = parse_datetime_param(request.start_date, is_end=False)
