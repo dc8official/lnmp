@@ -194,7 +194,8 @@ async def test_compile_availability_report_data():
         mock_res_rca,
     ]
 
-    with patch("app.services.report_compiler.get_service_gap_intervals", return_value=[]):
+    with patch("app.services.report_compiler.get_service_gap_intervals", new_callable=AsyncMock) as mock_gaps:
+        mock_gaps.return_value = []
         data = await compile_availability_report_data(
             db=mock_db,
             endpoint_ids=[ep_id],
@@ -202,6 +203,7 @@ async def test_compile_availability_report_data():
             end_dt=end_dt,
             include_rca=True,
         )
+        mock_gaps.assert_called_once_with(mock_db, start_dt, end_dt)
 
         assert len(data["endpoints"]) == 1
         assert data["summary"]["total_incidents"] == 1
@@ -410,7 +412,8 @@ def test_reports_pdf_rbac_operator_allowed():
         mock_res_rca,       # rca_stmt
     ]
 
-    with patch("app.services.report_compiler.get_service_gap_intervals", return_value=[]):
+    with patch("app.services.report_compiler.get_service_gap_intervals", new_callable=AsyncMock) as mock_gaps:
+        mock_gaps.return_value = []
         with TestClient(test_app) as client:
             payload = {
                 "template_type": "availability",
