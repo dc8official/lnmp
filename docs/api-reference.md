@@ -138,6 +138,7 @@ Retrieves paginated administrative audit logs (requires `Admin` role).
 
 ### `POST /reports/telemetry/export-batch` (Alias: `POST /reports/telemetry/export/batch`)
 Streams a sanitised CSV containing bulk telemetry data across multiple endpoints using deterministic keyset pagination.
+- **Access Control:** Requires `Operator` or `Admin` role (`403 Forbidden` for `Viewer`).
 - **Request Body:**
   ```json
   {
@@ -161,6 +162,33 @@ Streams a sanitised CSV containing bulk telemetry data across multiple endpoints
   - If `columns` is omitted or empty, all standard columns are included.
   - Non-negotiable identity columns (`Hostname` and `IP_Address`) are strictly enforced and automatically injected into every CSV stream.
   - CSV cells are sanitized against spreadsheet formula injection (`=`, `+`, `-`, `@`, `\t`, `\r`).
+
+### `POST /reports/pdf`
+Compiles and streams an executive-ready, immutable ISO A4 PDF report with air-gapped SSRF protection and cryptographic header verification.
+- **Access Control:** Requires `Operator` or `Admin` role (`403 Forbidden` for `Viewer`).
+- **Request Body:**
+  ```json
+  {
+    "template_type": "a",
+    "endpoint_ids": ["3fa85f64-5717-4562-b3fc-2c963f66afa6"],
+    "start_date": "2026-09-01T00:00:00Z",
+    "end_date": "2026-09-08T00:00:00Z",
+    "include_rca": true
+  }
+  ```
+- **Parameters:**
+  - `template_type` (str): `"a"` (Availability & SLA Matrix), `"b"` (Bandwidth & Interface Capacity), or `"master"` (Template C: Combined Master Audit Dossier).
+  - `endpoint_ids` (list[UUID]): List of target endpoint UUIDs to compile into the report.
+  - `start_date` (datetime): UTC start boundary.
+  - `end_date` (datetime): UTC end boundary.
+  - `include_rca` (bool, default `true`): Include root-cause analysis diagnostic summaries in outage incident ledgers.
+- **Response Headers:**
+  - `Content-Type: application/pdf`
+  - `Content-Disposition: attachment; filename="<generated-report-name>.pdf"`
+  - `X-Report-SHA256: <64-character-sha256-hexdigest>`
+- **Security & Immutability:**
+  - Air-gapped rendering: Disallows all external network schemas (`http://`, `https://`, `ftp://`) and whitelists local filesystem access strictly to authorized template/asset paths.
+  - Standard permission encryption (`pypdf` with `UserAccessPermissions.PRINT | UserAccessPermissions.PRINT_TO_REPRESENTATION`) enforces read-only immutability.
 
 ---
 
@@ -286,6 +314,38 @@ Performs live pre-flight verification of Redis connectivity and Stream capabilit
     "message": "Request processed successfully."
   }
   ```
+
+### `GET /settings/organization`
+Retrieves corporate organization profile and report branding settings. Available to all authenticated users for client-side rendering.
+- **Response:** `200 OK`
+  ```json
+  {
+    "success": true,
+    "data": {
+      "company_name": "Apex Global Telecom Ltd.",
+      "department": "Network Operations Center (NOC)",
+      "logo_data": "data:image/png;base64,...",
+      "report_footer": "Confidential — Apex Global Telecom Internal Audit"
+    }
+  }
+  ```
+
+### `PATCH /settings/organization`
+Updates corporate organization branding and PDF report headers/footers (requires `Admin` role).
+- **Request Body:**
+  ```json
+  {
+    "company_name": "Apex Global Telecom Ltd.",
+    "department": "NOC & Core Engineering",
+    "logo_data": "data:image/png;base64,...",
+    "report_footer": "Proprietary & Confidential — Tier-1 Operational Telemetry"
+  }
+  ```
+- **Validation Constraints:**
+  - `logo_data`: Must be a valid Base64 data URI (`data:image/...`), max length 2,000,000 characters (~1 MB image file).
+  - `company_name`: String, max 150 characters.
+  - `department`: String, max 150 characters.
+  - `report_footer`: String, max 255 characters.
 
 ---
 
