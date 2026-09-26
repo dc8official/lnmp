@@ -258,11 +258,22 @@
           <div class="section-title">Active Router Interfaces & Telemetry</div>
           <span class="section-hint">{{ interfaceList.length }} Interfaces Detected · Click row to isolate throughput</span>
         </div>
-        <div v-if="selectedInterfaceIdx !== null" class="isolated-badge-row">
-          <span class="status-pill status-isolated">
-            Isolating Interface #{{ selectedInterfaceIdx }}
-          </span>
-          <button class="btn-text btn-small" @click="clearInterfaceIsolation">Clear Isolation ✕</button>
+        <div class="header-actions-row">
+          <button
+            v-if="isAdmin"
+            type="button"
+            class="btn-secondary btn-small"
+            @click="openInterfaceModal"
+            title="Configure interface aliases and link speeds"
+          >
+            ⚙ Configure Interfaces
+          </button>
+          <div v-if="selectedInterfaceIdx !== null" class="isolated-badge-row">
+            <span class="status-pill status-isolated">
+              Isolating Interface #{{ selectedInterfaceIdx }}
+            </span>
+            <button class="btn-text btn-small" @click="clearInterfaceIsolation">Clear Isolation ✕</button>
+          </div>
         </div>
       </div>
       <div class="table-responsive">
@@ -287,8 +298,19 @@
               class="cursor-pointer"
             >
               <td class="font-mono tnum">#{{ item.interface_idx }}</td>
-              <td>
-                <span class="font-bold">{{ item.name }}</span>
+              <td class="name-cell">
+                <div class="name-cell-inner">
+                  <span class="font-bold">{{ item.name }}</span>
+                  <button
+                    v-if="isAdmin"
+                    type="button"
+                    class="btn-row-edit"
+                    @click.stop="openInterfaceModal(item.interface_idx)"
+                    title="Configure this interface"
+                  >
+                    ✎
+                  </button>
+                </div>
               </td>
               <td class="text-right tnum text-muted">{{ formatSpeed(item.speed_mbps) }}</td>
               <td class="text-right tnum ingress-text">{{ formatBps(item.in_bps) }}</td>
@@ -533,6 +555,103 @@
         </div>
       </div>
     </div>
+
+    <!-- Router Interface Configuration Modal (Admin Only) -->
+    <div v-if="showInterfaceModal" class="modal-overlay" @click.self="showInterfaceModal = false">
+      <div class="modal-card wide">
+        <div class="modal-header">
+          <h3>⚙️ Configure Router Interface Aliases & Speeds</h3>
+          <button class="btn-close" @click="showInterfaceModal = false">✕</button>
+        </div>
+
+        <form @submit.prevent="saveInterfaces" class="modal-form">
+          <p class="modal-subtitle">
+            Assign human-readable SNMP interface names and provisioned line speeds for accurate utilization calculation.
+          </p>
+
+          <div class="interface-config-list">
+            <div
+              v-for="(iface, i) in editingInterfaces"
+              :key="i"
+              class="interface-config-row"
+            >
+              <div class="form-group idx-col">
+                <label v-if="i === 0">ifIndex *</label>
+                <input
+                  type="number"
+                  v-model.number="iface.index"
+                  min="1"
+                  max="2147483647"
+                  required
+                  placeholder="e.g. 1"
+                  class="form-input"
+                />
+              </div>
+
+              <div class="form-group name-col">
+                <label v-if="i === 0">Interface Name / Alias *</label>
+                <input
+                  type="text"
+                  v-model="iface.name"
+                  required
+                  placeholder="e.g. GigabitEthernet0/1 or WAN-Uplink"
+                  class="form-input"
+                />
+              </div>
+
+              <div class="form-group preset-col">
+                <label v-if="i === 0">Speed Preset</label>
+                <select v-model="iface.preset" @change="onPresetChange(iface)" class="form-select">
+                  <option :value="10">10 Mbps (Ethernet)</option>
+                  <option :value="100">100 Mbps (FastEth)</option>
+                  <option :value="1000">1 Gbps (GigEth)</option>
+                  <option :value="10000">10 Gbps (10GE)</option>
+                  <option :value="40000">40 Gbps (40GE)</option>
+                  <option :value="100000">100 Gbps (100GE)</option>
+                  <option value="custom">Custom</option>
+                </select>
+              </div>
+
+              <div class="form-group speed-col" v-if="iface.preset === 'custom'">
+                <label v-if="i === 0">Mbps</label>
+                <input
+                  type="number"
+                  v-model.number="iface.speed_mbps"
+                  min="1"
+                  required
+                  class="form-input"
+                />
+              </div>
+
+              <div class="remove-col">
+                <label v-if="i === 0">&nbsp;</label>
+                <button
+                  type="button"
+                  class="btn-icon-danger"
+                  @click="removeInterfaceRow(i)"
+                  title="Remove interface"
+                >
+                  ✕
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div class="add-row-action">
+            <button type="button" class="btn-secondary btn-small" @click="addInterfaceRow">
+              + Add Interface
+            </button>
+          </div>
+
+          <div class="modal-actions" style="margin-top: 1rem;">
+            <button type="button" class="btn-secondary" @click="showInterfaceModal = false">Cancel</button>
+            <button type="submit" class="btn-primary" :disabled="savingInterfaces">
+              {{ savingInterfaces ? 'Saving...' : 'Save Interfaces' }}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -561,8 +680,10 @@ import {
   enrollFlowExporter,
   mapFlowExporter,
   getInterfaceTelemetry,
+  updateEndpointInterfaces,
   getEndpoints,
 } from '../services/api.js'
+import { isAdmin } from '../services/auth.js'
 
 ChartJS.register(
   CategoryScale,
@@ -788,6 +909,76 @@ const selectedUnmatchedIp = ref('')
 const targetEndpointId = ref(null)
 const mappingLoading = ref(false)
 const mappingError = ref(null)
+
+// Interface Configuration Modal (Admin Only)
+const showInterfaceModal = ref(false)
+const editingInterfaces = ref([])
+const savingInterfaces = ref(false)
+
+function openInterfaceModal(focusIdx = null) {
+  const current = interfaceList.value || []
+  let rows = current.map((item) => {
+    const sp = item.speed_mbps || 1000
+    return {
+      index: Number(item.interface_idx) || 1,
+      name: item.name || `GigabitEthernet0/${item.interface_idx}`,
+      speed_mbps: sp,
+      preset: [10, 100, 1000, 10000, 40000, 100000].includes(sp) ? sp : 'custom',
+    }
+  })
+
+  if (rows.length === 0) {
+    rows = [{ index: 1, name: 'GigabitEthernet0/1', speed_mbps: 1000, preset: 1000 }]
+  }
+
+  editingInterfaces.value = rows
+  showInterfaceModal.value = true
+}
+
+function addInterfaceRow() {
+  const nextIdx = editingInterfaces.value.length + 1
+  editingInterfaces.value.push({
+    index: nextIdx,
+    name: `GigabitEthernet0/${nextIdx}`,
+    speed_mbps: 1000,
+    preset: 1000,
+  })
+}
+
+function removeInterfaceRow(index) {
+  editingInterfaces.value.splice(index, 1)
+}
+
+function onPresetChange(row) {
+  if (row.preset !== 'custom') {
+    row.speed_mbps = Number(row.preset)
+  }
+}
+
+async function saveInterfaces() {
+  if (!selectedExporterId.value) return
+  savingInterfaces.value = true
+  try {
+    const payload = {}
+    for (const row of editingInterfaces.value) {
+      const idxStr = String(row.index).trim()
+      if (idxStr) {
+        payload[idxStr] = {
+          name: row.name.trim() || `if${idxStr}`,
+          speed_mbps: Number(row.speed_mbps) || 1000,
+        }
+      }
+    }
+    await updateEndpointInterfaces(selectedExporterId.value, payload)
+    showInterfaceModal.value = false
+    await refreshData()
+  } catch (err) {
+    console.error('Failed to update interfaces:', err)
+    alert(err.response?.data?.detail || 'Failed to update interfaces.')
+  } finally {
+    savingInterfaces.value = false
+  }
+}
 
 // Chart Data
 const seriesPoints = ref([])
@@ -1668,4 +1859,59 @@ html.dark .unmatched-scope-badge {
   color: #9ca3af;
   border: 1px solid rgba(156, 163, 175, 0.3);
 }
+
+.header-actions-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.name-cell-inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.btn-row-edit {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 13px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  transition: all 0.15s ease;
+}
+
+.btn-row-edit:hover {
+  background: var(--bg-surface-hover);
+  color: var(--accent-primary, #2563eb);
+}
+
+.interface-config-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 380px;
+  overflow-y: auto;
+  margin: 1rem 0;
+  padding-right: 4px;
+}
+
+.interface-config-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+  background: var(--bg-surface-hover);
+  padding: 8px 12px;
+  border-radius: var(--radius-sm, 6px);
+  border: 1px solid var(--border-color);
+}
+
+.interface-config-row .idx-col { width: 80px; }
+.interface-config-row .name-col { flex: 1; }
+.interface-config-row .preset-col { width: 170px; }
+.interface-config-row .speed-col { width: 100px; }
+.interface-config-row .remove-col { width: 36px; display: flex; align-items: flex-end; }
 </style>

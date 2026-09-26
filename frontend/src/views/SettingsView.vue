@@ -8,7 +8,7 @@
       </div>
       <div class="header-actions">
         <button 
-          v-if="activeTab !== 'alerts' && activeTab !== 'users'" 
+          v-if="activeTab !== 'alerts' && activeTab !== 'users' && activeTab !== 'organization'" 
           class="btn-primary" 
           @click="saveAllSettings" 
           :disabled="saving || !isAnyDirty"
@@ -76,6 +76,18 @@
         <span class="tab-icon">👥</span>
         <span class="tab-label">User Governance</span>
       </button>
+
+      <button 
+        type="button" 
+        class="tab-btn" 
+        :class="{ active: activeTab === 'organization' }" 
+        @click="switchTab('organization')"
+        role="tab"
+        :aria-selected="activeTab === 'organization'"
+      >
+        <span class="tab-icon">🏢</span>
+        <span class="tab-label">Organization & Branding</span>
+      </button>
     </div>
 
     <!-- Tab Panels Container -->
@@ -106,6 +118,11 @@
       <SettingsUsers 
         v-if="activeTab === 'users'" 
         :currentUser="currentUser"
+      />
+
+      <!-- TAB 5: Organization Profile & Report Branding -->
+      <SettingsOrganization 
+        v-if="activeTab === 'organization'" 
       />
     </div>
 
@@ -142,6 +159,7 @@ import SettingsAlerts from '../components/settings/SettingsAlerts.vue'
 import SettingsFlow from '../components/settings/SettingsFlow.vue'
 import SettingsSecurity from '../components/settings/SettingsSecurity.vue'
 import SettingsUsers from '../components/settings/SettingsUsers.vue'
+import SettingsOrganization from '../components/settings/SettingsOrganization.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -159,7 +177,7 @@ function switchTab(tab) {
 watch(
   () => route.query.tab,
   (newTab) => {
-    if (newTab && ['alerts', 'performance', 'security', 'users'].includes(newTab)) {
+    if (newTab && ['alerts', 'performance', 'security', 'users', 'organization'].includes(newTab)) {
       activeTab.value = newTab
     }
   }

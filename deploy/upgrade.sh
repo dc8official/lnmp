@@ -217,7 +217,7 @@ STAGE_DIR="/tmp/lnmp-upgrade-stage-$$"
 if [[ ${DRY_RUN} -eq 0 ]]; then
     # Ensure system dependencies (git, redis-server, traceroute, libcap2-bin)
     if command -v apt-get &>/dev/null; then
-        PACKAGES_TO_CHECK="git redis-server traceroute libcap2-bin rsync"
+        PACKAGES_TO_CHECK="git redis-server traceroute libcap2-bin rsync libpango-1.0-0 libharfbuzz0b libpangoft2-1.0-0 libharfbuzz-subset0"
         MISSING_PKGS=""
         for pkg in ${PACKAGES_TO_CHECK}; do
             if ! dpkg -l "${pkg}" 2>/dev/null | grep -q "^ii"; then

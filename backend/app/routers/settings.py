@@ -122,6 +122,30 @@ class SettingsPayload(BaseModel):
     )
 
 
+class OrganizationBranding(BaseModel):
+    company_name: str = Field(default="Apex Global Telecom Ltd.", max_length=150)
+    department: str = Field(default="Network Operations Center (NOC)", max_length=150)
+    logo_data: str = Field(default="", description="Base64 data URL for company logo")
+    report_footer: str = Field(default="Confidential — Apex Global Telecom Internal Audit", max_length=255)
+
+    model_config = ConfigDict(
+        alias_generator=to_camel,
+        populate_by_name=True,
+    )
+
+
+class OrganizationBrandingUpdate(BaseModel):
+    company_name: Optional[str] = Field(default=None, max_length=150)
+    department: Optional[str] = Field(default=None, max_length=150)
+    logo_data: Optional[str] = Field(default=None)
+    report_footer: Optional[str] = Field(default=None, max_length=255)
+
+    model_config = ConfigDict(
+        alias_generator=to_camel,
+        populate_by_name=True,
+    )
+
+
 async def _read_settings_dict(db: AsyncSession) -> dict[str, Any]:
     stmt = select(AppSetting)
     res = await db.execute(stmt)
@@ -347,6 +371,82 @@ async def update_settings(
 
     updated_data = await _read_settings_dict(db)
     return APIResponse.success(data=SettingsPayload(**updated_data))
+
+
+@router.get("/organization", response_model=APIResponse)
+async def get_organization_settings(
+    current_user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Retrieves current organization branding settings (company name, department, logo, report footer).
+    Available to all authenticated users for client-side rendering.
+    """
+    stmt = select(AppSetting).where(
+        AppSetting.setting_key.in_([
+            "org:company_name",
+            "org:department",
+            "org:logo_data",
+            "org:report_footer",
+        ])
+    )
+    res = await db.execute(stmt)
+    kv = {s.setting_key: s.setting_value for s in res.scalars().all()}
+    branding = OrganizationBranding(
+        company_name=kv.get("org:company_name", "Apex Global Telecom Ltd."),
+        department=kv.get("org:department", "Network Operations Center (NOC)"),
+        logo_data=kv.get("org:logo_data", ""),
+        report_footer=kv.get("org:report_footer", "Confidential — Apex Global Telecom Internal Audit"),
+    )
+    return APIResponse.success(data=branding)
+
+
+@router.patch("/organization", response_model=APIResponse)
+async def update_organization_settings(
+    payload: OrganizationBrandingUpdate,
+    current_user: dict = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Admin-only endpoint to configure organization branding and corporate reporting headers.
+    """
+    if payload.logo_data is not None:
+        logo_str = payload.logo_data.strip()
+        if logo_str:
+            if not logo_str.startswith("data:image/"):
+                raise HTTPException(status_code=400, detail="Logo must be a valid image data URI (PNG, JPG, SVG).")
+            if len(logo_str) > 2_000_000:
+                raise HTTPException(status_code=400, detail="Logo image file exceeds maximum allowed size (1 MB).")
+        await _upsert_setting(db, "org:logo_data", logo_str)
+
+    if payload.company_name is not None:
+        await _upsert_setting(db, "org:company_name", payload.company_name.strip())
+
+    if payload.department is not None:
+        await _upsert_setting(db, "org:department", payload.department.strip())
+
+    if payload.report_footer is not None:
+        await _upsert_setting(db, "org:report_footer", payload.report_footer.strip())
+
+    await db.commit()
+
+    stmt = select(AppSetting).where(
+        AppSetting.setting_key.in_([
+            "org:company_name",
+            "org:department",
+            "org:logo_data",
+            "org:report_footer",
+        ])
+    )
+    res = await db.execute(stmt)
+    kv = {s.setting_key: s.setting_value for s in res.scalars().all()}
+    branding = OrganizationBranding(
+        company_name=kv.get("org:company_name", "Apex Global Telecom Ltd."),
+        department=kv.get("org:department", "Network Operations Center (NOC)"),
+        logo_data=kv.get("org:logo_data", ""),
+        report_footer=kv.get("org:report_footer", "Confidential — Apex Global Telecom Internal Audit"),
+    )
+    return APIResponse.success(data=branding)
 
 
 async def _run_redis_flow_check() -> FlowPreflightResponse:

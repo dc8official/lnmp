@@ -4,6 +4,7 @@ import { closeConnection, resetConnection } from '../composables/useSSE.js'
 export const user = ref(null)
 export const currentUser = ref(null)
 export const isAdmin = ref(false)
+export const isOperatorOrAdmin = ref(false)
 export const mustChangePassword = ref(false)
 
 export function isValidUserObject(parsed) {
@@ -46,6 +47,7 @@ export function loadUserFromStorage() {
         user.value = sanitized
         currentUser.value = sanitized.username
         isAdmin.value = sanitized.role === 'ADMIN'
+        isOperatorOrAdmin.value = ['ADMIN', 'OPERATOR'].includes(sanitized.role)
         mustChangePassword.value = sanitized.must_change_password
         return sanitized
       }
@@ -86,6 +88,7 @@ export function setUserState(userData) {
   }
   currentUser.value = userData.username || null
   isAdmin.value = userData.role === 'ADMIN'
+  isOperatorOrAdmin.value = ['ADMIN', 'OPERATOR'].includes(userData.role)
   mustChangePassword.value = !!userData.must_change_password
 
   try {
@@ -106,6 +109,7 @@ export function clearUserState() {
   user.value = null
   currentUser.value = null
   isAdmin.value = false
+  isOperatorOrAdmin.value = false
   mustChangePassword.value = false
 
   try {

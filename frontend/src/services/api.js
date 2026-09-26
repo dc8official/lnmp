@@ -273,3 +273,15 @@ export function testFlowPreflight() {
   return api.post('/settings/flow/preflight')
 }
 
+export function generatePdfReport(data) {
+  return api.post('/reports/pdf', data, { responseType: 'blob' })
+}
+
+export function getOrganizationSettings() {
+  return api.get('/settings/organization')
+}
+
+export function updateOrganizationSettings(data) {
+  return api.patch('/settings/organization', data)
+}
+

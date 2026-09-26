@@ -15,12 +15,22 @@
           <span>{{ loading ? 'Refreshing...' : '↻ Refresh Data' }}</span>
         </button>
         <button 
+          v-if="isOperatorOrAdmin"
           class="btn-primary" 
           @click="openExportModal" 
           :disabled="exporting || endpoints.length === 0"
         >
           <i class="pi" :class="exporting ? 'pi-spin pi-spinner' : 'pi-download'" style="margin-right: 0.5rem;"></i>
           <span>{{ exporting ? 'Exporting...' : '📥 Export Telemetry (CSV)' }}</span>
+        </button>
+        <button 
+          v-if="isOperatorOrAdmin"
+          class="btn-primary btn-pdf-export" 
+          @click="openPdfModal" 
+          :disabled="generatingPdf || endpoints.length === 0"
+        >
+          <i class="pi" :class="generatingPdf ? 'pi-spin pi-spinner' : 'pi-file-pdf'" style="margin-right: 0.5rem;"></i>
+          <span>{{ generatingPdf ? 'Generating PDF...' : '📄 Generate PDF Report' }}</span>
         </button>
       </div>
     </div>
@@ -340,13 +350,192 @@
         </div>
       </div>
     </div>
+
+    <!-- Interactive PDF Report Generator Modal -->
+    <div v-if="showPdfModal" class="modal-backdrop" @click.self="closePdfModal" @keydown="onPdfModalKeydown">
+      <div 
+        ref="pdfModalRef" 
+        class="modal-dialog modal-dialog-lg" 
+        role="dialog" 
+        aria-modal="true" 
+        aria-labelledby="pdf-modal-title"
+        tabindex="-1"
+      >
+        <div class="modal-header">
+          <div class="modal-title-group">
+            <h2 id="pdf-modal-title" class="modal-title">📄 Generate PDF Audit Report</h2>
+            <p class="modal-subtitle">Compile network telemetry, SLA metrics, and bandwidth data into an immutable, print-ready document</p>
+          </div>
+          <button class="btn-close" @click="closePdfModal" aria-label="Close modal">✕</button>
+        </div>
+
+        <div class="modal-body">
+          <!-- Section 1: Template Selection -->
+          <div class="form-section">
+            <label class="section-label">Select Report Template</label>
+            <div class="template-cards-grid">
+              <div 
+                class="template-card" 
+                :class="{ active: pdfTemplate === 'availability' }"
+                @click="pdfTemplate = 'availability'"
+                tabindex="0"
+                role="button"
+                @keydown.enter.space="pdfTemplate = 'availability'"
+              >
+                <div class="template-card-header">
+                  <span class="template-badge badge-avail">Template A</span>
+                  <input type="radio" value="availability" v-model="pdfTemplate" />
+                </div>
+                <h3 class="template-card-title">Availability & SLA Performance</h3>
+                <p class="template-card-desc">
+                  Fleet availability matrix, SLA percentages, downtime duration, and outage incident ledger with RCA findings.
+                </p>
+                <div class="template-features">
+                  <span>✓ Multi-Endpoint SLA</span>
+                  <span>✓ Incident Ledger</span>
+                  <span>✓ Root Cause Analysis</span>
+                </div>
+              </div>
+
+              <div 
+                class="template-card" 
+                :class="{ active: pdfTemplate === 'bandwidth' }"
+                @click="pdfTemplate = 'bandwidth'"
+                tabindex="0"
+                role="button"
+                @keydown.enter.space="pdfTemplate = 'bandwidth'"
+              >
+                <div class="template-card-header">
+                  <span class="template-badge badge-bw">Template B</span>
+                  <input type="radio" value="bandwidth" v-model="pdfTemplate" />
+                </div>
+                <h3 class="template-card-title">Bandwidth & Interface Capacity</h3>
+                <p class="template-card-desc">
+                  Flow exporter routers summary, per-interface traffic volume, line-speed utilization %, and top conversations.
+                </p>
+                <div class="template-features">
+                  <span>✓ Exporter Routers</span>
+                  <span>✓ Interface Capacity %</span>
+                  <span>✓ Top Conversations</span>
+                </div>
+              </div>
+
+              <div 
+                class="template-card" 
+                :class="{ active: pdfTemplate === 'master' }"
+                @click="pdfTemplate = 'master'"
+                tabindex="0"
+                role="button"
+                @keydown.enter.space="pdfTemplate = 'master'"
+              >
+                <div class="template-card-header">
+                  <span class="template-badge badge-master">Template C</span>
+                  <input type="radio" value="master" v-model="pdfTemplate" />
+                </div>
+                <h3 class="template-card-title">Executive Master Audit Dossier</h3>
+                <p class="template-card-desc">
+                  Comprehensive 4-part synthesis merging availability, SLA, outage events, flow exporter routers, and interface bandwidth.
+                </p>
+                <div class="template-features">
+                  <span>✓ All-In-One Synthesis</span>
+                  <span>✓ Complete Ledger</span>
+                  <span>✓ Forensic Profiles</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Section 2: Target Scope -->
+          <div class="form-section">
+            <label class="section-label">Target Scope</label>
+            <div class="radio-options">
+              <label class="radio-label">
+                <input type="radio" value="all" v-model="pdfScope" />
+                <span>All Monitored Endpoints & Exporters ({{ endpoints.length }} nodes)</span>
+              </label>
+              <label class="radio-label">
+                <input type="radio" value="selected" v-model="pdfScope" />
+                <span>Custom Target Selection ({{ pdfSelectedIds.length }} selected)</span>
+              </label>
+            </div>
+
+            <!-- Target checklist if custom selection -->
+            <div v-if="pdfScope === 'selected'" class="target-picker-box">
+              <div class="target-picker-header">
+                <label class="checkbox-label font-bold">
+                  <input type="checkbox" :checked="isAllPdfSelected" @change="toggleSelectAllPdf" />
+                  <span>Select All Targets</span>
+                </label>
+                <span class="target-count">{{ pdfSelectedIds.length }} / {{ endpoints.length }}</span>
+              </div>
+              <div class="target-list">
+                <div v-for="ep in endpoints" :key="ep.id" class="target-item">
+                  <label class="checkbox-label">
+                    <input type="checkbox" :value="ep.id" v-model="pdfSelectedIds" />
+                    <span class="target-name font-bold">{{ ep.hostname }}</span>
+                    <span class="target-ip font-mono tnum">{{ ep.ip_address }}</span>
+                    <span class="device-pill">{{ ep.device_type }}</span>
+                  </label>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Section 3: Time Window -->
+          <div class="form-section">
+            <label class="section-label">Report Period</label>
+            <div class="period-pills">
+              <button type="button" class="pill-btn" :class="{ active: pdfRange === '24h' }" @click="pdfRange = '24h'">24 Hours</button>
+              <button type="button" class="pill-btn" :class="{ active: pdfRange === '7d' }" @click="pdfRange = '7d'">7 Days</button>
+              <button type="button" class="pill-btn" :class="{ active: pdfRange === '30d' }" @click="pdfRange = '30d'">30 Days</button>
+              <button type="button" class="pill-btn" :class="{ active: pdfRange === 'custom' }" @click="pdfRange = 'custom'">Custom Range</button>
+            </div>
+            <div v-if="pdfRange === 'custom'" class="custom-range-row mt-2">
+              <div class="date-group">
+                <label>Start (UTC)</label>
+                <input type="datetime-local" v-model="pdfCustomStart" class="input-datetime" />
+              </div>
+              <div class="date-group">
+                <label>End (UTC)</label>
+                <input type="datetime-local" v-model="pdfCustomEnd" class="input-datetime" />
+              </div>
+            </div>
+          </div>
+
+          <!-- Section 4: Incident Ledger Options -->
+          <div class="form-section" v-if="pdfTemplate !== 'bandwidth'">
+            <label class="section-label">Incident Ledger Options</label>
+            <label class="checkbox-label">
+              <input type="checkbox" v-model="pdfIncludeRca" />
+              <span>Include Root Cause Analysis (RCA) diagnostic telemetry in outage incident ledger</span>
+            </label>
+          </div>
+        </div>
+
+        <div class="modal-footer">
+          <button type="button" class="btn-secondary" @click="closePdfModal" :disabled="generatingPdf">
+            Cancel
+          </button>
+          <button 
+            type="button" 
+            class="btn-primary btn-pdf-export" 
+            @click="triggerPdfExport" 
+            :disabled="generatingPdf || (pdfScope === 'selected' && pdfSelectedIds.length === 0)"
+          >
+            <i class="pi" :class="generatingPdf ? 'pi-spin pi-spinner' : 'pi-file-pdf'" style="margin-right: 0.5rem;"></i>
+            <span>{{ generatingPdf ? 'Compiling & Rendering PDF...' : '📄 Generate & Download PDF' }}</span>
+          </button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
 <script setup>
 import { ref, computed, onMounted, nextTick } from 'vue'
 import { useToast } from 'primevue/usetoast'
-import { getFleetSummary, exportBatchTelemetry } from '../services/api.js'
+import { getFleetSummary, exportBatchTelemetry, generatePdfReport } from '../services/api.js'
+import { isOperatorOrAdmin, loadUserFromStorage } from '../services/auth.js'
 
 const toast = useToast()
 const exportModalRef = ref(null)
@@ -660,7 +849,154 @@ async function triggerExport() {
   }
 }
 
+// -------------------------------------------------------------
+// Interactive PDF Report Generator State & Actions
+// -------------------------------------------------------------
+const showPdfModal = ref(false)
+const pdfModalRef = ref(null)
+let pdfOpenerElement = null
+const generatingPdf = ref(false)
+const pdfTemplate = ref('availability') // 'availability', 'bandwidth', 'master'
+const pdfScope = ref('all')
+const pdfSelectedIds = ref([])
+const pdfRange = ref('24h')
+const pdfCustomStart = ref(new Date(Date.now() - 24 * 3600 * 1000).toISOString().slice(0, 16))
+const pdfCustomEnd = ref(new Date().toISOString().slice(0, 16))
+const pdfIncludeRca = ref(true)
+
+const isAllPdfSelected = computed(() => {
+  return endpoints.value.length > 0 && pdfSelectedIds.value.length === endpoints.value.length
+})
+
+function toggleSelectAllPdf() {
+  if (isAllPdfSelected.value) {
+    pdfSelectedIds.value = []
+  } else {
+    pdfSelectedIds.value = endpoints.value.map(e => e.id)
+  }
+}
+
+function openPdfModal() {
+  pdfOpenerElement = document.activeElement
+  pdfScope.value = 'all'
+  pdfRange.value = filterRange.value
+  pdfSelectedIds.value = endpoints.value.map(e => e.id)
+  showPdfModal.value = true
+  nextTick(() => {
+    if (pdfModalRef.value) {
+      const first = pdfModalRef.value.querySelector('button, input')
+      first?.focus()
+    }
+  })
+}
+
+function closePdfModal() {
+  showPdfModal.value = false
+  nextTick(() => {
+    pdfOpenerElement?.focus()
+  })
+}
+
+function onPdfModalKeydown(e) {
+  if (e.key === 'Escape') {
+    closePdfModal()
+    return
+  }
+  if (e.key !== 'Tab' || !pdfModalRef.value) return
+  const focusables = pdfModalRef.value.querySelectorAll(
+    'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+  )
+  if (!focusables.length) return
+  const first = focusables[0]
+  const last = focusables[focusables.length - 1]
+  if (e.shiftKey && document.activeElement === first) {
+    e.preventDefault()
+    last.focus()
+  } else if (!e.shiftKey && document.activeElement === last) {
+    e.preventDefault()
+    first.focus()
+  }
+}
+
+async function triggerPdfExport() {
+  const targetIds = pdfScope.value === 'all'
+    ? endpoints.value.map(ep => ep.id)
+    : pdfSelectedIds.value
+
+  if (targetIds.length === 0) return
+
+  generatingPdf.value = true
+  const now = new Date()
+  let start = ''
+  let end = now.toISOString()
+
+  if (pdfRange.value === '24h') {
+    start = new Date(now.getTime() - 24 * 3600 * 1000).toISOString()
+  } else if (pdfRange.value === '7d') {
+    start = new Date(now.getTime() - 7 * 24 * 3600 * 1000).toISOString()
+  } else if (pdfRange.value === '30d') {
+    start = new Date(now.getTime() - 30 * 24 * 3600 * 1000).toISOString()
+  } else {
+    start = new Date(pdfCustomStart.value).toISOString()
+    end = new Date(pdfCustomEnd.value).toISOString()
+  }
+
+  try {
+    const res = await generatePdfReport({
+      template_type: pdfTemplate.value,
+      endpoint_ids: targetIds,
+      start_date: start,
+      end_date: end,
+      include_rca: pdfIncludeRca.value,
+    })
+
+    const blob = new Blob([res.data], { type: 'application/pdf' })
+    const url = window.URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    const templateName = pdfTemplate.value.toUpperCase()
+    link.download = `LNMP_${templateName}_Report_${pdfRange.value}_${Date.now()}.pdf`
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    window.URL.revokeObjectURL(url)
+
+    closePdfModal()
+    toast.add({
+      severity: 'success',
+      summary: 'PDF Report Ready',
+      detail: `Template ${templateName} generated and downloaded successfully.`,
+      life: 4000,
+    })
+  } catch (err) {
+    console.error('Failed to generate PDF report:', err)
+    let errorDetail = 'Failed to generate PDF audit report.'
+    if (err.response?.data) {
+      if (err.response.data instanceof Blob) {
+        try {
+          const text = await err.response.data.text()
+          const json = JSON.parse(text)
+          errorDetail = json.detail || errorDetail
+        } catch {
+          // ignore
+        }
+      } else if (err.response.data.detail) {
+        errorDetail = err.response.data.detail
+      }
+    }
+    toast.add({
+      severity: 'error',
+      summary: 'PDF Generation Failed',
+      detail: errorDetail,
+      life: 5000,
+    })
+  } finally {
+    generatingPdf.value = false
+  }
+}
+
 onMounted(() => {
+  loadUserFromStorage()
   loadAllReports()
 })
 </script>
@@ -1229,5 +1565,106 @@ onMounted(() => {
   display: flex;
   justify-content: flex-end;
   gap: 0.75rem;
+}
+
+.modal-dialog-lg {
+  max-width: 840px;
+}
+
+.btn-pdf-export {
+  background: linear-gradient(135deg, #4f46e5 0%, #3b82f6 100%);
+  border-color: #4f46e5;
+}
+
+.btn-pdf-export:hover:not(:disabled) {
+  background: linear-gradient(135deg, #4338ca 0%, #2563eb 100%);
+}
+
+.template-cards-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 0.875rem;
+  margin-top: 0.5rem;
+}
+
+.template-card {
+  padding: 1rem;
+  background: var(--bg-surface-selected, rgba(255, 255, 255, 0.02));
+  border: 1px solid var(--border-color, #27272a);
+  border-radius: var(--radius-md, 6px);
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  transition: all 0.2s ease;
+  user-select: none;
+}
+
+.template-card:hover {
+  border-color: var(--color-primary, #3b82f6);
+  background: rgba(59, 130, 246, 0.03);
+}
+
+.template-card.active {
+  border-color: #6366f1;
+  background: rgba(99, 102, 241, 0.08);
+  box-shadow: 0 0 0 1px #6366f1;
+}
+
+.template-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.template-badge {
+  font-size: 0.6875rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 0.125rem 0.5rem;
+  border-radius: 4px;
+}
+
+.badge-avail {
+  background: rgba(16, 185, 129, 0.15);
+  color: #10b981;
+}
+
+.badge-bw {
+  background: rgba(59, 130, 246, 0.15);
+  color: #60a5fa;
+}
+
+.badge-master {
+  background: rgba(168, 85, 247, 0.15);
+  color: #c084fc;
+}
+
+.template-card-title {
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0;
+  line-height: 1.3;
+}
+
+.template-card-desc {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  line-height: 1.4;
+  margin: 0;
+  flex: 1;
+}
+
+.template-features {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.6875rem;
+  color: var(--text-muted, #71717a);
+  margin-top: 0.25rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--border-color, #27272a);
 }
 </style>
