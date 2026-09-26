@@ -108,16 +108,42 @@ Always verify channel reachability before saving:
 
 ---
 
-## 7. Reports & CSV Column Customizer
+## 7. Reports, Auditing & Compliance Documentation
 
-LNMP v3.3.0 allows operators to tailor exported telemetry CSV files for audits and compliance reviews:
+LNMP v3.3.0 provides enterprise-grade reporting workflows for compliance audits, executive SLA reviews, and capacity planning.
 
+### 7.1 CSV Telemetry Export Stream
+Operators and Administrators can export raw or customized time-series telemetry to CSV:
 1. Navigate to **Reports & SLA** (`/reports`) and click **Export Telemetry**.
-2. The interactive 820px configuration modal allows selecting target endpoints, time range, and metric columns:
-   - **Locked Columns (Always Included):** `Hostname` and `IP Address` are non-negotiable device identity columns and cannot be deselected.
+2. The configuration modal allows selecting target endpoints, time range, and metric columns:
+   - **Locked Identity Columns:** `Hostname` and `IP Address` are mandatory and automatically preserved.
    - **Toggleable Metrics:** `Endpoint ID`, `Device Type`, `Timestamp`, `Operational State`, `Detailed State`, `Packet Success Rate / Loss %`, and `Avg Latency (RTT ms)`.
    - **Quick Actions:** Use **Select All** for a complete data dump, or **Reset to Standard** to restore default operational fields.
-3. Click **Download CSV Stream** to initiate key-set paginated, streaming export protected against CSV formula injection.
+3. Click **Download CSV Stream** to initiate keyset-paginated streaming export protected against CSV formula injection (`=`, `+`, `-`, `@`).
+
+### 7.2 Executive PDF Reports Generation (`/reports`)
+Generate print-perfect, air-gapped ISO A4 PDF audit documents signed with cryptographic checksum headers:
+1. On the **Reports & SLA** page (`/reports`), click **📄 Generate PDF Report**.
+2. Choose one of the three audit templates:
+   - **Template A — Availability & SLA Performance:** Compiles objective uptime percentages, cumulative downtime durations, packet loss, average latency (RTT), and recorded outage incident ledger with Root Cause Analysis (RCA).
+   - **Template B — Bandwidth & Interface Capacity:** Summarizes exporter routers, per-interface directional bandwidth accounting, line-speed capacity utilization with color-coded warning/critical thresholds, and cross-router forensic top conversations.
+   - **Template C — Executive Master Audit Dossier:** Comprehensive 4-part dossier consolidating availability, outage ledgers with RCA, interface capacity metrics, and top transit conversations into a single executive document.
+3. **Select Scope:** Choose between **All Monitored Endpoints** or select individual devices via the target checklist.
+4. **Select Time Window:** Choose from quick presets (**24 Hours**, **7 Days**, **30 Days**) or configure a **Custom Date Range** with UTC start and end bounds.
+5. **Root Cause Analysis (RCA):** Toggle the **Include Root Cause Analysis (RCA)** checkbox to embed diagnostic summaries directly into the outage incident ledger.
+6. Click **Generate PDF Report** to render and download the document.
+   - **Immutability:** The output PDF is compiled with standard permission encryption (`pypdf`), making it read-only and preventing post-export editing.
+   - **Integrity Verification:** The server provides a SHA-256 hash in the `X-Report-SHA256` HTTP header for verification without cluttering printed pages.
+
+### 7.3 Organization Profile & Corporate Report Branding
+Administrators can customize corporate identity settings to brand all compiled PDF reports:
+1. Navigate to **Settings** (`/settings`) and click the **🏢 Organization & Branding** tab.
+2. Configure company branding attributes:
+   - **Company Name:** Displays prominently in the top header of all PDF reports.
+   - **Department / Unit:** Identifies the operational unit (e.g. `Network Operations Center (NOC)`).
+   - **Report Footer Disclaimer:** Customized confidentiality or compliance notice rendered at the bottom margin of every page.
+   - **Corporate Logo:** Upload a PNG, JPG, or SVG image (max 1 MB / 2 MB Base64 data URI). A real-time preview is rendered instantly.
+3. Click **Save Organization Settings** to apply changes immediately across all future report generations.
 
 ---
 
@@ -159,10 +185,14 @@ A visual donut chart aggregates network consumption by application service and p
 * Recognizes standard enterprise traffic profiles (HTTPS, HTTP, SSH, DNS, NTP, SNMP, MySQL, PostgreSQL, Redis, Elasticsearch).
 * Ranks services by percentage share of total network volume to quickly identify bandwidth hogs or unauthorized file transfer activity.
 
-### 6. Active Exporters & Interface Aliases
-The **Flow Exporters** table lists all networking equipment actively reporting to LNMP:
-* Displays device hostname, primary IP address, and secondary alias IPs.
-* Displays interface alias names configured via SNMP index mappings (e.g. `1: WAN-Fiber`, `2: LAN-Trunk`).
+### 6. Active Exporters & Direct Interface Configuration
+The **Flow Exporters & Interface Telemetry** section lists all networking equipment actively reporting to LNMP:
+* Displays device hostname, primary IP address, and active interface counts.
+* **Per-Interface Telemetry Grid:** Shows interface index (`#1`), configured alias (e.g. `WAN-Fiber`), line speed capacity (e.g. `1 Gbps`), average ingress/egress throughput (bps), peak traffic rates, and color-coded capacity utilization bars.
+* **Direct Admin Interface Configuration:**
+  * Administrators can click the **[ ⚙ Configure Interfaces ]** button at the top of the interface table, or click the inline quick-edit **✎** icon next to any interface row.
+  * In the modal, administrators can assign human-readable interface names (e.g. `Gi0/0/0 - Core Uplink`) and select standard line speed presets (**10 Mbps**, **100 Mbps**, **1 Gbps**, **10 Gbps**, **40 Gbps**, **100 Gbps**) or enter a **Custom Mbps** value.
+  * Saving configurations applies immediately, dynamically recalculating utilization meters across the dashboard and PDF reports.
 
 ### 7. Unmatched Exporter Discovery Banner
 When a network device begins exporting NetFlow/IPFIX to LNMP from an IP address not yet enrolled in the platform's inventory:

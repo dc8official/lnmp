@@ -169,6 +169,18 @@ When determining the client's real IP address for audit logs and security polici
 * **Discord Mention Storms:** Discord webhooks enforce `"allowed_mentions": {"parse": []}`, preventing malicious hostnames (e.g. `@everyone` or `@here`) from triggering server-wide notification storms.
 * **Slack MRKDWN Escaping:** Dynamic strings in Slack Block Kit payloads escape special formatting characters (`<`, `>`, `&`).
 
+### D. Air-Gapped PDF Generation & SSRF/LFI Defense
+* **Risk Model:** PDF rendering engines that support HTML/CSS are historically susceptible to Server-Side Request Forgery (SSRF) and Local File Inclusion (LFI) through tags like `<img src="...">`, `<link>`, or `@import`.
+* **Air-Gapped URL Fetcher:** In `backend/app/services/pdf_engine.py`, the `secure_url_fetcher` intercepts all resource loading attempts:
+  * **External Schemas Blocked:** All network URI schemes (`http://`, `https://`, `ftp://`) raise an immediate `PermissionError`, preventing remote requests or credential exfiltration.
+  * **Filesystem Whitelisting:** Local `file://` URIs are verified to reside strictly within authorized static asset roots (`backend/app/templates/reports/` and `frontend/src/assets/`). Traversal attempts outside these paths (e.g., `/etc/passwd`) are blocked with a `PermissionError`.
+  * **Safe Data URIs:** Permits inline Base64 data URIs (`data:image/png;base64,...`) for corporate branding logos.
+
+### E. Cryptographic Document Immutability & Permission Encryption
+* **Read-Only Permission Encryption:** In `backend/app/services/pdf_engine.py`, rendered PDFs are processed through `pypdf.PdfWriter` applying standard permission encryption with an empty user password and randomized 256-bit owner password.
+* **Tamper Prevention:** Permissions are locked strictly to `UserAccessPermissions.PRINT | UserAccessPermissions.PRINT_TO_REPRESENTATION`. Annotation editing, form filling, text modifications, and content extraction are prohibited by standard PDF viewers.
+* **Out-of-Band Integrity Checksum:** The cryptographic SHA-256 hash of the generated document is transmitted via the `X-Report-SHA256` HTTP header, allowing verification against audit logs without cluttering the printed visual page.
+
 ---
 
 ## 9. Operating System & Privilege Hardening
