@@ -1,0 +1,122 @@
+{% extends "base_report.html" %}
+
+{% block content %}
+<!-- Scope Context Banner -->
+<div class="scope-banner">
+  <div>
+    <div class="scope-title font-display">Scope: {{ scope_title }}</div>
+    <div class="scope-desc">
+      Aggregated NetFlow & IPFIX volume, line-speed capacity, and directional throughput rates across all selected flow exporters.
+    </div>
+  </div>
+  <span class="scope-badge pill-passive">
+    {{ exporters|length }} EXPORTERS · {{ interfaces|length }} INTERFACES
+  </span>
+</div>
+
+<!-- Section 1: Exporters Summary Table -->
+<div class="section-title-row font-display">
+  <div class="section-title">1. Flow Exporter Routers & Gateways Summary</div>
+</div>
+<table>
+  <thead>
+    <tr>
+      <th>Router Hostname</th>
+      <th>Primary IP</th>
+      <th class="text-center">Interfaces</th>
+      <th class="text-right">Total Ingress</th>
+      <th class="text-right">Total Egress</th>
+      <th class="text-right">Mean Ingress Rate</th>
+      <th class="text-right">Peak Rate (bps)</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for exp in exporters %}
+    <tr>
+      <td style="font-weight: 700;">{{ exp.hostname }}</td>
+      <td class="font-mono">{{ exp.primary_ip }}</td>
+      <td class="text-center font-mono tnum">{{ exp.active_interfaces_count }}</td>
+      <td class="text-right font-mono tnum" style="font-weight: 700;">{{ exp.formatted_ingress_bytes }}</td>
+      <td class="text-right font-mono tnum" style="font-weight: 700;">{{ exp.formatted_egress_bytes }}</td>
+      <td class="text-right font-mono tnum color-rate-in">{{ exp.formatted_ingress_bps }}</td>
+      <td class="text-right font-mono tnum" style="font-weight: 700;">{{ exp.formatted_peak_bps }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+<!-- Section 2: Detailed Per-Interface Telemetry -->
+<div class="section-title-row font-display">
+  <div class="section-title">2. Per-Interface Bandwidth & Capacity Utilization</div>
+</div>
+{% if interfaces and interfaces|length > 0 %}
+<table>
+  <thead>
+    <tr>
+      <th>Router Device</th>
+      <th>Idx / Interface Alias</th>
+      <th class="text-right">Line Speed</th>
+      <th class="text-right">Avg Ingress</th>
+      <th class="text-right">Avg Egress</th>
+      <th class="text-right">Peak Rate</th>
+      <th class="text-right">Capacity Util %</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for iface in interfaces %}
+    <tr>
+      <td style="font-weight: 700;">{{ iface.router_hostname }}</td>
+      <td class="font-mono">#{{ iface.interface_idx }} {{ iface.interface_name }}</td>
+      <td class="text-right font-mono tnum">{{ iface.formatted_speed }}</td>
+      <td class="text-right font-mono tnum color-rate-in">{{ iface.formatted_in_bps }}</td>
+      <td class="text-right font-mono tnum color-rate-out">{{ iface.formatted_out_bps }}</td>
+      <td class="text-right font-mono tnum" style="font-weight: 700;">{{ iface.formatted_peak_bps }}</td>
+      <td class="text-right font-mono tnum {% if iface.utilization_pct >= 80 %}color-util-danger{% elif iface.utilization_pct >= 60 %}color-util-warn{% endif %}" style="font-weight: 700;">
+        {{ "%.1f"|format(iface.utilization_pct) }}%
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<div style="background: #f8fafc; border: 0.75pt solid #e2e8f0; border-radius: 4pt; padding: 8pt; text-align: center; color: #64748b; font-size: 8pt; margin-bottom: 10pt;">
+  No interface rollups recorded for the selected exporters in this window.
+</div>
+{% endif %}
+
+<!-- Section 3: Top Forensic Conversations -->
+<div class="section-title-row font-display">
+  <div class="section-title">3. Top Forensic Conversations across Selected Routers</div>
+</div>
+{% if conversations and conversations|length > 0 %}
+<table>
+  <thead>
+    <tr>
+      <th>Source Host</th>
+      <th>Destination Host</th>
+      <th>Service / Port</th>
+      <th>Observed Router</th>
+      <th class="text-right">Total Transferred</th>
+      <th class="text-right">% of Transit</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for conv in conversations %}
+    <tr>
+      <td class="font-mono">{{ conv.src_display }}</td>
+      <td class="font-mono">{{ conv.dst_display }}</td>
+      <td class="font-mono">{{ conv.port_label }}</td>
+      <td>{{ conv.router_name }}</td>
+      <td class="text-right font-mono tnum" style="font-weight: 700;">{{ conv.formatted_bytes }}</td>
+      <td class="text-right font-mono tnum" style="color: #2563eb; font-weight: 700;">{{ "%.1f"|format(conv.pct_of_transit) }}%</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<div style="background: #f8fafc; border: 0.75pt solid #e2e8f0; border-radius: 4pt; padding: 8pt; text-align: center; color: #64748b; font-size: 8pt;">
+  No conversations recorded for this timeframe.
+</div>
+{% endif %}
+
+{% endblock %}

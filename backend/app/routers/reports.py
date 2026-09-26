@@ -10,8 +10,12 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import and_, or_, select, text
+import hashlib
+import os
+
+from jinja2 import Environment, FileSystemLoader, select_autoescape
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import AsyncSessionLocal, get_db
@@ -19,7 +23,7 @@ from app.models.endpoint import Endpoint
 from app.models.endpoint_event import EndpointEvent
 from app.repositories.endpoint_repo import EndpointRepository
 from app.repositories.report_repo import ReportRepository
-from app.routers.auth import get_current_user, get_current_user_sse
+from app.routers.auth import get_current_user, get_current_user_sse, require_operator_or_admin
 from app.schemas import (
     APIResponse,
     EventRecord,
@@ -28,6 +32,13 @@ from app.schemas import (
     PaginationMeta,
     UptimeReport,
 )
+from app.services.pdf_engine import render_pdf_async
+from app.services.report_compiler import (
+    compile_availability_report_data,
+    compile_bandwidth_report_data,
+    compile_master_report_data,
+    get_organization_branding,
+)
 from app.services.uptime_calculator import (
     calculate_device_gap_seconds,
     calculate_uptime_denominator_and_percentage,
@@ -35,6 +46,14 @@ from app.services.uptime_calculator import (
 )
 
 logger = logging.getLogger(__name__)
+
+REPORTS_TEMPLATES_DIR = os.path.abspath(
+    os.path.join(os.path.dirname(__file__), "..", "templates", "reports")
+)
+jinja_env = Environment(
+    loader=FileSystemLoader(REPORTS_TEMPLATES_DIR),
+    autoescape=select_autoescape(["html", "xml"]),
+)
 
 router = APIRouter(prefix="/reports", tags=["reports"])
 
@@ -676,6 +695,143 @@ async def csv_generator(
         output.close()
 
 
+class PdfReportRequest(BaseModel):
+    template_type: str = Field(..., description="'availability', 'bandwidth', or 'master'")
+    endpoint_ids: List[UUID] = Field(..., min_length=1, description="List of target endpoints or flow exporters")
+    start_date: str = Field(..., description="ISO 8601 start timestamp")
+    end_date: str = Field(..., description="ISO 8601 end timestamp")
+    include_rca: bool = Field(default=True, description="Whether to include Root Cause Analysis in incident ledgers")
+    scope_title: Optional[str] = Field(default=None, description="Custom scope header description")
+
+    model_config = ConfigDict(extra="ignore")
+
+
+@router.post("/pdf")
+async def generate_pdf_report(
+    request: PdfReportRequest,
+    current_user: dict = Depends(require_operator_or_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Asynchronously compiles network telemetry and renders an immutable, print-ready PDF audit report.
+    Permission: Strictly Operators and Admins (VIEWER accounts are rejected with 403 Forbidden).
+    """
+    valid_types = ("availability", "bandwidth", "master")
+    ttype = request.template_type.lower().strip()
+    if ttype not in valid_types:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid template_type '{request.template_type}'. Must be one of {valid_types}.",
+        )
+
+    start_dt = parse_datetime_param(request.start_date, is_end=False)
+    end_dt = parse_datetime_param(request.end_date, is_end=True)
+    _validate_date_range(start_dt, end_dt)
+
+    org = await get_organization_branding(db)
+    now_utc = datetime.now(timezone.utc)
+    generated_at_str = now_utc.strftime("%Y-%m-%d %H:%M")
+    period_label = f"{start_dt.strftime('%Y-%m-%d')} to {end_dt.strftime('%Y-%m-%d')} UTC"
+
+    default_scope = f"{len(request.endpoint_ids)} Infrastructure Targets"
+    scope_title = request.scope_title or default_scope
+
+    if ttype == "availability":
+        data = await compile_availability_report_data(
+            db, request.endpoint_ids, start_dt, end_dt, include_rca=request.include_rca
+        )
+        report_title = "Device Availability & Uptime Performance Report"
+        template_name = "template_a_availability.html"
+        theme_accent = "#2563eb"
+        filename = f"lnmp_availability_report_{start_dt.strftime('%Y%m%d')}_{end_dt.strftime('%Y%m%d')}.pdf"
+        context = {
+            "org": org,
+            "report_title": f"{org.get('company_name', 'LNMP')} — {report_title}",
+            "report_type_label": report_title,
+            "period_label": period_label,
+            "generated_at": generated_at_str,
+            "theme_accent": theme_accent,
+            "scope_title": scope_title,
+            "endpoints": data["endpoints"],
+            "incidents": data["incidents"],
+            "summary": data["summary"],
+        }
+    elif ttype == "bandwidth":
+        data = await compile_bandwidth_report_data(
+            db, request.endpoint_ids, start_dt, end_dt
+        )
+        report_title = "Network Bandwidth & Flow Telemetry Report"
+        template_name = "template_b_bandwidth.html"
+        theme_accent = "#059669"
+        filename = f"lnmp_bandwidth_report_{start_dt.strftime('%Y%m%d')}_{end_dt.strftime('%Y%m%d')}.pdf"
+        context = {
+            "org": org,
+            "report_title": f"{org.get('company_name', 'LNMP')} — {report_title}",
+            "report_type_label": report_title,
+            "period_label": period_label,
+            "generated_at": generated_at_str,
+            "theme_accent": theme_accent,
+            "scope_title": scope_title,
+            "exporters": data["exporters"],
+            "interfaces": data["interfaces"],
+            "conversations": data["conversations"],
+        }
+    else:  # master
+        data = await compile_master_report_data(
+            db, request.endpoint_ids, start_dt, end_dt, include_rca=request.include_rca
+        )
+        report_title = "Comprehensive Master Operational Audit Dossier"
+        template_name = "template_c_master.html"
+        theme_accent = "#7c3aed"
+        filename = f"lnmp_master_audit_report_{start_dt.strftime('%Y%m%d')}_{end_dt.strftime('%Y%m%d')}.pdf"
+        context = {
+            "org": org,
+            "report_title": f"{org.get('company_name', 'LNMP')} — {report_title}",
+            "report_type_label": report_title,
+            "period_label": period_label,
+            "generated_at": generated_at_str,
+            "theme_accent": theme_accent,
+            "scope_title": scope_title,
+            "endpoints": data["endpoints"],
+            "incidents": data["incidents"],
+            "summary": data["summary"],
+            "exporters": data["exporters"],
+            "interfaces": data["interfaces"],
+            "conversations": data["conversations"],
+        }
+
+    template = jinja_env.get_template(template_name)
+    rendered_html = template.render(**context)
+
+    try:
+        pdf_bytes = await render_pdf_async(rendered_html, title=report_title)
+    except Exception as exc:
+        logger.error("Failed to render PDF report: %s", exc, exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Report rendering error: {str(exc)}",
+        )
+
+    sha256_hash = hashlib.sha256(pdf_bytes).hexdigest()
+    logger.info(
+        "Successfully compiled %s PDF report for %d targets (SHA256: %s, size: %d bytes)",
+        ttype,
+        len(request.endpoint_ids),
+        sha256_hash,
+        len(pdf_bytes),
+    )
+
+    return StreamingResponse(
+        io.BytesIO(pdf_bytes),
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Content-Length": str(len(pdf_bytes)),
+            "X-Report-SHA256": sha256_hash,
+        },
+    )
+
+
 telemetry_router = APIRouter(prefix="/api/v1/telemetry", tags=["telemetry"])
 
 
@@ -684,9 +840,17 @@ async def batch_export_telemetry(
     request: BatchExportRequest,
     current_user: dict = Depends(get_current_user_sse),
 ):
+    role = str(current_user.get("role", "")).upper()
+    if role not in ("ADMIN", "OPERATOR"):
+        raise HTTPException(
+            status_code=403,
+            detail="Operator or Administrator role required for telemetry export.",
+        )
+
     logger.info(
-        "Starting batch telemetry CSV streaming export for %d endpoints",
+        "Starting batch telemetry CSV streaming export for %d endpoints (user: %s)",
         len(request.endpoint_ids),
+        current_user.get("username"),
     )
 
     generator = csv_generator(

@@ -280,6 +280,18 @@ async def require_admin(
     return current_user
 
 
+async def require_operator_or_admin(
+    current_user: dict = Depends(get_current_user),
+) -> dict:
+    role = current_user.get("role")
+    if role not in ("ADMIN", "OPERATOR"):
+        raise HTTPException(
+            status_code=403,
+            detail="Operator or Admin access required to export reports.",
+        )
+    return current_user
+
+
 @router.post("/change-password")
 async def change_password(
     request: ChangePasswordRequest,
