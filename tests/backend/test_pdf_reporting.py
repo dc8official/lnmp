@@ -1,6 +1,7 @@
 import io
 import os
 from datetime import datetime, timezone, timedelta
+from decimal import Decimal
 from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 
@@ -160,8 +161,8 @@ async def test_compile_availability_report_data():
         start_time=start_dt,
         end_time=end_dt - timedelta(seconds=120),
         duration_seconds=86280,
-        avg_rtt_ms=1.5,
-        health_score=100.0,
+        avg_rtt_ms=Decimal("1.50"),
+        health_score=Decimal("100.00"),
     )
     ev_down = EndpointEvent(
         id=uuid4(),
@@ -174,7 +175,7 @@ async def test_compile_availability_report_data():
         end_time=end_dt,
         duration_seconds=120,
         avg_rtt_ms=None,
-        health_score=0.0,
+        health_score=Decimal("0.00"),
     )
     mock_res_events = MagicMock()
     mock_res_events.scalars().all.return_value = [ev_up, ev_down]

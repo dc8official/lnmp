@@ -222,10 +222,10 @@ async def compile_availability_report_data(
             inc_count = 0
             down_sec = 0
 
-        rtt_vals = [ev.avg_rtt_ms for ev in evs if ev.avg_rtt_ms is not None]
+        rtt_vals = [float(ev.avg_rtt_ms) for ev in evs if ev.avg_rtt_ms is not None]
         avg_rtt = round(sum(rtt_vals) / len(rtt_vals), 2) if rtt_vals else 0.0
 
-        scores = [ev.health_score for ev in evs if ev.health_score is not None]
+        scores = [float(ev.health_score) for ev in evs if ev.health_score is not None]
         loss_pct = round(100.0 - (sum(scores) / len(scores)), 2) if scores else 0.0
         if loss_pct < 0.0:
             loss_pct = 0.0
