@@ -16,9 +16,10 @@
         <h3 class="card-hostname" :title="endpoint.hostname">{{ endpoint.hostname }}</h3>
       </div>
       
-      <div v-if="isAdmin" class="admin-actions" @click.stop>
-        <button class="btn-icon" @click="handleEdit" title="Edit Endpoint">✎</button>
-        <button class="btn-icon delete" @click="handleDelete" title="Delete Endpoint">🗑</button>
+      <div class="card-actions" @click.stop>
+        <button class="btn-icon inspect" @click="handleInspect" title="Quick Diagnostics">🔍</button>
+        <button v-if="isAdmin" class="btn-icon" @click="handleEdit" title="Edit Endpoint">✎</button>
+        <button v-if="isAdmin" class="btn-icon delete" @click="handleDelete" title="Delete Endpoint">🗑</button>
       </div>
     </div>
 
@@ -62,7 +63,7 @@ const props = defineProps({
   selected: { type: Boolean, default: false }
 })
 
-const emit = defineEmits(['select', 'edit', 'delete', 'toggle-select'])
+const emit = defineEmits(['select', 'edit', 'delete', 'toggle-select', 'inspect'])
 
 const handleClick = () => {
   emit('select', props.endpoint.id)
@@ -70,6 +71,10 @@ const handleClick = () => {
 
 const handleCheckboxChange = () => {
   emit('toggle-select', props.endpoint.id)
+}
+
+const handleInspect = () => {
+  emit('inspect', props.endpoint)
 }
 
 const handleEdit = () => {
@@ -178,6 +183,7 @@ const timeAgo = computed(() => {
   text-overflow: ellipsis;
 }
 
+.card-actions,
 .admin-actions {
   display: flex;
   gap: 4px;
@@ -185,6 +191,7 @@ const timeAgo = computed(() => {
   transition: opacity 0.15s ease;
 }
 
+.endpoint-card:hover .card-actions,
 .endpoint-card:hover .admin-actions {
   opacity: 1;
 }

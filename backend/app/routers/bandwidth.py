@@ -241,17 +241,61 @@ async def get_traffic_series(
     window: str = Query(default="1h"),
     exporter_id: Optional[UUID] = Query(default=None),
     endpoint_id: Optional[UUID] = Query(default=None),
+    interface_idx: Optional[int] = Query(default=None),
     current_user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """
     Returns time-series data points for Chart.js stacked area chart.
     Dynamically routes to 1-minute hypertable, 1-hour CAGG, or 1-day CAGG based on window.
+    For flow exporter nodes and per-interface isolation, queries FlowInterfaceMinuteRollup.
     """
     delta = _get_window_delta(window)
     now = datetime.datetime.now(datetime.timezone.utc)
     start_time = now - delta
 
+    # If querying an exporter node (without specific endpoint_id) or isolating an interface:
+    if exporter_id and not endpoint_id:
+        stmt = (
+            select(
+                FlowInterfaceMinuteRollup.bucket,
+                func.coalesce(func.sum(FlowInterfaceMinuteRollup.in_bytes), 0).label("in_bytes"),
+                func.coalesce(func.sum(FlowInterfaceMinuteRollup.out_bytes), 0).label("out_bytes"),
+            )
+            .where(
+                FlowInterfaceMinuteRollup.exporter_id == exporter_id,
+                FlowInterfaceMinuteRollup.bucket >= start_time,
+            )
+        )
+        if interface_idx is not None:
+            stmt = stmt.where(FlowInterfaceMinuteRollup.interface_idx == interface_idx)
+
+        stmt = stmt.group_by(FlowInterfaceMinuteRollup.bucket).order_by(FlowInterfaceMinuteRollup.bucket.asc())
+        res = await db.execute(stmt)
+        rows = res.all()
+
+        points: List[TrafficSeriesPoint] = []
+        for row in rows:
+            bucket_time = row[0]
+            in_bytes = int(row[1] or 0)
+            eg_bytes = int(row[2] or 0)
+            # Each row in FlowInterfaceMinuteRollup represents a 1-minute bucket (60 seconds)
+            in_bps = (float(in_bytes) * 8.0) / 60.0
+            eg_bps = (float(eg_bytes) * 8.0) / 60.0
+            iso_str = bucket_time.astimezone(datetime.timezone.utc).isoformat()
+            points.append(
+                TrafficSeriesPoint(
+                    timestamp=iso_str,
+                    ingress_bps=round(in_bps, 2),
+                    egress_bps=round(eg_bps, 2),
+                )
+            )
+
+        return APIResponse.success(
+            data=TrafficSeriesResponse(window=window, points=points)
+        )
+
+    # Standard endpoint or fleet-wide flow rollup query
     model, bucket_seconds = _select_rollup_model_and_bucket_seconds(window, endpoint_id)
 
     filters = [model.bucket >= start_time]
@@ -304,7 +348,12 @@ async def get_traffic_series(
         if len(row) >= 4:
             in_bytes = int(row[2] or 0)
             eg_bytes = int(row[3] or 0)
-            if in_bytes == 0 and eg_bytes == 0 and byte_sum > 0:
+            # If there is transit traffic not captured by monitored endpoint attribution:
+            transit_bytes = max(0, byte_sum - (in_bytes + eg_bytes))
+            if transit_bytes > 0:
+                in_bytes += transit_bytes // 2
+                eg_bytes += (transit_bytes - transit_bytes // 2)
+            elif in_bytes == 0 and eg_bytes == 0 and byte_sum > 0:
                 in_bytes = byte_sum // 2
                 eg_bytes = byte_sum - in_bytes
         else:

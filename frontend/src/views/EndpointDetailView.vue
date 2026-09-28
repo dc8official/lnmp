@@ -523,7 +523,27 @@
                 <span class="font-bold text-base">Correlated Incident Analysis (ICMP RTT Latency vs Flow Bandwidth)</span>
                 <p class="text-xs text-muted mt-1">Cross-correlates ICMP ping spikes with network saturation to pinpoint whether latency spikes are induced by heavy link utilization.</p>
               </div>
-              <span class="badge-window tnum">{{ flowWindow }} Window</span>
+              <div class="header-controls">
+                <div v-if="interfaceTelemetry && interfaceTelemetry.length > 0" class="interface-filter-wrapper">
+                  <label for="correlated-if-select" class="filter-lbl">Interface:</label>
+                  <select 
+                    id="correlated-if-select" 
+                    v-model="selectedCorrelatedInterfaceIdx" 
+                    class="filter-select"
+                    @change="loadFlowTelemetry"
+                  >
+                    <option :value="null">All Interfaces (Aggregate)</option>
+                    <option 
+                      v-for="iface in interfaceTelemetry" 
+                      :key="iface.interface_idx" 
+                      :value="iface.interface_idx"
+                    >
+                      #{{ iface.interface_idx }} {{ iface.interface_name }}
+                    </option>
+                  </select>
+                </div>
+                <span class="badge-window tnum">{{ flowWindow }} Window</span>
+              </div>
             </div>
             <div class="flow-chart-box">
               <LineChart
@@ -812,10 +832,14 @@ ChartJS.register(
 
 import Card from 'primevue/card'
 import Button from 'primevue/button'
+import { useSSE } from '../composables/useSSE.js'
 
 const route = useRoute()
 const router = useRouter()
 const endpointId = route.params.id
+
+const { subscribe } = useSSE()
+let unsubscribeSSE = null
 
 const isDarkMode = ref(true)
 
@@ -827,6 +851,7 @@ const flowSeriesPoints = ref([])
 const nodeConversations = ref([])
 
 const interfaceTelemetry = ref([])
+const selectedCorrelatedInterfaceIdx = ref(null)
 const showInterfaceModal = ref(false)
 const savingInterfaces = ref(false)
 const editingInterfaces = ref([])
@@ -846,7 +871,8 @@ async function loadFlowTelemetry() {
     const res = await getTrafficSeries(
       flowWindow.value,
       flowMode.value === 'exporter' ? epId : null,
-      flowMode.value === 'participant' ? epId : null
+      flowMode.value === 'participant' ? epId : null,
+      selectedCorrelatedInterfaceIdx.value
     )
     if (res.data?.data?.points) {
       flowSeriesPoints.value = res.data.data.points
@@ -1071,19 +1097,48 @@ const correlatedChartData = computed(() => {
   const rttData = flowSeriesPoints.value.map((p) => {
     const pTime = new Date(p.timestamp).getTime()
     let closestRtt = null
-    let minDiff = 300000
+
     if (chartEvents.value && chartEvents.value.length > 0) {
-      for (const ev of chartEvents.value) {
-        const evTime = new Date(ev.start_time).getTime()
-        const diff = Math.abs(pTime - evTime)
-        if (diff < minDiff && ev.avg_rtt_ms != null) {
-          minDiff = diff
-          closestRtt = ev.avg_rtt_ms
+      // 1. Check if bucket timestamp falls inside an active incident event interval
+      const containing = chartEvents.value.find((ev) => {
+        const evStart = new Date(ev.start_time).getTime()
+        const evEnd = ev.end_time ? new Date(ev.end_time).getTime() : Date.now()
+        return pTime >= evStart && pTime <= evEnd && ev.avg_rtt_ms != null
+      })
+      if (containing) {
+        closestRtt = containing.avg_rtt_ms
+      } else {
+        // 2. Nearest event with recorded latency
+        let minDiff = Infinity
+        for (const ev of chartEvents.value) {
+          if (ev.avg_rtt_ms != null) {
+            const evStart = new Date(ev.start_time).getTime()
+            const evEnd = ev.end_time ? new Date(ev.end_time).getTime() : Date.now()
+            const diff = pTime < evStart ? evStart - pTime : (pTime > evEnd ? pTime - evEnd : 0)
+            if (diff < minDiff) {
+              minDiff = diff
+              closestRtt = ev.avg_rtt_ms
+            }
+          }
         }
       }
     }
-    return closestRtt !== null ? closestRtt : 0
+
+    // 3. Fall back to current endpoint average latency so the graph never drops to a dead flat 0
+    if (closestRtt == null && endpoint.value?.avg_rtt_ms != null) {
+      closestRtt = endpoint.value.avg_rtt_ms
+    }
+
+    return closestRtt !== null ? Number(Number(closestRtt).toFixed(1)) : 0
   })
+
+  const matched = selectedCorrelatedInterfaceIdx.value !== null
+    ? interfaceTelemetry.value?.find(i => i.interface_idx === selectedCorrelatedInterfaceIdx.value)
+    : null
+  const ifName = matched?.interface_name || matched?.name || (selectedCorrelatedInterfaceIdx.value !== null ? `Interface #${selectedCorrelatedInterfaceIdx.value}` : '')
+
+  const inLabel = ifName ? `${ifName} Ingress (bps)` : 'Ingress (bps)'
+  const outLabel = ifName ? `${ifName} Egress (bps)` : 'Egress (bps)'
 
   return {
     labels,
@@ -1099,7 +1154,7 @@ const correlatedChartData = computed(() => {
         pointRadius: 2,
       },
       {
-        label: 'Ingress (bps)',
+        label: inLabel,
         data: flowSeriesPoints.value.map((p) => p.ingress_bps),
         borderColor: '#10b981',
         backgroundColor: 'rgba(16, 185, 129, 0.15)',
@@ -1110,7 +1165,7 @@ const correlatedChartData = computed(() => {
         pointRadius: 0,
       },
       {
-        label: 'Egress (bps)',
+        label: outLabel,
         data: flowSeriesPoints.value.map((p) => p.egress_bps),
         borderColor: '#0ea5e9',
         backgroundColor: 'rgba(14, 165, 233, 0.15)',
@@ -1465,13 +1520,30 @@ onMounted(() => {
   pollInterval = setInterval(() => {
     if (!loading.value) {
       loadData()
+      if (activePerspective.value === 'flow') {
+        loadFlowTelemetry()
+      }
     }
   }, 60000)
+
+  unsubscribeSSE = subscribe((event) => {
+    if (event?.type === 'NODE_STATE_CHANGE' && event?.data?.endpoint_id === endpointId) {
+      if (endpoint.value && event.data.avg_rtt_ms != null) {
+        endpoint.value.avg_rtt_ms = event.data.avg_rtt_ms
+      }
+      if (activePerspective.value === 'flow') {
+        loadFlowTelemetry()
+      }
+    }
+  })
 })
 
 onBeforeUnmount(() => {
   if (pollInterval) {
     clearInterval(pollInterval)
+  }
+  if (unsubscribeSSE) {
+    unsubscribeSSE()
   }
 })
 </script>
@@ -2592,5 +2664,53 @@ h2 {
 
 .add-row-action {
   margin-bottom: 1.5rem;
+}
+
+.header-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.interface-filter-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.filter-lbl {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.filter-select {
+  background: var(--bg-surface-selected);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm, 4px);
+  padding: 0.3rem 0.6rem;
+  font-size: 0.8125rem;
+  font-family: var(--font-sans);
+  cursor: pointer;
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.filter-select:hover,
+.filter-select:focus {
+  border-color: var(--border-color-strong);
+}
+
+.badge-window {
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 0.25rem 0.5rem;
+  border-radius: var(--radius-sm, 4px);
+  background: var(--bg-surface-selected);
+  border: 1px solid var(--border-color);
+  color: var(--text-secondary);
 }
 </style>
