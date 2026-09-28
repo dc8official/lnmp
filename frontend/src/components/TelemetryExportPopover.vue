@@ -155,11 +155,11 @@ function executeExport() {
 }
 
 .btn-export {
-  background: #1f2937;
-  color: #e5e7eb;
-  border: 1px solid #374151;
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
   padding: 0.45rem 0.85rem;
-  border-radius: 6px;
+  border-radius: var(--radius-sm, 6px);
   font-size: 0.85rem;
   font-weight: 600;
   cursor: pointer;
@@ -170,9 +170,8 @@ function executeExport() {
 }
 
 .btn-export:hover {
-  background: #374151;
-  color: #ffffff;
-  border-color: #4b5563;
+  background: var(--bg-surface-hover);
+  border-color: var(--border-color-strong);
 }
 
 .export-dropdown {
@@ -180,13 +179,13 @@ function executeExport() {
   top: calc(100% + 0.5rem);
   right: 0;
   width: 300px;
-  background: #111827;
-  border: 1px solid #374151;
-  border-radius: 8px;
-  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius, 8px);
+  box-shadow: var(--shadow-hover);
   z-index: 50;
   padding: 1rem;
-  color: #f9fafb;
+  color: var(--text-primary);
 }
 
 .dropdown-header {
@@ -195,19 +194,20 @@ function executeExport() {
   align-items: center;
   margin-bottom: 1rem;
   padding-bottom: 0.5rem;
-  border-bottom: 1px solid #1f2937;
+  border-bottom: 1px solid var(--border-color);
 }
 
 .dropdown-title {
   margin: 0;
   font-size: 0.95rem;
   font-weight: 700;
+  color: var(--text-primary);
 }
 
 .btn-dropdown-close {
   background: transparent;
   border: none;
-  color: #9ca3af;
+  color: var(--text-muted);
   cursor: pointer;
   font-size: 1rem;
 }
@@ -227,7 +227,7 @@ function executeExport() {
 .control-label {
   font-size: 0.75rem;
   font-weight: 600;
-  color: #9ca3af;
+  color: var(--text-secondary);
   text-transform: uppercase;
   letter-spacing: 0.05em;
 }
@@ -236,15 +236,16 @@ function executeExport() {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 0.35rem;
-  background: #1f2937;
+  background: var(--bg-surface-selected);
+  border: 1px solid var(--border-color);
   padding: 0.2rem;
-  border-radius: 6px;
+  border-radius: var(--radius-sm, 6px);
 }
 
 .toggle-btn {
   background: transparent;
   border: none;
-  color: #9ca3af;
+  color: var(--text-muted);
   font-size: 0.75rem;
   font-weight: 600;
   padding: 0.35rem 0.5rem;
@@ -254,51 +255,51 @@ function executeExport() {
 }
 
 .toggle-btn.active {
-  background: #374151;
-  color: #ffffff;
+  background: var(--accent);
+  color: var(--text-inverse);
 }
 
 .select-input {
-  background: #1f2937;
-  border: 1px solid #374151;
-  color: #f9fafb;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  color: var(--text-primary);
   padding: 0.45rem 0.6rem;
-  border-radius: 6px;
+  border-radius: var(--radius-sm, 6px);
   font-size: 0.85rem;
   outline: none;
 }
 
 .select-input:focus {
-  border-color: #2563eb;
+  border-color: var(--border-color-strong);
 }
 
 .scope-info {
   font-size: 0.8rem;
-  color: #9ca3af;
+  color: var(--text-muted);
   font-feature-settings: 'tnum';
 }
 
 .dropdown-footer {
   margin-top: 1rem;
   padding-top: 0.75rem;
-  border-top: 1px solid #1f2937;
+  border-top: 1px solid var(--border-color);
 }
 
 .btn-execute-export {
   width: 100%;
-  background: #2563eb;
-  color: #ffffff;
+  background: var(--accent);
+  color: var(--text-inverse);
   border: none;
   padding: 0.5rem 0.8rem;
-  border-radius: 6px;
+  border-radius: var(--radius-sm, 6px);
   font-weight: 600;
   font-size: 0.85rem;
   cursor: pointer;
-  transition: background 0.15s;
+  transition: opacity 0.15s;
 }
 
 .btn-execute-export:hover:not(:disabled) {
-  background: #1d4ed8;
+  opacity: 0.9;
 }
 
 .btn-execute-export:disabled {

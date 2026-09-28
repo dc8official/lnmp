@@ -11,7 +11,7 @@
         </span>
       </div>
       <div class="header-actions">
-        <button class="btn-refresh" @click="loadData" :disabled="loading">
+        <button class="btn-secondary" @click="loadData" :disabled="loading">
           {{ loading ? 'Updating...' : '↻ Refresh RCA' }}
         </button>
       </div>
@@ -20,7 +20,7 @@
     <!-- Error State -->
     <div v-if="error" class="alert-error">
       <span>⚠️ {{ error }}</span>
-      <button class="btn-retry" @click="loadData">Retry</button>
+      <button class="btn-danger btn-small" @click="loadData">Retry</button>
     </div>
 
     <!-- Loading State -->
@@ -279,9 +279,9 @@ onMounted(() => {
 }
 
 .l2-badge {
-  background: rgba(59, 130, 246, 0.15);
-  color: #60A5FA;
-  border: 1px solid rgba(59, 130, 246, 0.3);
+  background: rgba(37, 99, 235, 0.12);
+  color: var(--topo-node-root-bg);
+  border: 1px solid rgba(37, 99, 235, 0.3);
   padding: 4px 10px;
   border-radius: 9999px;
   font-size: 0.8rem;
@@ -291,22 +291,6 @@ onMounted(() => {
 .header-actions {
   display: flex;
   gap: 10px;
-}
-
-.btn-refresh {
-  background: var(--bg-surface-selected);
-  color: var(--text-secondary);
-  border: 1px solid var(--border-color);
-  padding: 6px 12px;
-  border-radius: 6px;
-  font-size: 0.85rem;
-  cursor: pointer;
-  transition: background 0.2s ease, color 0.2s ease;
-}
-
-.btn-refresh:hover {
-  background: var(--border-color);
-  color: var(--text-primary);
 }
 
 /* Alert Error */
@@ -319,15 +303,6 @@ onMounted(() => {
   display: flex;
   justify-content: space-between;
   align-items: center;
-}
-
-.btn-retry {
-  background: #EF4444;
-  color: #FFFFFF;
-  border: none;
-  padding: 4px 10px;
-  border-radius: 4px;
-  cursor: pointer;
 }
 
 /* Summary Banner */
@@ -411,15 +386,15 @@ onMounted(() => {
 }
 
 .meta-pill.failure {
-  background: rgba(239, 68, 68, 0.2);
-  color: #FCA5A5;
-  border: 1px solid rgba(239, 68, 68, 0.4);
+  background: var(--color-down-bg);
+  color: var(--color-down);
+  border: 1px solid rgba(220, 38, 38, 0.35);
 }
 
 .meta-pill.good {
-  background: rgba(16, 185, 129, 0.2);
-  color: #6EE7B7;
-  border: 1px solid rgba(16, 185, 129, 0.4);
+  background: var(--color-up-bg);
+  color: var(--color-up);
+  border: 1px solid rgba(22, 163, 74, 0.35);
 }
 
 /* Side-by-side Path Inspector Table */
@@ -508,7 +483,7 @@ onMounted(() => {
 }
 
 .rtt-val {
-  color: #60A5FA;
+  color: var(--text-secondary);
   font-size: 0.8rem;
   font-family: monospace;
 }
@@ -521,18 +496,19 @@ onMounted(() => {
 }
 
 .diff-badge.failure-point {
-  background: #EF4444;
+  background: var(--color-down);
   color: #FFFFFF;
 }
 
 .diff-badge.divergent {
-  background: #F59E0B;
+  background: var(--color-up-unstable);
   color: #FFFFFF;
 }
 
 .diff-badge.matched {
-  background: rgba(16, 185, 129, 0.2);
-  color: #34D399;
+  background: var(--color-up-bg);
+  color: var(--color-up);
+  border: 1px solid rgba(22, 163, 74, 0.35);
 }
 
 .diff-badge.neutral {
@@ -559,42 +535,12 @@ onMounted(() => {
   width: 28px;
   height: 28px;
   border: 3px solid var(--border-color);
-  border-top-color: #2563EB;
+  border-top-color: var(--topo-node-root-bg);
   border-radius: 50%;
   animation: spin 1s infinite linear;
 }
 
 @keyframes spin {
   to { transform: rotate(360deg); }
-}
-
-/* Light mode contrast overrides */
-</style>
-
-<style>
-html:not(.dark) .l2-badge {
-  background: rgba(37, 99, 235, 0.1);
-  color: #1d4ed8;
-  border-color: rgba(37, 99, 235, 0.25);
-}
-html:not(.dark) .meta-pill.failure {
-  background: rgba(220, 38, 38, 0.1);
-  color: #b91c1c;
-  border-color: rgba(220, 38, 38, 0.2);
-}
-html:not(.dark) .meta-pill.good {
-  background: rgba(22, 163, 74, 0.1);
-  color: #15803d;
-  border-color: rgba(22, 163, 74, 0.2);
-}
-html:not(.dark) .diff-badge.matched {
-  background: rgba(22, 163, 74, 0.1);
-  color: #15803d;
-}
-html:not(.dark) .diff-badge.divergent {
-  background: #b45309;
-}
-html:not(.dark) .rtt-val {
-  color: #1d4ed8;
 }
 </style>

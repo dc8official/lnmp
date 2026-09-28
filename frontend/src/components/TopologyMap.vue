@@ -20,7 +20,7 @@
       <div class="toolbar-right">
         <button 
           v-if="isAdmin" 
-          class="btn-secondary btn-admin" 
+          class="btn-primary" 
           :disabled="isDiscoveringAll" 
           @click="handleDiscoverAll"
           title="Run throttled background traceroute discovery across all endpoints"
@@ -29,7 +29,7 @@
         </button>
         <button 
           v-if="isAdmin" 
-          class="btn-secondary btn-admin" 
+          class="btn-secondary" 
           :disabled="isRebuilding" 
           @click="handleRebuildHierarchy"
           title="Reconstruct in-memory graph from current database baseline routes"
@@ -156,7 +156,7 @@
           <!-- Single Endpoint Route Refresh Action -->
           <div v-if="selectedNode.endpoint_id && isAdmin" class="drawer-actions-card">
             <button 
-              class="btn-refresh-route" 
+              class="btn-secondary full-width" 
               :disabled="isRefreshingSingle" 
               @click="handleRefreshSingleRoute(selectedNode.endpoint_id)"
               title="Execute traceroute and re-index upstream path for this endpoint"
@@ -265,13 +265,33 @@ let edgesDataSet = null
 const isDark = ref(true)
 let themeObserver = null
 
-watch(isDark, (newVal) => {
+function getCssVar(name, fallback = '') {
+  if (typeof window === 'undefined') return fallback
+  const val = getComputedStyle(document.documentElement).getPropertyValue(name).trim()
+  return val || fallback
+}
+
+watch(isDark, () => {
   if (nodesDataSet) {
-    const updated = nodesDataSet.get().map(node => ({
-      ...node,
-      font: { ...node.font, color: newVal ? '#F3F4F6' : '#111111' }
+    const updatedNodes = nodesDataSet.get().map(node => {
+      const nodeType = node.rawNode?.node_type || node.rawNode?.type
+      const nodeStatus = node.rawNode?.status || node.rawNode?.state
+      return {
+        ...node,
+        color: getNodeColors(nodeStatus, nodeType),
+        font: { ...node.font, color: getNodeFontColor(nodeStatus, nodeType) }
+      }
+    })
+    nodesDataSet.update(updatedNodes)
+  }
+  if (edgesDataSet) {
+    const edgeStroke = getCssVar('--topo-edge-stroke', isDark.value ? '#475569' : '#94A3B8')
+    const edgeHighlight = getCssVar('--topo-edge-highlight', isDark.value ? '#60A5FA' : '#2563EB')
+    const updatedEdges = edgesDataSet.get().map(edge => ({
+      ...edge,
+      color: { color: edgeStroke, highlight: edgeHighlight }
     }))
-    nodesDataSet.update(updated)
+    edgesDataSet.update(updatedEdges)
   }
 })
 
@@ -298,40 +318,52 @@ function updateLegendCounts() {
 
 // Visual Node Styling & Categorization
 function getNodeColors(status, nodeType) {
+  const isDarkMode = isDark.value
   if (nodeType === 'root') {
+    const bg = getCssVar('--topo-node-root-bg', isDarkMode ? '#1D4ED8' : '#2563EB')
+    const border = getCssVar('--topo-node-root-border', isDarkMode ? '#3B82F6' : '#1D4ED8')
+    const highlightBorder = getCssVar('--topo-edge-highlight', isDarkMode ? '#60A5FA' : '#3B82F6')
     return {
-      background: '#1D4ED8',
-      border: '#3B82F6',
-      highlight: { background: '#2563EB', border: '#60A5FA' }
+      background: bg,
+      border: border,
+      highlight: { background: bg, border: highlightBorder }
     }
   }
   if (nodeType === 'subnet_hub') {
+    const bg = getCssVar('--topo-node-subnet-bg', isDarkMode ? '#1E293B' : '#EEF2FF')
+    const border = getCssVar('--topo-node-subnet-border', '#6366F1')
     return {
-      background: '#1E293B',
-      border: '#64748B',
-      highlight: { background: '#334155', border: '#94A3B8' }
+      background: bg,
+      border: border,
+      highlight: { background: bg, border: border }
     }
   }
 
   if (nodeType === 'transit') {
     if (status === 'FAILURE_POINT') {
+      const bg = getCssVar('--topo-node-failure-bg', isDarkMode ? '#991B1B' : '#FEE2E2')
+      const border = getCssVar('--topo-node-failure-border', isDarkMode ? '#F97316' : '#DC2626')
       return {
-        background: '#991B1B',
-        border: '#F97316',
-        highlight: { background: '#7F1D1D', border: '#FB923C' }
+        background: bg,
+        border: border,
+        highlight: { background: bg, border: border }
       }
     }
     if (status === 'INFERRED_DOWN') {
+      const bg = getCssVar('--topo-node-inferred-bg', isDarkMode ? '#7F1D1D' : '#FEF2F2')
+      const border = getCssVar('--topo-node-inferred-border', isDarkMode ? '#DC2626' : '#EF4444')
       return {
-        background: '#7F1D1D',
-        border: '#DC2626',
-        highlight: { background: '#991B1B', border: '#EF4444' }
+        background: bg,
+        border: border,
+        highlight: { background: bg, border: border }
       }
     }
+    const bg = getCssVar('--topo-node-transit-bg', isDarkMode ? '#374151' : '#F1F5F9')
+    const border = getCssVar('--topo-node-transit-border', isDarkMode ? '#6B7280' : '#64748B')
     return {
-      background: '#374151',
-      border: '#6B7280',
-      highlight: { background: '#4B5563', border: '#9CA3AF' }
+      background: bg,
+      border: border,
+      highlight: { background: bg, border: getCssVar('--topo-edge-highlight', '#3B82F6') }
     }
   }
 
@@ -339,29 +371,63 @@ function getNodeColors(status, nodeType) {
   switch (status) {
     case 'UP':
       return {
-        background: '#065F46',
-        border: '#10B981',
-        highlight: { background: '#047857', border: '#34D399' }
+        background: getCssVar('--topo-node-up-bg', isDarkMode ? '#064E3B' : '#ECFDF5'),
+        border: getCssVar('--topo-node-up-border', isDarkMode ? '#10B981' : '#16A34A'),
+        highlight: { 
+          background: getCssVar('--topo-node-up-bg', isDarkMode ? '#064E3B' : '#ECFDF5'), 
+          border: getCssVar('--topo-edge-highlight', isDarkMode ? '#60A5FA' : '#2563EB') 
+        }
       }
     case 'UP-UNSTABLE':
     case 'DOWN-UNSTABLE':
       return {
-        background: '#78350F',
-        border: '#F59E0B',
-        highlight: { background: '#92400E', border: '#FBBF24' }
+        background: getCssVar('--topo-node-unstable-bg', isDarkMode ? '#78350F' : '#FFFBEB'),
+        border: getCssVar('--topo-node-unstable-border', isDarkMode ? '#F59E0B' : '#D97706'),
+        highlight: { 
+          background: getCssVar('--topo-node-unstable-bg', isDarkMode ? '#78350F' : '#FFFBEB'), 
+          border: getCssVar('--topo-edge-highlight', isDarkMode ? '#60A5FA' : '#2563EB') 
+        }
       }
     case 'DOWN':
       return {
-        background: '#7F1D1D',
-        border: '#EF4444',
-        highlight: { background: '#991B1B', border: '#F87171' }
+        background: getCssVar('--topo-node-down-bg', isDarkMode ? '#7F1D1D' : '#FEF2F2'),
+        border: getCssVar('--topo-node-down-border', isDarkMode ? '#EF4444' : '#DC2626'),
+        highlight: { 
+          background: getCssVar('--topo-node-down-bg', isDarkMode ? '#7F1D1D' : '#FEF2F2'), 
+          border: getCssVar('--topo-edge-highlight', isDarkMode ? '#60A5FA' : '#2563EB') 
+        }
       }
     default:
       return {
-        background: '#1F2937',
-        border: '#9CA3AF',
-        highlight: { background: '#374151', border: '#D1D5DB' }
+        background: isDarkMode ? '#1F2937' : '#F3F4F6',
+        border: isDarkMode ? '#6B7280' : '#9CA3AF',
+        highlight: { 
+          background: isDarkMode ? '#374151' : '#E5E7EB', 
+          border: getCssVar('--topo-edge-highlight', '#3B82F6') 
+        }
       }
+  }
+}
+
+function getNodeFontColor(status, nodeType) {
+  const isDarkMode = isDark.value
+  if (nodeType === 'root') {
+    return getCssVar('--topo-node-root-text', '#FFFFFF')
+  }
+  if (nodeType === 'subnet_hub') {
+    return getCssVar('--topo-node-subnet-text', isDarkMode ? '#E0E7FF' : '#1E1B4B')
+  }
+  if (nodeType === 'transit') {
+    if (status === 'FAILURE_POINT') return getCssVar('--topo-node-failure-text', isDarkMode ? '#FEE2E2' : '#7F1D1D')
+    if (status === 'INFERRED_DOWN') return getCssVar('--topo-node-inferred-text', isDarkMode ? '#FCA5A5' : '#991B1B')
+    return getCssVar('--topo-node-transit-text', isDarkMode ? '#F3F4F6' : '#0F172A')
+  }
+  switch (status) {
+    case 'UP': return getCssVar('--topo-node-up-text', isDarkMode ? '#ECFDF5' : '#064E3B')
+    case 'UP-UNSTABLE':
+    case 'DOWN-UNSTABLE': return getCssVar('--topo-node-unstable-text', isDarkMode ? '#FEF3C7' : '#78350F')
+    case 'DOWN': return getCssVar('--topo-node-down-text', isDarkMode ? '#FEE2E2' : '#7F1D1D')
+    default: return getCssVar('--text-primary', isDarkMode ? '#F3F4F6' : '#111111')
   }
 }
 
@@ -473,16 +539,18 @@ function formatVisData(nodesData, edgesData) {
       level: computedLevel,
       color: colors,
       group: node.subnet || 'default',
-      font: { color: isDark.value ? '#F3F4F6' : '#111111', size: 12, face: 'Inter, sans-serif' },
+      font: { color: getNodeFontColor(nodeStatus, nodeType), size: 12, face: 'Inter, sans-serif' },
       rawNode: { ...node, status: nodeStatus, state: nodeStatus }
     }
   })
 
+  const edgeStroke = getCssVar('--topo-edge-stroke', isDark.value ? '#475569' : '#94A3B8')
+  const edgeHighlight = getCssVar('--topo-edge-highlight', isDark.value ? '#60A5FA' : '#2563EB')
   const visEdges = edgesData.map(edge => ({
     id: `${edge.source}->${edge.target}`,
     from: edge.source,
     to: edge.target,
-    color: { color: '#4B5563', highlight: '#3B82F6' },
+    color: { color: edgeStroke, highlight: edgeHighlight },
     arrows: { to: { enabled: true, scaleFactor: 0.7 } },
     smooth: {
       type: 'cubicBezier',
@@ -754,15 +822,15 @@ onUnmounted(() => {
 }
 
 .badge-stabilized {
-  background: rgba(16, 185, 129, 0.15);
-  color: #34D399;
-  border: 1px solid rgba(16, 185, 129, 0.3);
+  background: var(--color-up-bg);
+  color: var(--color-up);
+  border: 1px solid rgba(22, 163, 74, 0.35);
 }
 
 .badge-stabilizing {
-  background: rgba(245, 158, 11, 0.15);
-  color: #FBBF24;
-  border: 1px solid rgba(245, 158, 11, 0.3);
+  background: var(--color-up-unstable-bg);
+  color: var(--color-up-unstable);
+  border: 1px solid rgba(217, 119, 6, 0.35);
 }
 
 .sse-indicator {
@@ -777,38 +845,25 @@ onUnmounted(() => {
 }
 
 .sse-live {
-  background: rgba(16, 185, 129, 0.15);
-  color: #10B981;
-  border: 1px solid rgba(16, 185, 129, 0.3);
+  background: var(--color-up-bg);
+  color: var(--color-up);
+  border: 1px solid rgba(22, 163, 74, 0.35);
 }
 
 .sse-connecting {
-  background: rgba(245, 158, 11, 0.15);
-  color: #F59E0B;
-  border: 1px solid rgba(245, 158, 11, 0.3);
+  background: var(--color-up-unstable-bg);
+  color: var(--color-up-unstable);
+  border: 1px solid rgba(217, 119, 6, 0.35);
 }
 
 .discovery-pill {
   font-size: 0.8rem;
   padding: 4px 10px;
   border-radius: 9999px;
-  background: rgba(99, 102, 241, 0.15);
-  color: #818CF8;
-  border: 1px solid rgba(99, 102, 241, 0.3);
+  background: rgba(37, 99, 235, 0.12);
+  color: var(--topo-node-root-bg);
+  border: 1px solid rgba(37, 99, 235, 0.3);
   font-family: var(--font-mono);
-}
-
-.btn-admin {
-  background: rgba(99, 102, 241, 0.15) !important;
-  color: #A5B4FC !important;
-  border: 1px solid rgba(99, 102, 241, 0.3) !important;
-  transition: all 0.2s ease;
-}
-
-.btn-admin:hover:not(:disabled) {
-  background: rgba(99, 102, 241, 0.25) !important;
-  border-color: #818CF8 !important;
-  color: #FFFFFF !important;
 }
 
 .pulse-dot {
@@ -865,7 +920,7 @@ onUnmounted(() => {
   z-index: 10;
   font-size: 0.85rem;
   color: var(--text-secondary);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+  box-shadow: var(--shadow-hover);
 }
 
 .legend-title {
@@ -899,14 +954,14 @@ onUnmounted(() => {
 .node-icon.circle { border-radius: 50%; }
 .node-icon.hexagon { clip-path: polygon(25% 0%, 75% 0%, 100% 50%, 75% 100%, 25% 100%, 0% 50%); }
 
-.state-root { background: #3B82F6; }
-.state-up { background: #10B981; }
-.state-unstable { background: #F59E0B; }
-.state-down { background: #EF4444; }
-.state-transit { background: #6B7280; }
-.state-failure-point { background: #F97316; border: 1px solid #EF4444; }
-.state-inferred-down { background: #7F1D1D; }
-.state-subnet { background: #64748B; border: 1px solid #94A3B8; }
+.state-root { background: var(--topo-node-root-bg); border: 1px solid var(--topo-node-root-border); }
+.state-up { background: var(--topo-node-up-bg); border: 1px solid var(--topo-node-up-border); }
+.state-unstable { background: var(--topo-node-unstable-bg); border: 1px solid var(--topo-node-unstable-border); }
+.state-down { background: var(--topo-node-down-bg); border: 1px solid var(--topo-node-down-border); }
+.state-transit { background: var(--topo-node-transit-bg); border: 1px solid var(--topo-node-transit-border); }
+.state-failure-point { background: var(--topo-node-failure-bg); border: 1px solid var(--topo-node-failure-border); }
+.state-inferred-down { background: var(--topo-node-inferred-bg); border: 1px solid var(--topo-node-inferred-border); }
+.state-subnet { background: var(--topo-node-subnet-bg); border: 1px solid var(--topo-node-subnet-border); }
 
 .count-badge {
   margin-left: auto;
@@ -918,18 +973,18 @@ onUnmounted(() => {
   font-feature-settings: "tnum";
 }
 
-.glow-root { background: rgba(59, 130, 246, 0.2); color: #60A5FA; }
-.glow-up { background: rgba(16, 185, 129, 0.2); color: #34D399; }
-.glow-unstable { background: rgba(245, 158, 11, 0.2); color: #FBBF24; }
-.glow-down { background: rgba(239, 68, 68, 0.2); color: #F87171; }
-.glow-transit { background: rgba(107, 114, 128, 0.2); color: #9CA3AF; }
-.glow-failure { background: rgba(249, 115, 22, 0.2); color: #FB923C; }
-.glow-inferred { background: rgba(153, 27, 27, 0.3); color: #FCA5A5; }
-.glow-subnet { background: rgba(100, 116, 139, 0.2); color: #94A3B8; }
+.glow-root { background: rgba(37, 99, 235, 0.15); color: var(--topo-node-root-bg); }
+.glow-up { background: var(--color-up-bg); color: var(--color-up); }
+.glow-unstable { background: var(--color-up-unstable-bg); color: var(--color-up-unstable); }
+.glow-down { background: var(--color-down-bg); color: var(--color-down); }
+.glow-transit { background: var(--color-unknown-bg); color: var(--text-secondary); }
+.glow-failure { background: var(--color-down-bg); color: var(--color-down); }
+.glow-inferred { background: var(--color-down-bg); color: var(--color-down); }
+.glow-subnet { background: rgba(99, 102, 241, 0.15); color: var(--topo-node-subnet-border); }
 
 .l2-pill {
-  background: rgba(59, 130, 246, 0.2);
-  color: #60A5FA;
+  background: rgba(37, 99, 235, 0.15);
+  color: var(--topo-node-root-bg);
   font-size: var(--text-xs);
   font-weight: 700;
   padding: 1px 5px;
@@ -1005,7 +1060,7 @@ onUnmounted(() => {
 
 .meta-label { color: var(--text-muted); }
 .meta-value { color: var(--text-primary); font-weight: 500; }
-.meta-value.text-blue { color: #60A5FA; }
+.meta-value.text-blue { color: var(--topo-node-root-bg); }
 
 .status-pill {
   padding: 2px 8px;
@@ -1014,38 +1069,18 @@ onUnmounted(() => {
   font-weight: 600;
 }
 
-.status-up { background: rgba(16, 185, 129, 0.2); color: #34D399; }
-.status-unstable { background: rgba(245, 158, 11, 0.2); color: #FBBF24; }
-.status-down { background: rgba(239, 68, 68, 0.2); color: #F87171; }
-.status-failure-point { background: #EF4444; color: #FFFFFF; }
-.status-inferred-down { background: rgba(153, 27, 27, 0.4); color: #FCA5A5; border: 1px solid #EF4444; }
+.status-up { background: var(--color-up-bg); color: var(--color-up); border: 1px solid rgba(22, 163, 74, 0.35); }
+.status-unstable { background: var(--color-up-unstable-bg); color: var(--color-up-unstable); border: 1px solid rgba(217, 119, 6, 0.35); }
+.status-down { background: var(--color-down-bg); color: var(--color-down); border: 1px solid rgba(220, 38, 38, 0.35); }
+.status-failure-point { background: var(--topo-node-failure-bg); color: var(--topo-node-failure-text); border: 1px solid var(--topo-node-failure-border); }
+.status-inferred-down { background: var(--topo-node-inferred-bg); color: var(--topo-node-inferred-text); border: 1px solid var(--topo-node-inferred-border); }
 
 .drawer-actions-card {
   margin-bottom: 20px;
 }
 
-.btn-refresh-route {
+.full-width {
   width: 100%;
-  padding: 8px 14px;
-  font-size: 0.85rem;
-  font-weight: 600;
-  border-radius: 6px;
-  background: rgba(59, 130, 246, 0.15);
-  color: #60A5FA;
-  border: 1px solid rgba(59, 130, 246, 0.3);
-  cursor: pointer;
-  transition: all 0.2s ease;
-}
-
-.btn-refresh-route:hover:not(:disabled) {
-  background: rgba(59, 130, 246, 0.25);
-  border-color: #3B82F6;
-  color: #FFFFFF;
-}
-
-.btn-refresh-route:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
 }
 
 .spinner {

@@ -945,33 +945,6 @@ input:checked + .slider:before {
   transform: translateX(20px);
 }
 
-.btn-primary {
-  background: #0ea5e9;
-  color: #ffffff;
-  border: none;
-  font-weight: 600;
-  font-size: 13px;
-  padding: 8px 16px;
-  border-radius: 6px;
-  cursor: pointer;
-  transition: background 0.15s;
-}
-
-.btn-primary:hover {
-  background: #0284c7;
-}
-
-.btn-secondary {
-  background: var(--bg-surface-selected);
-  color: var(--text-primary);
-  border: 1px solid var(--border-color);
-  font-weight: 600;
-  font-size: 13px;
-  padding: 8px 16px;
-  border-radius: 6px;
-  cursor: pointer;
-}
-
 .btn-action {
   background: var(--bg-surface-selected);
   color: var(--text-secondary);
