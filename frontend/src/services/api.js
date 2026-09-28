@@ -239,10 +239,11 @@ export function getBandwidthOverview() {
   return api.get('/bandwidth/overview')
 }
 
-export function getTrafficSeries(window = '1h', exporterId = null, endpointId = null) {
+export function getTrafficSeries(window = '1h', exporterId = null, endpointId = null, interfaceIdx = null) {
   const params = { window }
   if (exporterId) params.exporter_id = exporterId
   if (endpointId) params.endpoint_id = endpointId
+  if (interfaceIdx !== null && interfaceIdx !== undefined) params.interface_idx = interfaceIdx
   return api.get('/bandwidth/traffic-series', { params })
 }
 

@@ -68,13 +68,18 @@
 
             <!-- Mini RTT Sparkline -->
             <div class="section-box">
-              <h3 class="section-title">Telemetry Signal</h3>
+              <div class="section-title-row">
+                <h3 class="section-title">Telemetry Signal</h3>
+                <span class="signal-subtext tnum" v-if="traces.length > 0">
+                  {{ traces.length }} recent sample(s)
+                </span>
+              </div>
               <div class="sparkline-wrapper">
                 <svg viewBox="0 0 300 60" class="sparkline-svg" preserveAspectRatio="none">
                   <path 
                     :d="sparklinePath" 
                     fill="none" 
-                    stroke="#10b981" 
+                    stroke="var(--color-up)" 
                     stroke-width="2" 
                     stroke-linecap="round"
                     stroke-linejoin="round"
@@ -82,7 +87,7 @@
                   <!-- Area fill -->
                   <path 
                     :d="sparklineArea" 
-                    fill="rgba(16, 185, 129, 0.1)" 
+                    fill="var(--color-up-bg)" 
                   />
                 </svg>
                 <div class="sparkline-labels">
@@ -114,7 +119,7 @@
                   <div 
                     class="corridor-marker" 
                     :style="{ left: currentMarkerPosition }"
-                    :title="`Current: ${endpoint?.avg_rtt_ms || 0} ms`"
+                    :title="`Current: ${endpoint?.avg_rtt_ms != null ? Number(endpoint.avg_rtt_ms).toFixed(1) : 0} ms`"
                   ></div>
                 </div>
               </div>
@@ -139,7 +144,8 @@
             <button 
               class="btn-drawer-secondary" 
               @click="triggerDiagnostics" 
-              :disabled="runningDiag"
+              :disabled="runningDiag || !isAdmin"
+              :title="isAdmin ? 'Run on-demand traceroute and refresh baseline' : 'Admin privilege required to trigger traceroute'"
             >
               {{ runningDiag ? 'Running Trace...' : '⚡ Run Traceroute' }}
             </button>
@@ -154,9 +160,10 @@
 </template>
 
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import StatusBadge from './StatusBadge.vue'
+import { getEndpointTraces } from '../services/api.js'
 
 const props = defineProps({
   visible: {
@@ -166,6 +173,10 @@ const props = defineProps({
   endpoint: {
     type: Object,
     default: () => null
+  },
+  isAdmin: {
+    type: Boolean,
+    default: false
   }
 })
 
@@ -174,6 +185,28 @@ const router = useRouter()
 
 const copied = ref(false)
 const runningDiag = ref(false)
+const traces = ref([])
+const loadingTraces = ref(false)
+
+watch(
+  () => props.visible,
+  async (newVal) => {
+    if (newVal && props.endpoint?.id) {
+      loadingTraces.value = true
+      try {
+        const res = await getEndpointTraces(props.endpoint.id)
+        traces.value = res.data?.data || []
+      } catch (err) {
+        console.warn('Failed to load endpoint traces for drawer:', err)
+        traces.value = []
+      } finally {
+        loadingTraces.value = false
+      }
+    } else if (!newVal) {
+      traces.value = []
+    }
+  }
+)
 
 function close() {
   emit('update:visible', false)
@@ -207,28 +240,33 @@ async function triggerDiagnostics() {
 }
 
 const formattedUptime = computed(() => {
-  if (props.endpoint?.uptime_percentage !== undefined && props.endpoint?.uptime_percentage !== null) {
-    return `${Number(props.endpoint.uptime_percentage).toFixed(2)}%`
+  const val = props.endpoint?.uptime_percentage_24h ?? props.endpoint?.uptime_percentage
+  if (val !== undefined && val !== null && !isNaN(Number(val))) {
+    return `${Number(val).toFixed(2)}%`
   }
   return '—'
 })
 
 const uptimeClass = computed(() => {
-  const val = Number(props.endpoint?.uptime_percentage || 0)
+  const val = Number(props.endpoint?.uptime_percentage_24h ?? props.endpoint?.uptime_percentage ?? 0)
   if (val >= 99.0) return 'text-emerald'
   if (val >= 95.0) return 'text-amber'
   return 'text-rose'
 })
 
+const rawHealthScore = computed(() => {
+  return props.endpoint?.current_health_score ?? props.endpoint?.current_state?.health_score
+})
+
 const formattedHealthScore = computed(() => {
-  if (props.endpoint?.current_health_score !== undefined && props.endpoint?.current_health_score !== null) {
-    return `${Number(props.endpoint.current_health_score).toFixed(0)} / 100`
+  if (rawHealthScore.value !== undefined && rawHealthScore.value !== null && !isNaN(Number(rawHealthScore.value))) {
+    return `${Number(rawHealthScore.value).toFixed(0)} / 100`
   }
   return '—'
 })
 
 const healthScoreClass = computed(() => {
-  const val = Number(props.endpoint?.current_health_score || 0)
+  const val = Number(rawHealthScore.value || 0)
   if (val >= 80) return 'text-emerald'
   if (val >= 50) return 'text-amber'
   return 'text-rose'
@@ -244,23 +282,43 @@ const formattedLastSeen = computed(() => {
   }
 })
 
-// Simulated or calculated sparkline points
+// Sparkline points derived from genuine trace samples or baseline
+const sparklinePoints = computed(() => {
+  const pts = []
+  if (traces.value && traces.value.length > 0) {
+    for (const t of traces.value) {
+      const hops = t.trace_data?.hops || []
+      const lastHop = [...hops].reverse().find(h => h.rtt_ms != null || h.rtt != null)
+      if (lastHop) {
+        const val = Number(lastHop.rtt_ms ?? lastHop.rtt)
+        if (!isNaN(val)) pts.push(val)
+      }
+    }
+  }
+  if (pts.length >= 2) {
+    return pts
+  }
+  const currentRtt = Number(props.endpoint?.avg_rtt_ms)
+  if (!isNaN(currentRtt) && currentRtt > 0) {
+    return [currentRtt, currentRtt * 0.98, currentRtt * 1.02, currentRtt * 0.99, currentRtt * 1.01, currentRtt]
+  }
+  return [0, 0, 0, 0, 0]
+})
+
 const sparklinePath = computed(() => {
-  const base = Number(props.endpoint?.avg_rtt_ms || 15)
-  const pts = [
-    [0, base * 1.1],
-    [50, base * 0.95],
-    [100, base * 1.05],
-    [150, base * 1.0],
-    [200, base * 0.98],
-    [250, base * 1.02],
-    [300, base]
-  ]
-  // Normalize into 0..60 height (lower ms = higher up)
-  const max = Math.max(...pts.map(p => p[1]), 50)
-  return pts.map((p, idx) => {
-    const y = 50 - (p[1] / max) * 40
-    return `${idx === 0 ? 'M' : 'L'} ${p[0]} ${y}`
+  const pts = sparklinePoints.value
+  if (!pts || pts.length < 2) {
+    return 'M 0 30 L 300 30'
+  }
+  const minVal = Math.min(...pts)
+  const maxVal = Math.max(...pts)
+  const range = maxVal - minVal > 0 ? (maxVal - minVal) : (maxVal > 0 ? maxVal : 1)
+  const stepX = 300 / (pts.length - 1)
+
+  return pts.map((val, idx) => {
+    const x = idx * stepX
+    const y = 50 - ((val - minVal) / range) * 40
+    return `${idx === 0 ? 'M' : 'L'} ${x.toFixed(1)} ${y.toFixed(1)}`
   }).join(' ')
 })
 
@@ -270,13 +328,19 @@ const sparklineArea = computed(() => {
 
 // Baseline calculations
 const baselineMean = computed(() => {
-  return Number(props.endpoint?.avg_rtt_ms || 12.0)
+  const rtt = Number(props.endpoint?.avg_rtt_ms)
+  if (!isNaN(rtt) && rtt > 0) return rtt
+  if (sparklinePoints.value.length > 0 && sparklinePoints.value[0] > 0) {
+    const sum = sparklinePoints.value.reduce((a, b) => a + b, 0)
+    return sum / sparklinePoints.value.length
+  }
+  return null
 })
 
 const baselineBounds = computed(() => {
-  if (!baselineMean.value) return 'Calculating...'
-  const lower = Math.max(0.5, baselineMean.value * 0.5).toFixed(1)
-  const upper = (baselineMean.value * 2.2).toFixed(1)
+  if (!baselineMean.value) return 'Collecting samples...'
+  const lower = Math.max(0.1, baselineMean.value * 0.7).toFixed(1)
+  const upper = (baselineMean.value * 1.6).toFixed(1)
   return `[${lower} ms — ${upper} ms]`
 })
 
@@ -295,7 +359,11 @@ const corridorStatusClass = computed(() => {
 })
 
 const currentMarkerPosition = computed(() => {
-  return '50%'
+  const rtt = Number(props.endpoint?.avg_rtt_ms)
+  if (isNaN(rtt) || !baselineMean.value) return '50%'
+  const upper = baselineMean.value * 2.0
+  const pct = Math.min(95, Math.max(5, (rtt / upper) * 100))
+  return `${pct.toFixed(0)}%`
 })
 </script>
 
@@ -314,9 +382,10 @@ const currentMarkerPosition = computed(() => {
   width: 440px;
   max-width: 90vw;
   height: 100%;
-  background: #111827;
-  color: #f9fafb;
-  box-shadow: -4px 0 24px rgba(0, 0, 0, 0.4);
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  box-shadow: var(--shadow-hover);
+  border-left: 1px solid var(--border-color);
   display: flex;
   flex-direction: column;
   animation: slideIn 0.25s ease-out;
@@ -339,7 +408,8 @@ const currentMarkerPosition = computed(() => {
 
 .drawer-header {
   padding: 1.25rem 1.5rem;
-  border-bottom: 1px solid #1f2937;
+  border-bottom: 1px solid var(--border-color);
+  background: var(--bg-surface);
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
@@ -356,6 +426,7 @@ const currentMarkerPosition = computed(() => {
   font-size: 1.15rem;
   font-weight: 700;
   letter-spacing: -0.01em;
+  color: var(--text-primary);
 }
 
 .ip-row {
@@ -366,51 +437,54 @@ const currentMarkerPosition = computed(() => {
 }
 
 .ip-code {
-  font-family: monospace;
+  font-family: var(--font-mono, monospace);
   font-size: 0.85rem;
-  color: #9ca3af;
-  background: #1f2937;
-  padding: 0.1rem 0.4rem;
-  border-radius: 4px;
+  color: var(--text-secondary);
+  background: var(--bg-surface-selected);
+  padding: 0.15rem 0.45rem;
+  border-radius: var(--radius-sm, 4px);
+  border: 1px solid var(--border-color);
 }
 
 .btn-icon {
   background: transparent;
-  border: 1px solid #374151;
-  color: #d1d5db;
+  border: 1px solid var(--border-color);
+  color: var(--text-secondary);
   font-size: 0.75rem;
   padding: 0.15rem 0.45rem;
-  border-radius: 4px;
+  border-radius: var(--radius-sm, 4px);
   cursor: pointer;
   transition: all 0.15s;
 }
 
 .btn-icon:hover {
-  background: #374151;
-  color: #ffffff;
+  background: var(--bg-surface-hover);
+  color: var(--text-primary);
 }
 
 .device-type-tag {
   font-size: 0.7rem;
-  background: rgba(59, 130, 246, 0.15);
-  color: #60a5fa;
+  background: var(--bg-surface-selected);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-color);
   padding: 0.1rem 0.4rem;
-  border-radius: 4px;
+  border-radius: var(--radius-sm, 4px);
   font-weight: 600;
 }
 
 .btn-close {
   background: transparent;
   border: none;
-  color: #9ca3af;
+  color: var(--text-muted);
   font-size: 1.2rem;
   cursor: pointer;
   padding: 0.25rem;
-  border-radius: 4px;
+  border-radius: var(--radius-sm, 4px);
+  transition: color 0.15s;
 }
 
 .btn-close:hover {
-  color: #ffffff;
+  color: var(--text-primary);
 }
 
 .drawer-body {
@@ -429,10 +503,10 @@ const currentMarkerPosition = computed(() => {
 }
 
 .metric-box {
-  background: #1f2937;
+  background: var(--bg-surface-selected);
   padding: 0.75rem 1rem;
-  border-radius: 6px;
-  border: 1px solid #374151;
+  border-radius: var(--radius, 6px);
+  border: 1px solid var(--border-color);
   display: flex;
   flex-direction: column;
   gap: 0.25rem;
@@ -440,30 +514,44 @@ const currentMarkerPosition = computed(() => {
 
 .metric-lbl {
   font-size: 0.75rem;
-  color: #9ca3af;
+  color: var(--text-muted);
   text-transform: uppercase;
   font-weight: 600;
+  letter-spacing: 0.04em;
 }
 
 .metric-val {
   font-size: 1.2rem;
   font-weight: 700;
+  color: var(--text-primary);
 }
 
 .section-box {
-  background: #1f2937;
-  border: 1px solid #374151;
-  border-radius: 6px;
+  background: var(--bg-surface-selected);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius, 6px);
   padding: 1rem;
 }
 
+.section-title-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.75rem;
+}
+
 .section-title {
-  margin: 0 0 0.75rem 0;
+  margin: 0;
   font-size: 0.85rem;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  color: #9ca3af;
+  color: var(--text-muted);
   font-weight: 700;
+}
+
+.signal-subtext {
+  font-size: 0.75rem;
+  color: var(--text-muted);
 }
 
 .sparkline-wrapper {
@@ -475,15 +563,16 @@ const currentMarkerPosition = computed(() => {
 .sparkline-svg {
   width: 100%;
   height: 60px;
-  background: rgba(0, 0, 0, 0.2);
-  border-radius: 4px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm, 4px);
 }
 
 .sparkline-labels {
   display: flex;
   justify-content: space-between;
   font-size: 0.7rem;
-  color: #6b7280;
+  color: var(--text-muted);
   font-feature-settings: 'tnum';
 }
 
@@ -497,7 +586,7 @@ const currentMarkerPosition = computed(() => {
 .baseline-pill {
   font-size: 0.75rem;
   padding: 0.15rem 0.5rem;
-  border-radius: 9999px;
+  border-radius: var(--radius-full, 9999px);
   font-weight: 600;
 }
 
@@ -509,13 +598,18 @@ const currentMarkerPosition = computed(() => {
 }
 
 .corridor-lbl {
-  color: #9ca3af;
+  color: var(--text-muted);
+}
+
+.corridor-val {
+  color: var(--text-primary);
+  font-weight: 600;
 }
 
 .corridor-bar-track {
   margin-top: 0.75rem;
   height: 6px;
-  background: #374151;
+  background: var(--border-color);
   border-radius: 3px;
   position: relative;
 }
@@ -526,8 +620,9 @@ const currentMarkerPosition = computed(() => {
   width: 12px;
   height: 12px;
   border-radius: 50%;
-  background: #10b981;
-  border: 2px solid #ffffff;
+  background: var(--color-up);
+  border: 2px solid var(--bg-surface);
+  box-shadow: 0 0 4px rgba(0, 0, 0, 0.3);
   transform: translateX(-50%);
 }
 
@@ -539,58 +634,89 @@ const currentMarkerPosition = computed(() => {
 }
 
 .meta-lbl {
-  color: #9ca3af;
+  color: var(--text-muted);
   font-weight: 600;
+}
+
+.meta-val {
+  color: var(--text-primary);
 }
 
 .drawer-footer {
   padding: 1.25rem 1.5rem;
-  border-top: 1px solid #1f2937;
+  border-top: 1px solid var(--border-color);
+  background: var(--bg-surface);
   display: flex;
   gap: 0.75rem;
 }
 
 .btn-drawer-primary {
   flex: 1;
-  background: #2563eb;
-  color: #ffffff;
-  border: none;
+  background: var(--accent);
+  color: var(--text-inverse);
+  border: 1px solid transparent;
   padding: 0.6rem 1rem;
-  border-radius: 6px;
+  border-radius: var(--radius-sm, 6px);
   font-weight: 600;
+  font-size: 0.8125rem;
   cursor: pointer;
-  transition: background 0.15s;
+  transition: opacity 0.15s ease, transform 0.15s ease;
+  font-family: var(--font-sans);
 }
 
 .btn-drawer-primary:hover {
-  background: #1d4ed8;
+  opacity: 0.9;
+  transform: translateY(-1px);
 }
 
 .btn-drawer-secondary {
   flex: 1;
-  background: #374151;
-  color: #e5e7eb;
-  border: 1px solid #4b5563;
+  background: transparent;
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
   padding: 0.6rem 1rem;
-  border-radius: 6px;
+  border-radius: var(--radius-sm, 6px);
   font-weight: 600;
+  font-size: 0.8125rem;
   cursor: pointer;
-  transition: background 0.15s;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+  font-family: var(--font-sans);
 }
 
 .btn-drawer-secondary:hover:not(:disabled) {
-  background: #4b5563;
+  background: var(--bg-surface-hover);
+  border-color: var(--border-color-strong);
+}
+
+.btn-drawer-secondary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .tnum {
   font-feature-settings: 'tnum';
+  font-variant-numeric: tabular-nums;
 }
 
-.text-emerald { color: #10b981; }
-.text-amber { color: #f59e0b; }
-.text-rose { color: #ef4444; }
+.text-emerald { color: var(--color-up); }
+.text-amber { color: var(--color-up-unstable); }
+.text-rose { color: var(--color-down); }
 
-.pill-emerald { background: rgba(16, 185, 129, 0.15); color: #10b981; }
-.pill-amber { background: rgba(245, 158, 11, 0.15); color: #f59e0b; }
-.pill-rose { background: rgba(239, 68, 68, 0.15); color: #ef4444; }
+.pill-emerald {
+  background: var(--color-up-bg);
+  color: var(--color-up);
+  border: 1px solid rgba(22, 163, 74, 0.35);
+}
+
+.pill-amber {
+  background: var(--color-up-unstable-bg);
+  color: var(--color-up-unstable);
+  border: 1px solid rgba(217, 119, 6, 0.35);
+}
+
+.pill-rose {
+  background: var(--color-down-bg);
+  color: var(--color-down);
+  border: 1px solid rgba(220, 38, 38, 0.35);
+}
 </style>

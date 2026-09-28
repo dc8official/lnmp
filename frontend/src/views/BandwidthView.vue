@@ -856,16 +856,30 @@ function handleScopeChange() {
   refreshData()
 }
 
-function toggleInterfaceIsolation(ifIdx) {
+async function fetchTrafficSeriesData() {
+  try {
+    const expId = (!isUnmatchedScope.value && selectedExporterId.value) ? selectedExporterId.value : null
+    const seriesRes = await getTrafficSeries(selectedWindow.value, expId, null, selectedInterfaceIdx.value)
+    if (seriesRes.data?.data?.points) {
+      seriesPoints.value = seriesRes.data.data.points
+    }
+  } catch (err) {
+    console.error('Failed to load traffic series for interface isolation:', err)
+  }
+}
+
+async function toggleInterfaceIsolation(ifIdx) {
   if (selectedInterfaceIdx.value === ifIdx) {
     selectedInterfaceIdx.value = null
   } else {
     selectedInterfaceIdx.value = ifIdx
   }
+  await fetchTrafficSeriesData()
 }
 
-function clearInterfaceIsolation() {
+async function clearInterfaceIsolation() {
   selectedInterfaceIdx.value = null
+  await fetchTrafficSeriesData()
 }
 
 function openEnrollModal(ip) {
@@ -989,26 +1003,21 @@ const chartData = computed(() => {
     return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
   })
 
-  let inData = seriesPoints.value.map((p) => p.ingress_bps)
-  let outData = seriesPoints.value.map((p) => p.egress_bps)
+  const inData = seriesPoints.value.map((p) => p.ingress_bps)
+  const outData = seriesPoints.value.map((p) => p.egress_bps)
 
-  if (selectedInterfaceIdx.value !== null && interfaceList.value.length > 0) {
-    const matched = interfaceList.value.find(i => i.interface_idx === selectedInterfaceIdx.value)
-    if (matched) {
-      const totalIn = interfaceList.value.reduce((acc, i) => acc + i.in_bps, 0) || 1
-      const totalOut = interfaceList.value.reduce((acc, i) => acc + i.out_bps, 0) || 1
-      const inRatio = Math.min(1.0, matched.in_bps / totalIn)
-      const outRatio = Math.min(1.0, matched.out_bps / totalOut)
-      inData = inData.map(v => Math.round(v * inRatio))
-      outData = outData.map(v => Math.round(v * outRatio))
-    }
-  }
+  const matched = selectedInterfaceIdx.value !== null
+    ? interfaceList.value.find(i => i.interface_idx === selectedInterfaceIdx.value)
+    : null
+  const ifDisplayName = matched
+    ? (matched.alias?.name || matched.name || `Interface #${selectedInterfaceIdx.value}`)
+    : `Interface #${selectedInterfaceIdx.value}`
 
   const inLabel = selectedInterfaceIdx.value !== null
-    ? `Interface #${selectedInterfaceIdx.value} Ingress (bps)`
+    ? `${ifDisplayName} Ingress (bps)`
     : 'Ingress (bps)'
   const outLabel = selectedInterfaceIdx.value !== null
-    ? `Interface #${selectedInterfaceIdx.value} Egress (bps)`
+    ? `${ifDisplayName} Egress (bps)`
     : 'Egress (bps)'
 
   return {
@@ -1173,7 +1182,7 @@ async function refreshData() {
     const expId = (!isUnmatchedScope.value && selectedExporterId.value) ? selectedExporterId.value : null
     const [ovRes, seriesRes, talkersRes, appRes, expRes, epListRes, ifRes] = await Promise.all([
       getBandwidthOverview(),
-      getTrafficSeries(selectedWindow.value, expId),
+      getTrafficSeries(selectedWindow.value, expId, null, selectedInterfaceIdx.value),
       getTopTalkers(selectedWindow.value, 10, null, expId),
       getApplicationDistribution(selectedWindow.value),
       getFlowExporters(),

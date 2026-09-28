@@ -146,6 +146,7 @@
           :selected="selectedIds.includes(ep.id)"
           @select="navigateTo"
           @toggle-select="toggleEndpointSelect"
+          @inspect="openInspector"
           @edit="openEditDialog"
           @delete="confirmDeleteEndpoint"
         />
@@ -350,6 +351,8 @@
     <EndpointInspectorDrawer 
       v-model:visible="inspectorVisible" 
       :endpoint="inspectedEndpoint" 
+      :isAdmin="isAdmin"
+      @run-diagnostics="handleRunDiagnostics"
     />
   </div>
 </template>
@@ -357,11 +360,13 @@
 <script setup>
 import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
+import { useToast } from 'primevue/usetoast'
 import { 
   getEndpoints, 
   createEndpoint, 
   updateEndpoint, 
   deleteEndpoint, 
+  refreshEndpointBaseline,
   exportBatchTelemetry
 } from '../services/api.js'
 import { user, isAdmin, loadUserFromStorage, clearUserState } from '../services/auth.js'
@@ -372,6 +377,7 @@ import TelemetryExportPopover from '../components/TelemetryExportPopover.vue'
 import { useSSE } from '../composables/useSSE.js'
 
 const router = useRouter()
+const toast = useToast()
 
 const endpoints = ref([])
 const loading = ref(false)
@@ -387,6 +393,34 @@ const inspectedEndpoint = ref(null)
 function openInspector(ep) {
   inspectedEndpoint.value = ep
   inspectorVisible.value = true
+}
+
+async function handleRunDiagnostics(ep) {
+  if (!ep?.id) return
+  try {
+    toast.add({
+      severity: 'info',
+      summary: 'Route Discovery',
+      detail: `Initiating traceroute and baseline discovery for ${ep.hostname}...`,
+      life: 3000,
+    })
+    const res = await refreshEndpointBaseline(ep.id)
+    toast.add({
+      severity: 'success',
+      summary: 'Diagnostics Complete',
+      detail: res.data?.data?.message || `Baseline refreshed for ${ep.hostname}.`,
+      life: 4000,
+    })
+    await fetchEndpoints()
+  } catch (err) {
+    console.error('Failed to run diagnostics:', err)
+    toast.add({
+      severity: 'error',
+      summary: 'Diagnostics Failed',
+      detail: err.response?.data?.detail || 'Failed to trigger route discovery.',
+      life: 5000,
+    })
+  }
 }
 
 // View Mode: 'grid' | 'table'
