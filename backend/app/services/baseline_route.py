@@ -23,6 +23,7 @@ logger = logging.getLogger(__name__)
 
 # Async Queue for sequential midnight baseline discovery
 discovery_route_queue: asyncio.Queue[tuple[UUID, str]] = asyncio.Queue()
+discovery_in_progress: Set[UUID] = set()
 
 # In-memory Gateway MAC cache for detecting FHRP failover / MAC drift
 gateway_mac_cache: Dict[str, str] = {}
@@ -221,13 +222,36 @@ async def refresh_baseline_route(
         WHERE id = CAST(:endpoint_id AS uuid)
     """)
 
+    has_valid_new_hops = any(h.get("ip") is not None for h in formatted_hops)
+    final_hops = formatted_hops
+    final_hops_count = total_hops
+
     async def _execute_queries(session: AsyncSession):
+        nonlocal final_hops, final_hops_count
+        if not has_valid_new_hops:
+            check_sql = text("""
+                SELECT total_hops, hops 
+                FROM endpoint_baseline_routes 
+                WHERE endpoint_id = CAST(:endpoint_id AS uuid)
+            """)
+            res = await session.execute(check_sql, {"endpoint_id": str(endpoint_id)})
+            row = res.fetchone()
+            if row and row.hops:
+                existing = row.hops if isinstance(row.hops, list) else json.loads(row.hops) if isinstance(row.hops, str) else []
+                if any(h.get("ip") is not None for h in existing):
+                    logger.warning(
+                        "Traceroute for %s returned 0 reachable hops. Preserving last-known-good baseline route.",
+                        target_ip,
+                    )
+                    final_hops = existing
+                    final_hops_count = len(existing)
+
         await session.execute(
             upsert_route_sql,
             {
                 "endpoint_id": str(endpoint_id),
-                "total_hops": total_hops,
-                "hops": json.dumps(formatted_hops),
+                "total_hops": final_hops_count,
+                "hops": json.dumps(final_hops),
             },
         )
         await session.execute(
@@ -249,7 +273,7 @@ async def refresh_baseline_route(
         "Refreshed baseline route for endpoint %s (%s): total_hops=%d, is_l2_segment=%s, tier=%s, fhrp=%s",
         endpoint_id,
         target_ip,
-        total_hops,
+        final_hops_count,
         is_l2,
         tier,
         fhrp_type,
@@ -258,12 +282,12 @@ async def refresh_baseline_route(
     return {
         "endpoint_id": str(endpoint_id),
         "target_ip": target_ip,
-        "total_hops": total_hops,
+        "total_hops": final_hops_count,
+        "hops": final_hops,
         "is_l2_segment": is_l2,
         "boundary_tier": tier,
         "mac_address": mac_addr,
         "fhrp_type": fhrp_type,
-        "hops": formatted_hops,
     }
 
 
@@ -289,8 +313,11 @@ async def enqueue_scheduled_discovery(db: AsyncSession) -> int:
     rows = result.fetchall()
     count = 0
     for r in rows:
-        await discovery_route_queue.put((UUID(str(r.id)), str(r.ip_address)))
-        count += 1
+        target_uuid = UUID(str(r.id))
+        if target_uuid not in discovery_in_progress:
+            discovery_in_progress.add(target_uuid)
+            await discovery_route_queue.put((target_uuid, str(r.ip_address)))
+            count += 1
     logger.info("Enqueued %d endpoints for scheduled baseline discovery.", count)
     return count
 
@@ -303,6 +330,7 @@ async def start_midnight_discovery_worker(db_session_factory) -> asyncio.Task:
     """
 
     async def _queue_consumer():
+        from app.services.topology import topology_manager
         while True:
             try:
                 endpoint_id, ip_address = await discovery_route_queue.get()
@@ -313,8 +341,26 @@ async def start_midnight_discovery_worker(db_session_factory) -> asyncio.Task:
                 )
                 try:
                     async with db_session_factory() as db:
-                        await refresh_baseline_route(endpoint_id, ip_address, db=db)
+                        res = await refresh_baseline_route(endpoint_id, ip_address, db=db)
                         await db.commit()
+
+                        # Incremental in-memory RAM update
+                        await topology_manager.update_endpoint_path(
+                            endpoint_id, res.get("hops", [])
+                        )
+
+                        # If discovery queue has fully drained, trigger full rebuild to finalize global layout
+                        if discovery_route_queue.empty():
+                            logger.info("Discovery queue drained. Finalizing full topology graph rebuild...")
+                            await topology_manager.full_rebuild(db)
+                            try:
+                                from app.routers.events import broadcast_sse_event
+                                await broadcast_sse_event(
+                                    "TOPOLOGY_UPDATED",
+                                    {"reason": "FLEET_DISCOVERY_COMPLETED"},
+                                )
+                            except Exception:
+                                pass
                 except Exception as e:
                     logger.error(
                         "Error refreshing baseline route for %s: %s",
@@ -322,6 +368,7 @@ async def start_midnight_discovery_worker(db_session_factory) -> asyncio.Task:
                         e,
                     )
                 finally:
+                    discovery_in_progress.discard(endpoint_id)
                     discovery_route_queue.task_done()
 
                 # Mandatory 500ms delay between targets

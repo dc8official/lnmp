@@ -4,6 +4,8 @@ import asyncio
 import ipaddress
 import json
 import logging
+import collections
+from collections import defaultdict, deque
 from typing import Any, Dict, List, Optional, Set, Tuple
 from uuid import UUID
 
@@ -335,6 +337,47 @@ class TopologyGraphManager:
                         transit_children[previous_node_id] = set()
                     transit_children[previous_node_id].add(ep_id)
 
+            # 4b. Synthetic Subnet Clustering for Direct 1-Hop / L2 Devices
+            # Endpoints connecting directly to root with no intermediate hops are grouped by subnet
+            direct_root_eps = [
+                ep_id for (src, ep_id) in edges
+                if src == root_node_id and ep_id in monitored_by_id
+            ]
+            direct_eps_by_subnet: Dict[str, List[str]] = defaultdict(list)
+            for d_ep_id in direct_root_eps:
+                subnet = monitored_by_id[d_ep_id].get("subnet")
+                if subnet:
+                    direct_eps_by_subnet[subnet].append(d_ep_id)
+
+            for subnet_str, ep_ids in direct_eps_by_subnet.items():
+                if len(ep_ids) >= 2:
+                    hub_id = f"subnet:{subnet_str.replace('/', '_').replace('.', '_')}"
+                    if hub_id not in nodes:
+                        nodes[hub_id] = {
+                            "id": hub_id,
+                            "label": f"Subnet ({subnet_str})",
+                            "type": "subnet_hub",
+                            "node_type": "subnet_hub",
+                            "state": "UP",
+                            "status": "UP",
+                            "ip_address": None,
+                            "device_type": "SUBNET_HUB",
+                            "endpoint_id": None,
+                            "subnet": subnet_str,
+                        }
+                    edges.add((root_node_id, hub_id))
+                    if root_node_id not in transit_children:
+                        transit_children[root_node_id] = set()
+                    transit_children[root_node_id].add(hub_id)
+                    if hub_id not in transit_children:
+                        transit_children[hub_id] = set()
+
+                    for d_ep_id in ep_ids:
+                        edges.discard((root_node_id, d_ep_id))
+                        transit_children[root_node_id].discard(d_ep_id)
+                        edges.add((hub_id, d_ep_id))
+                        transit_children[hub_id].add(d_ep_id)
+
             # 5. RCA Status Propagation - Inferred Down
             self._propagate_inferred_down(nodes, transit_children)
 
@@ -437,8 +480,9 @@ class TopologyGraphManager:
     async def update_endpoint_path(self, endpoint_id: UUID, new_hops: List[dict]) -> None:
         """
         Incremental Event Mutation Hook:
-        Recalculates visual edges affected by a single refreshed baseline route
-        and prunes orphaned ghost transit nodes/edges from memory.
+        Recalculates visual edges affected by a single refreshed baseline route,
+        prunes stale parent edges and orphaned ghost transit nodes/edges,
+        recomputes localized topological levels, and broadcasts an SSE event.
         """
         ep_id = str(endpoint_id)
         if ep_id in self._disabled_topology_ep_ids:
@@ -450,105 +494,149 @@ class TopologyGraphManager:
         async with self._lock:
             self._baseline_routes[ep_id] = clean_hops
 
-        previous_node_id = "root"
-        previous_hop_ip_tag = "root"
+            # 1. Prune stale incoming edges to this endpoint so it doesn't retain multiple parents
+            stale_incoming = [(src, tgt) for (src, tgt) in self._edges if tgt == ep_id]
+            for src, tgt in stale_incoming:
+                self._edges.discard((src, tgt))
+                if src in self._transit_children:
+                    self._transit_children[src].discard(tgt)
 
-        for idx, hop in enumerate(clean_hops):
-            hop_ip = hop.get("ip")
+            # 2. Re-stitch path for this endpoint
+            previous_node_id = "root"
+            previous_hop_ip_tag = "root"
 
-            if hop_ip is None:
-                current_node_id = f"anon_{previous_hop_ip_tag}_to_{ep_id[:8]}"
-                if current_node_id not in self._nodes:
-                    self._nodes[current_node_id] = {
-                        "id": current_node_id,
-                        "label": "* * *",
-                        "type": "transit",
-                        "node_type": "transit",
-                        "state": "UP",
-                        "status": "UP",
-                        "ip_address": None,
-                        "device_type": "ANONYMOUS_HOP",
-                        "endpoint_id": None,
-                    }
-            else:
-                hop_ep_id = self._monitored_by_ip.get(hop_ip)
-                if hop_ep_id:
-                    current_node_id = hop_ep_id
-                else:
-                    current_node_id = f"transit:{hop_ip}"
+            for idx, hop in enumerate(clean_hops):
+                hop_ip = hop.get("ip")
+
+                if hop_ip is None:
+                    current_node_id = f"anon_{previous_hop_ip_tag}_to_{ep_id[:8]}"
                     if current_node_id not in self._nodes:
                         self._nodes[current_node_id] = {
                             "id": current_node_id,
-                            "label": f"Transit ({hop_ip})",
+                            "label": "* * *",
                             "type": "transit",
                             "node_type": "transit",
                             "state": "UP",
                             "status": "UP",
-                            "ip_address": hop_ip,
-                            "device_type": "TRANSIT_ROUTER",
+                            "ip_address": None,
+                            "device_type": "ANONYMOUS_HOP",
                             "endpoint_id": None,
-                            "subnet": get_subnet_group(hop_ip),
                         }
-                previous_hop_ip_tag = hop_ip.replace(".", "_")
+                else:
+                    hop_ep_id = self._monitored_by_ip.get(hop_ip)
+                    if hop_ep_id:
+                        current_node_id = hop_ep_id
+                    else:
+                        current_node_id = f"transit:{hop_ip}"
+                        if current_node_id not in self._nodes:
+                            self._nodes[current_node_id] = {
+                                "id": current_node_id,
+                                "label": f"Transit ({hop_ip})",
+                                "type": "transit",
+                                "node_type": "transit",
+                                "state": "UP",
+                                "status": "UP",
+                                "ip_address": hop_ip,
+                                "device_type": "TRANSIT_ROUTER",
+                                "endpoint_id": None,
+                                "subnet": get_subnet_group(hop_ip),
+                            }
+                    previous_hop_ip_tag = hop_ip.replace(".", "_")
 
-            if previous_node_id != current_node_id:
-                self._edges.add((previous_node_id, current_node_id))
+                if previous_node_id != current_node_id:
+                    self._edges.add((previous_node_id, current_node_id))
+                    if previous_node_id not in self._transit_children:
+                        self._transit_children[previous_node_id] = set()
+                    self._transit_children[previous_node_id].add(current_node_id)
+
+                previous_node_id = current_node_id
+
+            if previous_node_id != ep_id and ep_id in self._nodes:
+                self._edges.add((previous_node_id, ep_id))
                 if previous_node_id not in self._transit_children:
                     self._transit_children[previous_node_id] = set()
-                self._transit_children[previous_node_id].add(current_node_id)
+                self._transit_children[previous_node_id].add(ep_id)
 
-            previous_node_id = current_node_id
+            # 3. Ghost Transit Node & Edge Pruning Pass:
+            active_transit_nodes: Set[str] = set()
+            for active_id, a_hops in self._baseline_routes.items():
+                prev_tag = "root"
+                for h in sanitize_traceroute_hops(a_hops):
+                    h_ip = h.get("ip")
+                    if h_ip is None:
+                        active_transit_nodes.add(f"anon_{prev_tag}_to_{active_id[:8]}")
+                    else:
+                        h_ep = self._monitored_by_ip.get(h_ip)
+                        if not h_ep:
+                            active_transit_nodes.add(f"transit:{h_ip}")
+                        prev_tag = h_ip.replace(".", "_")
 
-        if previous_node_id != ep_id and ep_id in self._nodes:
-            self._edges.add((previous_node_id, ep_id))
-            if previous_node_id not in self._transit_children:
-                self._transit_children[previous_node_id] = set()
-            self._transit_children[previous_node_id].add(ep_id)
+            orphaned_ids = [
+                n_id for n_id, n_info in self._nodes.items()
+                if n_info.get("type") == "transit" and n_id not in active_transit_nodes
+            ]
 
-        # Ghost Transit Node & Edge Pruning Pass:
-        # Collect all active nodes referenced by current baseline routes
-        active_transit_nodes: Set[str] = set()
-        for active_id, a_hops in self._baseline_routes.items():
-            prev_tag = "root"
-            for h in sanitize_traceroute_hops(a_hops):
-                h_ip = h.get("ip")
-                if h_ip is None:
-                    active_transit_nodes.add(f"anon_{prev_tag}_to_{active_id[:8]}")
-                else:
-                    h_ep = self._monitored_by_ip.get(h_ip)
-                    if not h_ep:
-                        active_transit_nodes.add(f"transit:{h_ip}")
-                    prev_tag = h_ip.replace(".", "_")
+            for orphan_id in orphaned_ids:
+                del self._nodes[orphan_id]
 
-        # Identify orphaned transit nodes
-        orphaned_ids = [
-            n_id for n_id, n_info in self._nodes.items()
-            if n_info.get("type") == "transit" and n_id not in active_transit_nodes
-        ]
+            self._edges = {
+                (src, tgt) for (src, tgt) in self._edges
+                if src in self._nodes and tgt in self._nodes
+            }
 
-        for orphan_id in orphaned_ids:
-            del self._nodes[orphan_id]
+            self._transit_children = {}
+            for src, tgt in self._edges:
+                if src not in self._transit_children:
+                    self._transit_children[src] = set()
+                self._transit_children[src].add(tgt)
 
-        # Prune stale edges involving deleted nodes
-        self._edges = {
-            (src, tgt) for (src, tgt) in self._edges
-            if src in self._nodes and tgt in self._nodes
-        }
+            self._propagate_inferred_down(self._nodes, self._transit_children)
 
-        # Re-build transit children index
-        self._transit_children = {}
-        for src, tgt in self._edges:
-            if src not in self._transit_children:
-                self._transit_children[src] = set()
-            self._transit_children[src].add(tgt)
+            # 4. Compute DAG Topological Longest-Path Levels
+            adj: Dict[str, List[str]] = {nid: [] for nid in self._nodes}
+            in_degrees: Dict[str, int] = {nid: 0 for nid in self._nodes}
+            for src, tgt in self._edges:
+                if src in adj and tgt in in_degrees:
+                    adj[src].append(tgt)
+                    in_degrees[tgt] += 1
 
-        self._propagate_inferred_down(self._nodes, self._transit_children)
+            levels: Dict[str, int] = {}
+            queue = deque([nid for nid, deg in in_degrees.items() if deg == 0 or nid == "root"])
+            for nid in queue:
+                levels[nid] = 0
 
-        self._cached_graph = {
-            "nodes": list(self._nodes.values()),
-            "edges": [{"source": src, "target": tgt} for src, tgt in self._edges],
-        }
-        self._cached_graph_json = json.dumps(self._cached_graph)
+            while queue:
+                u = queue.popleft()
+                u_level = levels.get(u, 0)
+                for v in adj.get(u, []):
+                    cand_level = u_level + 1
+                    if v not in levels or cand_level > levels[v]:
+                        levels[v] = cand_level
+                    in_degrees[v] -= 1
+                    if in_degrees[v] <= 0:
+                        queue.append(v)
+
+            for nid, node_data in self._nodes.items():
+                node_data["level"] = levels.get(nid, 1 if nid != "root" else 0)
+
+            self._cached_graph = {
+                "nodes": list(self._nodes.values()),
+                "edges": [{"source": src, "target": tgt} for src, tgt in self._edges],
+            }
+            self._cached_graph_json = json.dumps(self._cached_graph)
+
+        # 5. Broadcast real-time SSE event to connected browsers
+        try:
+            from app.routers.events import broadcast_sse_event
+            await broadcast_sse_event(
+                "TOPOLOGY_UPDATED",
+                {
+                    "reason": "ROUTE_DISCOVERED",
+                    "endpoint_id": ep_id,
+                },
+            )
+        except Exception as exc:
+            logger.debug("Failed to broadcast TOPOLOGY_UPDATED SSE: %s", exc)
 
 
 # Global singleton instance

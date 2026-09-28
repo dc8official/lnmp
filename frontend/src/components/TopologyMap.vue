@@ -13,8 +13,29 @@
           <span class="pulse-dot"></span>
           {{ sseConnected ? 'Live SSE' : 'Reconnecting...' }}
         </span>
+        <span v-if="isDiscoveringAll" class="discovery-pill pulse">
+          ◌ Discovering fleet routes in background...
+        </span>
       </div>
       <div class="toolbar-right">
+        <button 
+          v-if="isAdmin" 
+          class="btn-secondary btn-admin" 
+          :disabled="isDiscoveringAll" 
+          @click="handleDiscoverAll"
+          title="Run throttled background traceroute discovery across all endpoints"
+        >
+          {{ isDiscoveringAll ? '◌ Discovering Fleet...' : '⚡ Discover Fleet Routes' }}
+        </button>
+        <button 
+          v-if="isAdmin" 
+          class="btn-secondary btn-admin" 
+          :disabled="isRebuilding" 
+          @click="handleRebuildHierarchy"
+          title="Reconstruct in-memory graph from current database baseline routes"
+        >
+          {{ isRebuilding ? 'Rebuilding...' : '↻ Rebuild Hierarchy' }}
+        </button>
         <button class="btn-secondary" @click="toggleLayoutDirection" :title="layoutDirection === 'UD' ? 'Switch to Horizontal (Left-to-Right) view' : 'Switch to Vertical (Top-to-Bottom) view'">
           {{ layoutDirection === 'UD' ? '↔ Horizontal View' : '↕ Vertical View' }}
         </button>
@@ -85,6 +106,11 @@
             <span>Layer 2 Segment</span>
             <span class="count-badge">{{ legendCounts.l2 }}</span>
           </div>
+          <div class="legend-item" v-if="legendCounts.subnet > 0">
+            <span class="node-icon box state-subnet"></span>
+            <span>Subnet Hub (L2)</span>
+            <span class="count-badge glow-subnet">{{ legendCounts.subnet }}</span>
+          </div>
         </div>
       </div>
 
@@ -127,6 +153,18 @@
             </div>
           </div>
 
+          <!-- Single Endpoint Route Refresh Action -->
+          <div v-if="selectedNode.endpoint_id && isAdmin" class="drawer-actions-card">
+            <button 
+              class="btn-refresh-route" 
+              :disabled="isRefreshingSingle" 
+              @click="handleRefreshSingleRoute(selectedNode.endpoint_id)"
+              title="Execute traceroute and re-index upstream path for this endpoint"
+            >
+              {{ isRefreshingSingle ? '◌ Tracing Endpoint Route...' : '↻ Refresh Endpoint Route' }}
+            </button>
+          </div>
+
           <!-- Embedded RCA Diagnostics Component for Monitored Nodes with Endpoint ID -->
           <div v-if="selectedNode.endpoint_id" class="drawer-rca-section">
             <EndpointRcaDetail :endpointId="selectedNode.endpoint_id" />
@@ -151,7 +189,8 @@
 import { ref, reactive, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
 import { Network } from 'vis-network'
 import { DataSet } from 'vis-data'
-import { getTopology } from '../services/api.js'
+import { getTopology, rebuildTopology, discoverAllTopologyRoutes, refreshEndpointBaseline } from '../services/api.js'
+import { isAdmin } from '../services/auth.js'
 import EndpointRcaDetail from './EndpointRcaDetail.vue'
 import { useSSE } from '../composables/useSSE.js'
 
@@ -165,6 +204,46 @@ const { sseConnected, subscribe } = useSSE()
 let unsubscribeSSE = null
 
 const selectedNode = ref(null)
+const isDiscoveringAll = ref(false)
+const isRebuilding = ref(false)
+const isRefreshingSingle = ref(false)
+
+async function handleDiscoverAll() {
+  if (isDiscoveringAll.value) return
+  isDiscoveringAll.value = true
+  try {
+    await discoverAllTopologyRoutes()
+  } catch (err) {
+    console.error('Failed to trigger fleet discovery:', err)
+    isDiscoveringAll.value = false
+  }
+}
+
+async function handleRebuildHierarchy() {
+  if (isRebuilding.value) return
+  isRebuilding.value = true
+  try {
+    await rebuildTopology()
+    await fetchTopology()
+  } catch (err) {
+    console.error('Failed to rebuild topology hierarchy:', err)
+  } finally {
+    isRebuilding.value = false
+  }
+}
+
+async function handleRefreshSingleRoute(endpointId) {
+  if (!endpointId || isRefreshingSingle.value) return
+  isRefreshingSingle.value = true
+  try {
+    await refreshEndpointBaseline(endpointId)
+    await fetchTopology()
+  } catch (err) {
+    console.error('Failed to refresh route for endpoint:', err)
+  } finally {
+    isRefreshingSingle.value = false
+  }
+}
 
 const legendCounts = reactive({
   root: 1,
@@ -175,6 +254,7 @@ const legendCounts = reactive({
   failurePoint: 0,
   inferredDown: 0,
   l2: 0,
+  subnet: 0,
 })
 
 let network = null
@@ -198,6 +278,7 @@ watch(isDark, (newVal) => {
 function formatNodeType(type) {
   if (type === 'root') return 'LNMP Engine (Root)'
   if (type === 'monitored') return 'Monitored Target'
+  if (type === 'subnet_hub') return 'Subnet Hub (L2)'
   return 'Transit Router'
 }
 
@@ -212,6 +293,7 @@ function updateLegendCounts() {
   legendCounts.failurePoint = allNodes.filter(n => n.rawNode?.status === 'FAILURE_POINT' || n.rawNode?.state === 'FAILURE_POINT').length
   legendCounts.inferredDown = allNodes.filter(n => n.rawNode?.status === 'INFERRED_DOWN' || n.rawNode?.state === 'INFERRED_DOWN').length
   legendCounts.l2 = allNodes.filter(n => n.rawNode?.is_l2_segment).length
+  legendCounts.subnet = allNodes.filter(n => (n.rawNode?.type === 'subnet_hub' || n.rawNode?.node_type === 'subnet_hub' || n.shape === 'box')).length
 }
 
 // Visual Node Styling & Categorization
@@ -221,6 +303,13 @@ function getNodeColors(status, nodeType) {
       background: '#1D4ED8',
       border: '#3B82F6',
       highlight: { background: '#2563EB', border: '#60A5FA' }
+    }
+  }
+  if (nodeType === 'subnet_hub') {
+    return {
+      background: '#1E293B',
+      border: '#64748B',
+      highlight: { background: '#334155', border: '#94A3B8' }
     }
   }
 
@@ -356,17 +445,24 @@ function formatVisData(nodesData, edgesData) {
     if (nodeType === 'root') {
       shape = 'square'
       size = 28
+    } else if (nodeType === 'subnet_hub') {
+      shape = 'box'
+      size = 20
     } else if (nodeType === 'transit') {
       shape = 'hexagon'
       size = 18
     }
 
     let labelText = `${node.label}\n(${node.ip_address || ''})`
-    if (isL2) {
-      labelText += '\n[L2 Segment]'
-    }
-    if (nodeStatus === 'FAILURE_POINT') {
-      labelText += '\n⚠️ FAILURE POINT'
+    if (nodeType === 'subnet_hub') {
+      labelText = `🌐 ${node.label}`
+    } else {
+      if (isL2) {
+        labelText += '\n[L2 Segment]'
+      }
+      if (nodeStatus === 'FAILURE_POINT') {
+        labelText += '\n⚠️ FAILURE POINT'
+      }
     }
 
     return {
@@ -521,7 +617,14 @@ async function fetchTopology() {
 
       networkInitialized.value = true
     } else {
+      const currentNodes = new Set(visNodes.map(n => n.id))
+      const toRemoveNodes = nodesDataSet.getIds().filter(id => !currentNodes.has(id))
+      if (toRemoveNodes.length > 0) nodesDataSet.remove(toRemoveNodes)
       nodesDataSet.update(visNodes)
+
+      const currentEdges = new Set(visEdges.map(e => e.id))
+      const toRemoveEdges = edgesDataSet.getIds().filter(id => !currentEdges.has(id))
+      if (toRemoveEdges.length > 0) edgesDataSet.remove(toRemoveEdges)
       edgesDataSet.update(visEdges)
     }
 
@@ -545,6 +648,11 @@ function initSSE() {
     if (!event.data) return
     try {
       const payload = JSON.parse(event.data)
+      if (payload.type === 'TOPOLOGY_UPDATED') {
+        isDiscoveringAll.value = false
+        fetchTopology()
+        return
+      }
       const isNodeStateChange = payload.type === 'NODE_STATE_CHANGE'
       const isStateTransition = payload.type === 'STATE_TRANSITION'
       if ((isNodeStateChange || isStateTransition) && payload.endpoint_id && nodesDataSet) {
@@ -680,6 +788,29 @@ onUnmounted(() => {
   border: 1px solid rgba(245, 158, 11, 0.3);
 }
 
+.discovery-pill {
+  font-size: 0.8rem;
+  padding: 4px 10px;
+  border-radius: 9999px;
+  background: rgba(99, 102, 241, 0.15);
+  color: #818CF8;
+  border: 1px solid rgba(99, 102, 241, 0.3);
+  font-family: var(--font-mono);
+}
+
+.btn-admin {
+  background: rgba(99, 102, 241, 0.15) !important;
+  color: #A5B4FC !important;
+  border: 1px solid rgba(99, 102, 241, 0.3) !important;
+  transition: all 0.2s ease;
+}
+
+.btn-admin:hover:not(:disabled) {
+  background: rgba(99, 102, 241, 0.25) !important;
+  border-color: #818CF8 !important;
+  color: #FFFFFF !important;
+}
+
 .pulse-dot {
   width: 6px;
   height: 6px;
@@ -764,6 +895,7 @@ onUnmounted(() => {
 }
 
 .node-icon.square { border-radius: 2px; }
+.node-icon.box { border-radius: 2px; }
 .node-icon.circle { border-radius: 50%; }
 .node-icon.hexagon { clip-path: polygon(25% 0%, 75% 0%, 100% 50%, 75% 100%, 25% 100%, 0% 50%); }
 
@@ -774,6 +906,7 @@ onUnmounted(() => {
 .state-transit { background: #6B7280; }
 .state-failure-point { background: #F97316; border: 1px solid #EF4444; }
 .state-inferred-down { background: #7F1D1D; }
+.state-subnet { background: #64748B; border: 1px solid #94A3B8; }
 
 .count-badge {
   margin-left: auto;
@@ -792,6 +925,7 @@ onUnmounted(() => {
 .glow-transit { background: rgba(107, 114, 128, 0.2); color: #9CA3AF; }
 .glow-failure { background: rgba(249, 115, 22, 0.2); color: #FB923C; }
 .glow-inferred { background: rgba(153, 27, 27, 0.3); color: #FCA5A5; }
+.glow-subnet { background: rgba(100, 116, 139, 0.2); color: #94A3B8; }
 
 .l2-pill {
   background: rgba(59, 130, 246, 0.2);
@@ -885,6 +1019,34 @@ onUnmounted(() => {
 .status-down { background: rgba(239, 68, 68, 0.2); color: #F87171; }
 .status-failure-point { background: #EF4444; color: #FFFFFF; }
 .status-inferred-down { background: rgba(153, 27, 27, 0.4); color: #FCA5A5; border: 1px solid #EF4444; }
+
+.drawer-actions-card {
+  margin-bottom: 20px;
+}
+
+.btn-refresh-route {
+  width: 100%;
+  padding: 8px 14px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  border-radius: 6px;
+  background: rgba(59, 130, 246, 0.15);
+  color: #60A5FA;
+  border: 1px solid rgba(59, 130, 246, 0.3);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.btn-refresh-route:hover:not(:disabled) {
+  background: rgba(59, 130, 246, 0.25);
+  border-color: #3B82F6;
+  color: #FFFFFF;
+}
+
+.btn-refresh-route:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
 
 .spinner {
   width: 32px;
