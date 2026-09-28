@@ -168,39 +168,43 @@ const ariaLabel = computed(() => {
 
 /* Status Color Tokens */
 .badge-up {
-  background-color: rgba(16, 185, 129, 0.12);
-  color: #10b981;
-  border-color: rgba(16, 185, 129, 0.35);
+  background-color: var(--color-up-bg);
+  color: var(--color-up);
+  border-color: rgba(22, 163, 74, 0.35);
 }
 
 .badge-unstable {
-  background-color: rgba(245, 158, 11, 0.12);
-  color: #f59e0b;
-  border-color: rgba(245, 158, 11, 0.35);
+  background-color: var(--color-up-unstable-bg);
+  color: var(--color-up-unstable);
+  border-color: rgba(217, 119, 6, 0.35);
 }
 
 .badge-down {
-  background-color: rgba(239, 68, 68, 0.14);
-  color: #ef4444;
-  border-color: rgba(239, 68, 68, 0.4);
+  background-color: var(--color-down-bg);
+  color: var(--color-down);
+  border-color: rgba(220, 38, 38, 0.35);
 }
 
 .badge-passive {
-  background-color: rgba(99, 102, 241, 0.15);
-  color: #818cf8;
-  border-color: rgba(99, 102, 241, 0.4);
+  background-color: rgba(99, 102, 241, 0.12);
+  color: #6366f1;
+  border-color: rgba(99, 102, 241, 0.35);
+}
+
+html.dark .badge-passive {
+  color: #a5b4fc;
 }
 
 .badge-paused {
-  background-color: rgba(107, 114, 128, 0.12);
-  color: #9ca3af;
-  border-color: rgba(107, 114, 128, 0.35);
+  background-color: var(--color-unknown-bg);
+  color: var(--color-unknown);
+  border-color: var(--border-color);
 }
 
 .badge-unknown {
-  background-color: rgba(75, 85, 99, 0.15);
-  color: #9ca3af;
-  border-color: rgba(107, 114, 128, 0.25);
+  background-color: var(--color-unknown-bg);
+  color: var(--color-unknown);
+  border-color: var(--border-color);
 }
 
 /* Pending Cycle Counter Pill */

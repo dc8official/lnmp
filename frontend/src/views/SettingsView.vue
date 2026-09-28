@@ -436,27 +436,6 @@ onMounted(() => {
   margin-top: 16px;
 }
 
-.btn-primary {
-  background: #0ea5e9;
-  color: #ffffff;
-  border: none;
-  font-weight: 600;
-  font-size: 13px;
-  padding: 8px 16px;
-  border-radius: 6px;
-  cursor: pointer;
-  transition: background 0.15s;
-}
-
-.btn-primary:hover:not(:disabled) {
-  background: #0284c7;
-}
-
-.btn-primary:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-
 .btn-discard {
   background: var(--bg-surface-selected);
   color: var(--text-secondary);

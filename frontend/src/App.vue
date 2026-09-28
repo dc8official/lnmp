@@ -320,6 +320,45 @@ button { cursor: pointer; border: none; background: none; }
   --canvas-bg: var(--bg-app);
   --card-bg: var(--bg-surface);
   --card-border: var(--border-color);
+
+  /* ── Network Topology & Canvas Design System Tokens (Light Mode Default) ── */
+  --topo-bg: var(--bg-surface);
+  --topo-border: var(--border-color);
+
+  --topo-node-root-bg: #2563eb;
+  --topo-node-root-border: #1d4ed8;
+  --topo-node-root-text: #ffffff;
+
+  --topo-node-subnet-bg: #eef2ff;
+  --topo-node-subnet-border: #6366f1;
+  --topo-node-subnet-text: #1e1b4b;
+
+  --topo-node-transit-bg: #f1f5f9;
+  --topo-node-transit-border: #64748b;
+  --topo-node-transit-text: #0f172a;
+
+  --topo-node-up-bg: #ecfdf5;
+  --topo-node-up-border: #16a34a;
+  --topo-node-up-text: #064e3b;
+
+  --topo-node-unstable-bg: #fffbeb;
+  --topo-node-unstable-border: #d97706;
+  --topo-node-unstable-text: #78350f;
+
+  --topo-node-down-bg: #fef2f2;
+  --topo-node-down-border: #dc2626;
+  --topo-node-down-text: #7f1d1d;
+
+  --topo-node-failure-bg: #fee2e2;
+  --topo-node-failure-border: #dc2626;
+  --topo-node-failure-text: #7f1d1d;
+
+  --topo-node-inferred-bg: #fef2f2;
+  --topo-node-inferred-border: #ef4444;
+  --topo-node-inferred-text: #991b1b;
+
+  --topo-edge-stroke: #94a3b8;
+  --topo-edge-highlight: #2563eb;
 }
 
 /* ── Focus Outlines for Keyboard Accessibility (WCAG 2.1 AA) ── */
@@ -353,6 +392,55 @@ html.dark {
   --status-down-color: #f87171;
   --color-unknown: #808080;
   --color-unknown-bg: rgba(128, 128, 128, 0.15);
+
+  /* Status Colors (Dark Mode Calibrated) */
+  --color-up: #4ade80;
+  --color-up-bg: rgba(74, 222, 128, 0.15);
+  --color-up-unstable: #f59e0b;
+  --color-up-unstable-bg: rgba(245, 158, 11, 0.15);
+  --color-down-unstable: #fb923c;
+  --color-down-unstable-bg: rgba(251, 146, 60, 0.15);
+  --color-down: #f87171;
+  --color-down-bg: rgba(248, 113, 113, 0.15);
+
+  /* ── Network Topology & Canvas Design System Tokens (Dark Mode) ── */
+  --topo-bg: var(--bg-surface);
+  --topo-border: var(--border-color);
+
+  --topo-node-root-bg: #1d4ed8;
+  --topo-node-root-border: #3b82f6;
+  --topo-node-root-text: #ffffff;
+
+  --topo-node-subnet-bg: #1e293b;
+  --topo-node-subnet-border: #6366f1;
+  --topo-node-subnet-text: #e0e7ff;
+
+  --topo-node-transit-bg: #374151;
+  --topo-node-transit-border: #6b7280;
+  --topo-node-transit-text: #f3f4f6;
+
+  --topo-node-up-bg: #064e3b;
+  --topo-node-up-border: #10b981;
+  --topo-node-up-text: #ecfdf5;
+
+  --topo-node-unstable-bg: #78350f;
+  --topo-node-unstable-border: #f59e0b;
+  --topo-node-unstable-text: #fef3c7;
+
+  --topo-node-down-bg: #7f1d1d;
+  --topo-node-down-border: #ef4444;
+  --topo-node-down-text: #fee2e2;
+
+  --topo-node-failure-bg: #991b1b;
+  --topo-node-failure-border: #f97316;
+  --topo-node-failure-text: #fee2e2;
+
+  --topo-node-inferred-bg: #7f1d1d;
+  --topo-node-inferred-border: #dc2626;
+  --topo-node-inferred-text: #fca5a5;
+
+  --topo-edge-stroke: #475569;
+  --topo-edge-highlight: #60a5fa;
 }
 
 /* ── Base ── */
