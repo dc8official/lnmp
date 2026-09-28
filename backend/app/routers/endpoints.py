@@ -574,7 +574,8 @@ async def trigger_refresh_baseline(
     await db.commit()
 
     try:
-        await topology_manager.full_rebuild(db)
+        hops = res.get("hops", []) if isinstance(res, dict) else []
+        await topology_manager.update_endpoint_path(endpoint_id, hops)
     except Exception:
         pass
 

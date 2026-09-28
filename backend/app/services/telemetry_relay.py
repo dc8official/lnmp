@@ -89,6 +89,12 @@ class TelemetryRelay:
                     await topology_manager.update_node_status(
                         str(endpoint_id), str(new_state)
                     )
+
+                    # Auto-discovery on recovery for endpoints with missing baseline routes
+                    if str(new_state).upper() == "UP":
+                        await self._maybe_trigger_auto_discovery(
+                            str(endpoint_id), data.get("ip_address")
+                        )
             elif channel == "NODE_STATE_CHANGE":
                 node_id = data.get("node_id") or data.get("endpoint_id")
                 new_state = data.get("operational_state") or data.get("new_state")
@@ -103,6 +109,47 @@ class TelemetryRelay:
             logger.error(
                 "TelemetryRelay: failed to process event on channel '%s': %s",
                 channel,
+                exc,
+            )
+
+    async def _maybe_trigger_auto_discovery(
+        self, endpoint_id_str: str, ip_address: Optional[str]
+    ) -> None:
+        """
+        Auto-enqueues route discovery for endpoints recovering to UP state
+        if they currently lack verified baseline routes, protected by in-progress lock.
+        """
+        try:
+            from uuid import UUID
+            from app.services.baseline_route import (
+                discovery_in_progress,
+                discovery_route_queue,
+            )
+
+            ep_uuid = UUID(endpoint_id_str)
+            if ep_uuid in discovery_in_progress:
+                return
+
+            known_hops = topology_manager._baseline_routes.get(endpoint_id_str, [])
+            if not known_hops:
+                resolved_ip = ip_address
+                if not resolved_ip:
+                    node = topology_manager.get_node(endpoint_id_str)
+                    if node:
+                        resolved_ip = node.get("ip_address")
+
+                if resolved_ip:
+                    discovery_in_progress.add(ep_uuid)
+                    await discovery_route_queue.put((ep_uuid, str(resolved_ip)))
+                    logger.info(
+                        "Auto-enqueued route discovery for recovered endpoint %s (%s)",
+                        endpoint_id_str,
+                        resolved_ip,
+                    )
+        except Exception as exc:
+            logger.debug(
+                "Failed to evaluate auto-discovery on recovery for %s: %s",
+                endpoint_id_str,
                 exc,
             )
 

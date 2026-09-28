@@ -42,6 +42,14 @@ export function getTopology() {
   return api.get('/topology')
 }
 
+export function rebuildTopology() {
+  return api.post('/topology/rebuild')
+}
+
+export function discoverAllTopologyRoutes() {
+  return api.post('/topology/discover-all')
+}
+
 export function getEndpointTraces(id) {
   return api.get(`/endpoints/${id}/traces`)
 }
